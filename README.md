@@ -1,0 +1,132 @@
+# Sharp Sighted Ops · ops.sharpsighted.studio
+
+The internal operating tool for Sharp Sighted Studio. Built for Dean and
+the sales-partner network. Not a public-facing site.
+
+> See `/projects/sharp/CLAUDE.md` for the brand bible and
+> `/projects/sharp/docs/` for the source-of-truth PDFs that this app
+> codifies (pricing-methodology.md, print-and-frame-reference.md, and
+> the master spreadsheet).
+
+## What this is
+
+A first-class app, not a website. Login required. Each module replaces a
+PDF or spreadsheet that used to live on Dean's desk:
+
+- **Pricing Calculator** — the master pricing spreadsheet, baked in
+- **Quote Library** — every quote ever built, searchable
+- **Prospect Tracker** *(post-MVP)* — the Prospect Playbook as software
+- **Daily Queue** *(post-MVP)* — what to work on first today, with timers
+
+Sales partners onboard by *using* the tools, not by reading a packet.
+
+## Stack
+
+- **Framework:** Next.js 16 (App Router, TypeScript, Turbopack)
+- **Styling:** Tailwind v4 (`@import "tailwindcss"`, `@theme inline`)
+- **Type:** Playfair Display (serif) + Montserrat (sans), via `next/font`
+- **Auth:** Auth.js v5 with email + magic-link via Resend
+- **DB:** Postgres (Neon)
+- **PDF:** `@react-pdf/renderer` for server-rendered branded quote PDFs
+
+## Local development
+
+```bash
+npm install
+cp .env.example .env.local   # then fill values (Neon URL, Resend key, AUTH_SECRET)
+npm run db:migrate           # applies schema to whatever DATABASE_URL points at
+npm run dev
+```
+
+The dev server runs at <http://localhost:3000>. The first time you load
+it, the dashboard renders without auth (auth lands in Day 3 of the
+build).
+
+### A note on the Neon connection string
+
+Neon hands you a URL ending in `?sslmode=require&channel_binding=require`.
+Change the `sslmode` value to `verify-full` before pasting it into
+`.env.local`. Current `pg` versions treat the two as identical (full TLS
+verification), but `pg` v9 will demote `require` to mean "TLS without
+cert verification." Using `verify-full` explicitly preserves the secure
+behavior across the upgrade and silences the deprecation warning the
+library prints at process start.
+
+## Visual dialect
+
+Cousin of `/studio` (Human pillar, terracotta-heavy) but app-shaped:
+
+- **8px corner radius** (between studio's 10px and the editorial 0px of
+  the photos/media sites). Reads as "tool," not "magazine."
+- **Steel/slate working surfaces** — neutral backgrounds for forms,
+  tables, calculators. Terracotta is reserved for *primary actions* and
+  *live highlights*, not load-bearing surface color.
+- **Dense rhythm** — 2rem section padding default, vs studio's 6rem.
+  This is a working tool. White space serves the working tool's eye, not
+  an editorial pose.
+- **Cyan still owns the footer wordmark** — per brand discipline
+  (CLAUDE.md §2).
+- **Robots disallowed** — internal app; `robots: { index: false }` in
+  metadata.
+
+## 30-day MVP build order
+
+```
+Week 1 — Foundation
+  [✓] Scaffold project, design tokens, shell                  (Day 1)
+  [ ] Neon Postgres + schema                                  (Day 2-3)
+  [ ] Auth.js v5 + Resend magic links                         (Day 4-5)
+  [ ] Vercel deploy + DNS                                     (Day 6-7)
+
+Week 2 — Pricing engine
+  [ ] Data model: packages, addons, methodology               (Day 8)
+  [ ] Seed from current spreadsheet                           (Day 9-10)
+  [ ] Calculator UI with live total                           (Day 11-13)
+  [ ] Role-aware view (admin sees margins, partner doesn't)   (Day 14)
+
+Week 3 — Quote persistence
+  [ ] Save / list / detail / edit / archive                   (Day 15-18)
+  [ ] Client info attachment                                  (Day 19-21)
+
+Week 4 — PDF output + polish
+  [ ] @react-pdf/renderer branded quote                       (Day 22-25)
+  [ ] Send-to-client flow                                     (Day 26-27)
+  [ ] Polish, mobile, real Discovery Hour use                 (Day 28-30)
+```
+
+## Deployment
+
+Vercel, with the apex pointed at `ops.sharpsighted.studio` via a CNAME
+on Namecheap. Production env vars are managed in the Vercel dashboard;
+`.env.example` is the canonical template.
+
+## Why a separate project (not a route group inside /studio)
+
+The public `sharpsighted.studio` site has its own audience (creatives,
+the journal, the 10% archive). The ops tool has a totally different
+audience (Dean, sales partners). Different release cadence, different
+auth model, different design density, different data shape. Sharing a
+codebase would couple the two — every studio public release would risk
+a partner-facing regression. Two repos, two deploys, one brand DNA.
+
+Each Sharp Sighted property gets its own folder:
+
+```
+sharp/
+  landing/    →  sharpsightedstudio.com
+  photos/     →  sharpsighted.photos
+  media/      →  sharpsighted.media
+  studio/     →  sharpsighted.studio
+  ops/        →  ops.sharpsighted.studio  ← this project
+```
+
+## Note for Claude Code / Claude Agent SDK
+
+This project follows the same Next.js 16 patterns as `/projects/sharp/studio/`.
+Auth.js v5 changed the middleware filename to `proxy.ts`; check
+`node_modules/next/dist/docs/` before generating Next.js code. Train
+cutoffs are usually behind the current Next/Auth versions.
+
+---
+
+*Stay Sharp. Stay Seen. Stay Human.*

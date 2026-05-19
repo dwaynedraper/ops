@@ -1,0 +1,86 @@
+import { Pool, type QueryResultRow } from 'pg';
+
+/**
+ * Single Postgres pool, shared across all server code. Vercel's Node
+ * runtime keeps the module instance alive between invocations on the
+ * same lambda warm path, so a pool is preferable to one-off clients.
+ *
+ * For local dev set DATABASE_URL in .env.local. For prod Vercel injects
+ * it via its environment.
+ *
+ * Pattern mirrored from /projects/sharp/studio/src/lib/db.ts. Kept
+ * import-compatible so a future shared package extraction is easy.
+ */
+
+declare global {
+  var __ss_ops_pg_pool__: Pool | undefined;
+}
+
+function createPool(): Pool {
+  const connectionString = process.env.DATABASE_URL;
+  if (!connectionString) {
+    throw new Error('DATABASE_URL is not set. See .env.example.');
+  }
+  return new Pool({
+    connectionString,
+    // Neon, Vercel Postgres, and most managed providers require TLS.
+    // Local Postgres without TLS will need to override this via the
+    // URL (e.g. ?sslmode=disable).
+    ssl: connectionString.includes('localhost') ? false : { rejectUnauthorized: false },
+    max: 10,
+    idleTimeoutMillis: 30_000,
+  });
+}
+
+/**
+ * Lazily construct the pool on first use. Two reasons we don't eagerly
+ * init at module evaluation time:
+ *   1. `next build` collects page data without DATABASE_URL set,
+ *      and eager init would fail the build for every route that even
+ *      transitively imports this module.
+ *   2. Edge runtimes don't expose pg; if a route is later moved to the
+ *      Edge runtime we'd want a clean import-time error there rather
+ *      than a silent module init.
+ *
+ * Caches on globalThis in dev so HMR doesn't leak connections.
+ */
+export function getPool(): Pool {
+  if (global.__ss_ops_pg_pool__) return global.__ss_ops_pg_pool__;
+  const p = createPool();
+  if (process.env.NODE_ENV !== 'production') {
+    global.__ss_ops_pg_pool__ = p;
+  }
+  return p;
+}
+
+/**
+ * Tagged-template wrapper around `pool.query` for the common case.
+ *
+ *   const rows = await sql<QuoteRow>`SELECT * FROM quotes WHERE id = ${id}`;
+ *
+ * Uses positional placeholders ($1, $2, ...) under the hood — safe from
+ * SQL injection because values are passed as parameters, not interpolated.
+ */
+export async function sql<T extends QueryResultRow = QueryResultRow>(
+  strings: TemplateStringsArray,
+  ...values: unknown[]
+): Promise<T[]> {
+  let text = strings[0];
+  for (let i = 0; i < values.length; i++) {
+    text += `$${i + 1}${strings[i + 1] ?? ''}`;
+  }
+  const result = await getPool().query<T>(text, values as unknown[]);
+  return result.rows;
+}
+
+/**
+ * Like `sql` but returns the first row or null. Convenience for the
+ * common single-record lookup.
+ */
+export async function sqlOne<T extends QueryResultRow = QueryResultRow>(
+  strings: TemplateStringsArray,
+  ...values: unknown[]
+): Promise<T | null> {
+  const rows = await sql<T>(strings, ...values);
+  return rows[0] ?? null;
+}

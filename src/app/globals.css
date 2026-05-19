@@ -1,0 +1,377 @@
+@import "tailwindcss";
+
+/* ─────────────────────────────────────────────────────────────────────
+   Sharp Sighted Ops — globals.css
+   Internal operating tool for Dean + sales partners.
+   ops.sharpsighted.studio
+
+   Visual dialect (cousin of /studio, but app-shaped):
+   - Same Playfair Display + Montserrat type pairing as the rest of the brand
+   - 8px corner radius default (between studio's editorial 0px and 10px;
+     reads as "tool" not "editorial")
+   - Steel/slate working surfaces; terracotta reserved for primary actions
+     and live highlights
+   - Dense rhythm: 1.5rem section padding default (vs studio's 6rem),
+     because ops is a working surface, not a magazine
+   - Cyan still owns the footer wordmark, per brand discipline
+   ───────────────────────────────────────────────────────────────────── */
+
+@theme inline {
+  /* Fonts */
+  --font-sans: var(--font-montserrat);
+  --font-serif: var(--font-playfair);
+
+  /* Brand cyan — identical on every site, used for the footer brand line
+     and any explicit umbrella reference. */
+  --color-brand-cyan: #38bdf8;
+
+  /* Cream / charcoal base palette, shared with the rest of the brand */
+  --color-charcoal-950: #0c0c0b;
+  --color-charcoal-900: #111110;
+  --color-charcoal-800: #1a1917;
+  --color-charcoal-700: #242320;
+  --color-charcoal-600: #2e2d29;
+  --color-charcoal-500: #3a3935;
+
+  --color-cream-50:  #faf5ec;
+  --color-cream-100: #f4ecdb;
+  --color-cream-200: #ede2c9;
+  --color-cream-300: #e3d5b3;
+  --color-cream-400: #cfbe9a;
+
+  /* Steel/slate — ops's working-surface accent */
+  --color-steel-100: #e5e7eb;
+  --color-steel-300: #94a3b8;
+  --color-steel-500: #64748b;
+  --color-steel-700: #334155;
+  --color-steel-800: #1e293b;
+  --color-steel-900: #0f172a;
+
+  /* Terracotta — reserved for primary actions and live highlights */
+  --color-rust:        #a0462a;
+  --color-rust-light:  #c25f3e;
+  --color-rust-deep:   #6e2f1b;
+
+  /* Shared cyan ladder for the footer wordmark */
+  --color-cyan-400:    #38bdf8;
+  --color-cyan-500:    #0ea5e9;
+
+  /* Semantic — for live financial cues */
+  --color-good: #10b981;
+  --color-warn: #f59e0b;
+  --color-bad:  #ef4444;
+}
+
+/* Dark mode strategy using .dark class */
+@custom-variant dark (&:where(.dark, .dark *));
+
+/* ─── Theme tokens: dark (default — preferred working mode) ────────────── */
+:root {
+  --bg:             #0c0c0b;
+  --surface:        #1a1917;
+  --surface-2:      #242320;
+  --surface-3:      #2e2d29;
+
+  /* Steel-tinted working panel — the calculator/quote-detail surface */
+  --surface-tool:   #14171c;
+  --surface-tool-2: #1c2027;
+
+  --text:           #faf5ec;
+  --text-mid:       #b5ad9f;
+  --text-muted:     #7a746c;
+  --text-faint:     #58534c;
+
+  --accent:         #c25f3e;       /* terracotta primary action */
+  --accent-light:   #d77956;
+  --accent-deep:    #a0462a;
+  --accent-dim:     rgba(194, 95, 62, 0.14);
+
+  --steel:          #94a3b8;
+  --steel-dim:      rgba(148, 163, 184, 0.10);
+
+  --border:         rgba(255, 255, 255, 0.08);
+  --border-strong:  rgba(255, 255, 255, 0.16);
+  --border-accent:  rgba(194, 95, 62, 0.30);
+
+  --nav-bg:         rgba(12, 12, 11, 0.92);
+  --brand-cyan:     #38bdf8;
+
+  /* Shape + spacing tokens — denser than /studio */
+  --radius-sm:      4px;
+  --radius:         8px;
+  --radius-lg:      12px;
+
+  --section-py:        2rem;       /* mobile — ops is dense */
+  --section-py-lg:     3rem;       /* desktop */
+}
+
+/* ─── Theme tokens: light ──────────────────────────────────────────────── */
+.light {
+  --bg:             #faf5ec;
+  --surface:        #f4ecdb;
+  --surface-2:      #ede2c9;
+  --surface-3:      #e3d5b3;
+
+  --surface-tool:   #ffffff;
+  --surface-tool-2: #f8fafc;
+
+  --text:           #0c0c0b;
+  --text-mid:       #475569;
+  --text-muted:     #64748b;
+  --text-faint:     #94a3b8;
+
+  --accent:         #a0462a;       /* full-strength terracotta on cream */
+  --accent-light:   #c25f3e;
+  --accent-deep:    #6e2f1b;
+  --accent-dim:     rgba(160, 70, 42, 0.10);
+
+  --steel:          #334155;
+  --steel-dim:      rgba(51, 65, 85, 0.08);
+
+  --border:         rgba(0, 0, 0, 0.09);
+  --border-strong:  rgba(0, 0, 0, 0.18);
+  --border-accent:  rgba(160, 70, 42, 0.28);
+
+  --nav-bg:         rgba(250, 245, 236, 0.92);
+  --brand-cyan:     #38bdf8;
+}
+
+/* ─── Base styles ─────────────────────────────────────────────────────── */
+html {
+  scroll-behavior: smooth;
+}
+
+body {
+  background-color: var(--bg);
+  color: var(--text);
+  font-family: var(--font-montserrat), sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  font-size: 14px;
+  line-height: 1.5;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  body,
+  nav,
+  footer {
+    transition: background-color 0.3s ease, color 0.3s ease;
+  }
+}
+
+h1, h2, h3, h4, h5, h6 {
+  font-family: var(--font-playfair), serif;
+  letter-spacing: -0.005em;
+}
+
+/* ─── Eyebrow label ───────────────────────────────────────────────────── */
+.eyebrow {
+  font-size: 0.7rem;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+  color: var(--accent);
+  font-weight: 600;
+}
+
+/* ─── Section rhythm (ops dialect: tighter than studio) ───────────────── */
+.section {
+  padding-top: var(--section-py);
+  padding-bottom: var(--section-py);
+}
+
+@media (min-width: 1024px) {
+  .section {
+    padding-top: var(--section-py-lg);
+    padding-bottom: var(--section-py-lg);
+  }
+}
+
+/* ─── Working surfaces ────────────────────────────────────────────────── */
+.surface-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 1.25rem;
+}
+
+.surface-tool {
+  background: var(--surface-tool);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 1.25rem;
+}
+
+@media (min-width: 1024px) {
+  .surface-card,
+  .surface-tool { padding: 1.5rem; }
+}
+
+/* ─── Buttons ─────────────────────────────────────────────────────────── */
+.btn-primary {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.6rem 1.25rem;
+  background: var(--accent);
+  color: #faf5ec;
+  font-size: 0.75rem;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  font-weight: 600;
+  border-radius: var(--radius);
+  border: 1px solid var(--accent);
+  text-decoration: none;
+  cursor: pointer;
+  transition: opacity 0.2s ease, transform 0.2s ease;
+}
+
+.btn-primary:hover { opacity: 0.9; }
+.btn-primary:disabled { opacity: 0.5; cursor: not-allowed; }
+
+.btn-outline {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.6rem 1.25rem;
+  color: var(--text);
+  font-size: 0.75rem;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  font-weight: 600;
+  border-radius: var(--radius);
+  border: 1px solid var(--border-strong);
+  background: transparent;
+  text-decoration: none;
+  cursor: pointer;
+  transition: background-color 0.2s ease, border-color 0.2s ease;
+}
+
+.btn-outline:hover {
+  background: var(--steel-dim);
+  border-color: var(--steel);
+}
+
+.btn-ghost {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  color: var(--text-mid);
+  font-size: 0.75rem;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  text-decoration: none;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  padding: 0.4rem 0.6rem;
+  border-radius: var(--radius-sm);
+  transition: color 0.2s ease, background-color 0.2s ease;
+}
+
+.btn-ghost:hover {
+  color: var(--text);
+  background: var(--steel-dim);
+}
+
+/* ─── Form inputs ─────────────────────────────────────────────────────── */
+.input,
+.select,
+.textarea {
+  width: 100%;
+  background: var(--surface-tool-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  color: var(--text);
+  font-family: var(--font-montserrat), sans-serif;
+  font-size: 0.875rem;
+  padding: 0.55rem 0.75rem;
+  transition: border-color 0.2s ease, background-color 0.2s ease;
+}
+
+.input:focus,
+.select:focus,
+.textarea:focus {
+  outline: none;
+  border-color: var(--accent);
+  background: var(--surface-tool);
+}
+
+.label {
+  display: block;
+  font-size: 0.7rem;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--text-mid);
+  font-weight: 600;
+  margin-bottom: 0.4rem;
+}
+
+/* ─── Focus rings ─────────────────────────────────────────────────────── */
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+  border-radius: var(--radius-sm);
+}
+
+/* ─── Skip link ───────────────────────────────────────────────────────── */
+.skip-link {
+  position: absolute;
+  top: -100%;
+  left: 1rem;
+  z-index: 100;
+  padding: 0.5rem 1rem;
+  background: var(--accent);
+  color: #faf5ec;
+  font-size: 0.8rem;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  border-radius: 0 0 var(--radius-sm) var(--radius-sm);
+  transition: top 0.15s;
+}
+
+.skip-link:focus { top: 0; }
+
+/* ─── Number / money displays ─────────────────────────────────────────── */
+.money {
+  font-family: var(--font-playfair), serif;
+  font-feature-settings: "tnum" 1, "lnum" 1;
+}
+
+/* ─── App shell layout ────────────────────────────────────────────────── */
+.app-shell {
+  display: grid;
+  grid-template-columns: 220px 1fr;
+  min-height: 100vh;
+}
+
+@media (max-width: 768px) {
+  .app-shell {
+    grid-template-columns: 1fr;
+  }
+}
+
+.app-shell-main {
+  background: var(--bg);
+  padding: 1.5rem;
+  overflow-x: hidden;
+}
+
+@media (min-width: 1024px) {
+  .app-shell-main { padding: 2rem 2.5rem; }
+}
+
+/* ─── Container for centered narrow content (auth, marketing) ─────────── */
+.container-narrow {
+  max-width: 720px;
+  margin-left: auto;
+  margin-right: auto;
+  padding-left: 1.25rem;
+  padding-right: 1.25rem;
+}
+
+@media (min-width: 768px) {
+  .container-narrow {
+    padding-left: 2rem;
+    padding-right: 2rem;
+  }
+}
