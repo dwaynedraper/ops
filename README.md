@@ -33,14 +33,39 @@ Sales partners onboard by *using* the tools, not by reading a packet.
 
 ```bash
 npm install
-cp .env.example .env.local   # then fill values (Neon URL, Resend key, AUTH_SECRET)
+cp .env.example .env.local   # then fill the six values below
 npm run db:migrate           # applies schema to whatever DATABASE_URL points at
 npm run dev
 ```
 
-The dev server runs at <http://localhost:3000>. The first time you load
-it, the dashboard renders without auth (auth lands in Day 3 of the
-build).
+The six values you need in `.env.local`:
+
+```
+DATABASE_URL          Neon pooled URL with sslmode=verify-full
+AUTH_SECRET           openssl rand -base64 32
+AUTH_URL              http://localhost:3000   (production overrides this)
+AUTH_TRUST_HOST       true
+AUTH_RESEND_KEY       re_… from resend.com → API Keys
+EMAIL_FROM            "Sharp Sighted Ops <onboarding@resend.dev>" for sandbox,
+                      "Sharp Sighted Ops <no-reply@sharpsighted.studio>" once
+                      the sending domain is verified on Resend
+ALLOWED_EMAILS        comma-separated allowlist; first entry becomes the
+                      bootstrap admin on first sign-in
+```
+
+The dev server runs at <http://localhost:3000>. Every route except
+`/signin/*` and `/api/auth/*` redirects to `/signin` if no session
+cookie is present — the proxy gates the whole app.
+
+### Useful scripts
+
+```
+npm run dev           Turbopack dev server
+npm run build         Production build
+npm run lint          ESLint
+npm run db:migrate    Apply src/lib/db/schema.sql to DATABASE_URL (idempotent)
+npm run db:check      List the public tables currently in the DB (read-only)
+```
 
 ### A note on the Neon connection string
 
@@ -74,8 +99,8 @@ Cousin of `/studio` (Human pillar, terracotta-heavy) but app-shaped:
 ```
 Week 1 — Foundation
   [✓] Scaffold project, design tokens, shell                  (Day 1)
-  [ ] Neon Postgres + schema                                  (Day 2-3)
-  [ ] Auth.js v5 + Resend magic links                         (Day 4-5)
+  [✓] Neon Postgres + schema                                  (Day 2-3)
+  [✓] Auth.js v5 + Resend magic links (verified locally)      (Day 4-5)
   [ ] Vercel deploy + DNS                                     (Day 6-7)
 
 Week 2 — Pricing engine
@@ -123,9 +148,16 @@ sharp/
 ## Note for Claude Code / Claude Agent SDK
 
 This project follows the same Next.js 16 patterns as `/projects/sharp/studio/`.
-Auth.js v5 changed the middleware filename to `proxy.ts`; check
-`node_modules/next/dist/docs/` before generating Next.js code. Train
-cutoffs are usually behind the current Next/Auth versions.
+A few specifics worth knowing before generating code:
+
+- **`proxy.ts`, not `middleware.ts`.** Next.js 16 renamed the file. Proxy
+  always runs on Node runtime (no `runtime: 'nodejs'` declaration — it
+  errors with "Route segment config is not allowed in Proxy file").
+- **Database sessions.** Auth.js v5 with the Email provider needs the
+  Postgres adapter; sessions live in the `sessions` table, not a JWT.
+- **`@/` alias.** Maps to `./src/` per `tsconfig.json`.
+- **Train cutoffs lag here.** Check `node_modules/next/dist/docs/` and
+  `node_modules/next-auth/` before assuming an API still exists.
 
 ---
 
