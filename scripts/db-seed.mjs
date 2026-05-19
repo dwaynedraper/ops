@@ -74,9 +74,11 @@ const PACKAGES = [
     branch: 'portraits',
     description:
       '2-hour session · 1 location · 1 wardrobe · 10 hand-edited images · 5 framed letter prints · 7-day delivery.',
-    time_hours: 6,
+    // Per spreadsheet (2026-05-19 update): 5.5 hours, $415 hard cost,
+    // working price $897 → published $900. Lands clean on methodology.
+    time_hours: 5.5,
     lp_rate: LP_RATE_STANDARD,
-    hard_cost: 450,
+    hard_cost: 415,
     default_margin: MARGIN_DEFAULT,
     base_price: 900,
     sort_order: 10,
@@ -100,11 +102,12 @@ const PACKAGES = [
     branch: 'portraits',
     description:
       '2 days · with team · creative direction · ~50 hand-edited finals + documentary video · 2 museum prints + Heirloom Book · Fine Art Collection · 45-day delivery.',
+    // Per spreadsheet (2026-05-19): working $8,424 → published $8,500.
     time_hours: 60,
     lp_rate: LP_RATE_SAGA,
     hard_cost: 2610,
     default_margin: MARGIN_DEFAULT,
-    base_price: 8000,
+    base_price: 8500,
     sort_order: 30,
   },
   {
@@ -113,11 +116,15 @@ const PACKAGES = [
     branch: 'corporate',
     description:
       'One executive · on-site mobile studio · 1–3 polished finals with full retouch · files for LinkedIn, web, print · 5-business-day delivery.',
+    // Per spreadsheet (2026-05-19): $500 published. Corporate headshots
+    // are intentionally priced at the low-mid of the DFW high-end range
+    // while the portfolio is being built; planned to raise once social
+    // proof from reputable clients lands.
     time_hours: 5.5,
     lp_rate: LP_RATE_STANDARD,
     hard_cost: 90,
     default_margin: MARGIN_DEFAULT,
-    base_price: 670,
+    base_price: 500,
     sort_order: 40,
   },
   {
@@ -154,11 +161,13 @@ const PACKAGES = [
     branch: 'realestate',
     description:
       'Quarterly retainer · one 1–2 hour session · 12 branded short-form clips · 12 co-posts via Studio · monthly calls · 15% off Essentials · priority scheduling. 6-month minimum.',
+    // Per spreadsheet (2026-05-19): working $1,881.75 → published $1,900.
+    // Was $1,500 funnel-priced on the wall card; methodology pull-up.
     time_hours: 23.75,
     lp_rate: LP_RATE_STANDARD,
     hard_cost: 260,
     default_margin: MARGIN_DEFAULT,
-    base_price: 1500,
+    base_price: 1900,
     sort_order: 70,
   },
 ];
@@ -231,9 +240,10 @@ const ADDONS = [
     branch: null,
     description:
       'Upgrades the Story print package to museum-grade fine art prints with archival framing. Replaces the standard Story wall set.',
+    // Standard Story $1,700 → Exhibition $3,900 = +$2,200 per spreadsheet.
     time_hours: 3,
     hard_cost: 1700,
-    base_price: 1500,
+    base_price: 2200,
     unit_label: null,
     sort_order: 210,
   },

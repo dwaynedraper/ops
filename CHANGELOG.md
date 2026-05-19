@@ -13,9 +13,49 @@ lives in `README.md`. This file is the time-ordered receipt.
 ## [Unreleased]
 
 ### Planned next
-- Day 9-10 — validate seed against the spreadsheet, refine cost-plus inputs
 - Day 11-13 — Calculator UI with live total
 - Day 14 — Role-aware view (admin sees methodology spread; partner doesn't)
+- Week 4 — Admin editor for packages/addons (D-009)
+
+---
+
+## 2026-05-19 — Week 2, Day 9 · Catalog reconciled to current spreadsheet
+
+### Changed
+- `scripts/db-seed.mjs` — five package/addon corrections after a
+  side-by-side audit with the master spreadsheet:
+  - **Verse** — time_hours 6 → 5.5, hard_cost $450 → $415. Now lands
+    cleanly on methodology (working $897 → published $900).
+  - **Saga** — base_price $8,000 → $8,500. Methodology pull-up.
+  - **Single Executive** — base_price $670 → $500. Intentional
+    market-positioning at the low-mid of the DFW high-end range while
+    the portfolio is being built; planned to raise on social proof.
+  - **Visibility Retainer** — base_price $1,500/qtr → $1,900/qtr.
+    Methodology pull-up from funnel pricing.
+  - **Story Exhibition upgrade** — base_price +$1,500 → +$2,200 to
+    match the spreadsheet's $3,900 Exhibition total.
+
+### Decided
+- D-009 — admin editor for packages/addons lands in Week 4 polish,
+  not earlier. Hand-typed seed updates are tolerable for the 2-3
+  price changes likely in Weeks 2-3.
+- D-010 — Team Day stays as setup ($600) + per-person ($80) addon,
+  not the flat $1,600 the spreadsheet shows for a 12-person snapshot.
+  Customer-facing math from CLAUDE.md §4 wins over the spreadsheet
+  here because it scales with headcount.
+
+### Architecture note
+- Confirmed for the record: the master spreadsheet is **not**
+  auto-synced to ops. The seed script is a one-way hand-bridge.
+  After D-009 lands in Week 4, ops becomes the source of truth and
+  the spreadsheet retires as authoritative.
+
+### Heads-up
+- The basic-pricing wall card PDF (in `/projects/sharp/Guides/`)
+  now drifts from the ops catalog on three numbers: Saga ($8,000 →
+  $8,500), Single ($670 → $500), Retainer ($1,500 → $1,900). Worth
+  refreshing the wall card the next time it's printed for Discovery
+  Hour.
 
 ---
 

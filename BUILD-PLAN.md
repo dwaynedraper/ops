@@ -424,16 +424,22 @@ on each request (no storage).
    domain). The client gets it as an email attachment; the quote moves
    from `draft` to `sent` in the pipeline; `sent_at` timestamps.
 
-#### Day 28-30 — Polish, mobile, real-use shakedown
+#### Day 28-30 — Polish, mobile, real-use shakedown, admin editor
 
 Mobile responsive checks on the calculator and quote pages (sidebar
 collapses to a top bar; tables become cards). Empty states, error
 states, loading states. Run a real Discovery Hour with a real prospect
 using ops, end-to-end. Fix whatever's awkward.
 
+Also build the **admin editor** for packages and addons (`/packages`
+admin route). Replaces the hand-typed `db-seed.mjs` updates with a
+real editing surface. After this lands, the master spreadsheet
+becomes a reference artifact instead of the authoritative source —
+ops is where prices live and where they get changed.
+
 **Day 30 milestone.** A Discovery Hour quoted, saved, exported,
 emailed, and accepted using ops alone. The Pricing Master Spreadsheet
-becomes a read-only reference, not a working tool.
+retires as a working tool.
 
 ---
 
@@ -672,8 +678,8 @@ what gets quoted.
 
 **Decision.** The Story Exhibition variant in the spreadsheet is
 modeled as a single `story-exhibition-upgrade` addon attached to
-`the-story`, raising the museum-grade print hard-cost by +$1,500
-retail.
+`the-story`, raising the museum-grade print hard-cost by +$2,200
+retail (Standard $1,700 → Exhibition $3,900).
 
 **Rationale.** The wall card already presents Exhibition as a print
 upgrade ("+ Gallery print upgrade · museum-tier wall set") rather
@@ -681,6 +687,42 @@ than a distinct package. Treating it as an addon keeps the catalog's
 branch picker simple — one Story, one decision to upgrade — instead
 of forcing the prospect to choose between two near-identical packages
 at first glance.
+
+### D-009 · Admin editor lands in Week 4 polish, not earlier (2026-05-19)
+
+**Decision.** A `/packages` admin route with editable package/addon
+fields lands in Week 4 polish (Day 28-30), not before the calculator.
+Until then, price changes happen by editing `scripts/db-seed.mjs` and
+re-running `npm run db:seed`.
+
+**Rationale.** The MVP path is calculator → quotes → PDF → real
+Discovery Hour use. Editing prices isn't on the critical path; price
+changes will happen 2-3 times in the next two weeks at most, and a
+five-minute code edit is acceptable for that frequency. Once the
+calculator and quote library are shipped, the editor closes the loop
+and lets the spreadsheet retire as authoritative.
+
+**Trade-off.** Means the master spreadsheet stays as a second
+authoritative-looking source for ~3 weeks. The seed script is
+idempotent and easy to update, so drift is recoverable.
+
+### D-010 · Team Day stays as setup + per-person, not flat (2026-05-19)
+
+**Decision.** Team Day is modeled as a setup-only base package
+(`base_price = $600`) plus a per-person headshot addon
+(`$80/person`), even though the master spreadsheet now flat-prices a
+12-person Team Day at $1,600.
+
+**Rationale.** The customer-facing math from CLAUDE.md §4 and the
+basic-pricing wall card is "$600 setup + $70-90 per person," which
+gives the client transparent headcount-driven pricing. A 6-person
+team and a 20-person team shouldn't pay the same. The spreadsheet's
+flat $1,600 is a 12-person snapshot, not the pricing model itself.
+
+**Trade-off.** The methodology-vs-retail report will show a confusing
+spread on Team Day because the math number reflects "full 12-person
+day" while `base_price` is setup-only. Worth a note in the seed
+report so the spread isn't misread.
 
 ---
 
