@@ -13,7 +13,40 @@ lives in `README.md`. This file is the time-ordered receipt.
 ## [Unreleased]
 
 ### Planned next
-- Week 2 — Pricing engine (data model → seed → calculator UI → role-aware view)
+- Day 9-10 — validate seed against the spreadsheet, refine cost-plus inputs
+- Day 11-13 — Calculator UI with live total
+- Day 14 — Role-aware view (admin sees methodology spread; partner doesn't)
+
+---
+
+## 2026-05-19 — Week 2, Day 8 · Catalog seed
+
+### Added
+- `scripts/db-seed.mjs` — idempotent upsert of the package + addon
+  catalog. Pulls cost-plus inputs from the master spreadsheet and
+  retail prices from the basic-pricing wall card. Prints a
+  methodology-vs-retail spread report after every run so divergences
+  stay visible. Supports `--dry-run` (no writes) and `--reset`
+  (TRUNCATE first; destructive).
+- Two npm scripts: `db:seed` (apply) and `db:seed:dry` (report only).
+
+### Decided
+- D-007 — store retail price separately from methodology output.
+  Cost-plus inputs are alongside `base_price` so the admin view can
+  surface the strategic spread (Verse −$100, Corp Single +$170,
+  Retainer −$400, etc.). Methodology is informational discipline; the
+  retail number is what gets quoted.
+- D-008 — Story Exhibition modeled as an addon (`story-exhibition-upgrade`),
+  not a second package. Wall card already presents it that way.
+
+### Catalog seeded
+- **7 packages:** Verse, Story, Saga, Single Executive, Team Day,
+  Essentials, Visibility Retainer.
+- **11 addons:** Extra digital, Gift Collection, Fine Art Collection,
+  Heirloom Book (portraits-universal), Exhibition upgrade (Story),
+  Additional production day (Saga), Featured upgrade (Single),
+  Per-person headshot + Featured-for-principal (Team Day), Cinematic
+  walkthrough (Essentials), Additional 12 clips (Retainer).
 
 ---
 

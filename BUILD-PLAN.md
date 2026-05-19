@@ -326,13 +326,21 @@ waiting for content — the calculator and quote library land in Weeks
 
 ### Week 2 — Pricing engine
 
-#### Day 8 — Data model
+#### Day 8 — Data model + seed ✓ (2026-05-19)
 
-Finalize the package and addon schemas based on the master spreadsheet.
-Write seed-data SQL covering all seven packages and the addon catalog,
-matching current pricing exactly (cost-plus inputs that produce the
-right round-up displayed price). Add `scripts/db-seed.mjs` for repeatable
-seeding.
+Finalized the package and addon schemas from the master spreadsheet.
+Wrote `scripts/db-seed.mjs` covering seven packages (Verse, Story,
+Saga, Single Executive, Team Day, Essentials, Visibility Retainer)
+and eleven addons (extra digital, Gift Collection, Fine Art Collection,
+Heirloom Book, Exhibition upgrade, Saga additional day, Single
+Featured upgrade, Team Day per-person, Team Day Featured-for-principal,
+Cinematic walkthrough, Retainer additional clips). Each package row
+carries spreadsheet cost-plus inputs alongside the wall-card retail
+price; the seed report prints the methodology-vs-retail spread for
+admin awareness. Idempotent — re-run safe on price changes.
+
+**Files added.** `scripts/db-seed.mjs`. `package.json` updated with
+`db:seed` and `db:seed:dry` scripts.
 
 #### Day 9-10 — Seed catalog
 
@@ -639,6 +647,40 @@ of the quote.
 **Rationale.** Catalog changes (price raises, deprecated packages,
 methodology tweaks) can't be allowed to rewrite history. Last quarter's
 quote should always show what was actually quoted.
+
+### D-007 · Retail price stored separately from methodology output (2026-05-19)
+
+**Decision.** `packages.base_price` is the actual published retail
+price, set manually. The cost-plus inputs (`time_hours`, `lp_rate`,
+`hard_cost`, `default_margin`) are stored alongside, but the
+calculator shows `base_price`, not the computed methodology output.
+
+**Rationale.** Survey of the master spreadsheet shows retail prices
+diverge from cost-plus math in both directions (Verse retails $100
+under math; Corp Single retails $170 over math; Visibility Retainer
+retails $400 under math). The divergences are strategic — funnel
+pricing on entry packages, market-supported premiums on others.
+Forcing the calculator to use methodology math would change published
+prices, which would mean reprinting the wall card, brief, etc.
+
+**Trade-off.** The admin view shows both numbers and the spread, so
+the divergence stays visible — not hidden away in code. The
+methodology number is informational discipline; the retail number is
+what gets quoted.
+
+### D-008 · Story Exhibition as an addon, not a second package (2026-05-19)
+
+**Decision.** The Story Exhibition variant in the spreadsheet is
+modeled as a single `story-exhibition-upgrade` addon attached to
+`the-story`, raising the museum-grade print hard-cost by +$1,500
+retail.
+
+**Rationale.** The wall card already presents Exhibition as a print
+upgrade ("+ Gallery print upgrade · museum-tier wall set") rather
+than a distinct package. Treating it as an addon keeps the catalog's
+branch picker simple — one Story, one decision to upgrade — instead
+of forcing the prospect to choose between two near-identical packages
+at first glance.
 
 ---
 

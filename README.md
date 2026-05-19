@@ -65,6 +65,8 @@ npm run build         Production build
 npm run lint          ESLint
 npm run db:migrate    Apply src/lib/db/schema.sql to DATABASE_URL (idempotent)
 npm run db:check      List the public tables currently in the DB (read-only)
+npm run db:seed       Upsert the package + addon catalog (idempotent)
+npm run db:seed:dry   Print the methodology-vs-retail report; write nothing
 ```
 
 ### A note on the Neon connection string

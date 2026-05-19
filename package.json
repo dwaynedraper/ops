@@ -9,7 +9,9 @@
     "lint": "eslint",
     "lint:fix": "eslint --fix",
     "db:migrate": "node scripts/db-migrate.mjs",
-    "db:check": "node scripts/db-migrate.mjs -- --check"
+    "db:check": "node scripts/db-migrate.mjs -- --check",
+    "db:seed": "node scripts/db-seed.mjs",
+    "db:seed:dry": "node scripts/db-seed.mjs -- --dry-run"
   },
   "dependencies": {
     "@auth/pg-adapter": "^1.10.0",
