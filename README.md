@@ -101,7 +101,7 @@ Week 1 — Foundation
   [✓] Scaffold project, design tokens, shell                  (Day 1)
   [✓] Neon Postgres + schema                                  (Day 2-3)
   [✓] Auth.js v5 + Resend magic links (verified locally)      (Day 4-5)
-  [ ] Vercel deploy + DNS                                     (Day 6-7)
+  [✓] Vercel deploy + DNS · ops.sharpsighted.studio live      (Day 6-7)
 
 Week 2 — Pricing engine
   [ ] Data model: packages, addons, methodology               (Day 8)

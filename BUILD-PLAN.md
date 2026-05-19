@@ -5,7 +5,7 @@
 > dated history. README.md is the local-dev quickstart; this is the
 > full operating reference.
 
-**Last updated:** 2026-05-19 · Week 1 Days 1-5 complete · Day 6-7 in progress.
+**Last updated:** 2026-05-19 · Week 1 complete · Week 2 starting (Day 8).
 
 ---
 
@@ -297,17 +297,30 @@ the bootstrap email, `role='partner'` for everyone else.
 **Verified.** End-to-end magic-link sign-in works locally. Dashboard
 recognizes the bootstrap admin and renders the admin sidebar section.
 
-#### Day 6-7 — Vercel deploy + DNS  ◐ (in progress)
+#### Day 6-7 — Vercel deploy + DNS ✓ (2026-05-19)
 
-Push the repo to GitHub. Import in Vercel. Set production env vars
-(see §6.2). First deploy produces a `*.vercel.app` URL. Add the
-`AUTH_URL` env var pointing at the eventual custom domain, redeploy.
-Add `ops.sharpsighted.studio` as a custom domain in Vercel. Add the
-CNAME on Namecheap. Verify SSL provisions. Run the same 60-second
-end-to-end sign-in test, but from production.
+Pushed the repo to GitHub via GitKraken. Imported in Vercel. Set
+production env vars (see §6.2). First deploy on `*.vercel.app`, then
+added `ops.sharpsighted.studio` as the custom domain. CNAME on
+Namecheap pointed at `cname.vercel-dns.com`. Vercel auto-provisioned
+SSL via Let's Encrypt. Set production `AUTH_URL` to the canonical
+HTTPS URL, redeployed so magic links carry the right host. Ran the
+60-second end-to-end sign-in test on production — magic link arrived,
+clicked, dashboard rendered with admin sidebar.
 
 **End-of-week milestone.** Dean can sign in at
-`https://ops.sharpsighted.studio` and see the dashboard.
+`https://ops.sharpsighted.studio` and see the dashboard. ✓
+
+---
+
+**Week 1 retrospective.** Seven days planned, seven days shipped. The
+auth surface, the schema, the design system, the deploy pipeline, and
+the brand-consistent sign-in flow are all live in production. No
+significant cuts; one minor schema-adjacent decision (D-005, switching
+to `sslmode=verify-full`) and one minor framework-quirk fix (proxy.ts
+forbids route segment config). Ops is now a real running surface
+waiting for content — the calculator and quote library land in Weeks
+2-4.
 
 ---
 

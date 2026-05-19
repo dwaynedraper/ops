@@ -13,8 +13,32 @@ lives in `README.md`. This file is the time-ordered receipt.
 ## [Unreleased]
 
 ### Planned next
-- Day 6-7 — Vercel deploy + DNS for `ops.sharpsighted.studio`
 - Week 2 — Pricing engine (data model → seed → calculator UI → role-aware view)
+
+---
+
+## 2026-05-19 — Week 1, Days 6-7 · Vercel deploy + DNS
+
+### Added
+- `vercel.json` — pins framework to Next.js and region to `iad1`
+  (us-east-1) to co-locate the Vercel functions with Neon for ~5ms
+  query latency.
+
+### Verified
+- Production deploy live at `https://ops.sharpsighted.studio`.
+- Vercel auto-provisioned Let's Encrypt SSL after the CNAME on Namecheap
+  pointed at `cname.vercel-dns.com`.
+- Production env vars set: `DATABASE_URL`, `AUTH_SECRET`, `AUTH_URL`,
+  `AUTH_TRUST_HOST`, `AUTH_RESEND_KEY`, `EMAIL_FROM`, `ALLOWED_EMAILS`.
+- Magic-link sign-in works end-to-end on the production domain.
+  Bootstrap admin lands on the dashboard with the admin sidebar
+  section visible.
+
+### Milestone
+- **Week 1 complete.** All four phases (scaffold, DB, auth, deploy)
+  shipped on schedule across two calendar days. Ops is a real running
+  surface; Week 2 builds the first module (pricing calculator) on top
+  of it.
 
 ---
 
