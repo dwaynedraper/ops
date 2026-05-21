@@ -611,6 +611,23 @@ reviewable by an admin afterward.
 revenue, days-since-last-quote-per-partner. Annual report: same, plus
 year-over-year and per-package mix.
 
+**Quote Override Request (V2.0 — explicitly the last build step).**
+A sales partner mid-call with a client can request a price override
+without leaving the quote. A small form: client name, original price,
+requested price, reasoning, and a "previous customer" boolean. On
+submit, the request is routed instantly to both of Dean's phone
+numbers and his email — fast enough that he can often answer before
+the client is off the phone with the partner. Dean's yes/no locks
+the final quote. Any subsequent edit to the quote turns the override
+flag back off, so an approved override can't silently ride along on a
+changed quote.
+
+Architecturally this is the *last* code to run in the quote pipeline:
+the override is applied only after every other pricing rule has
+resolved, so it's a clean final layer with nothing downstream of it.
+That's why it sequences dead last — it can be bolted on after the
+entire rest of the system is built without touching any of it.
+
 These get sequenced after MVP based on which one is hurting most.
 
 ---
