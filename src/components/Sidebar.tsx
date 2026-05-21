@@ -5,11 +5,13 @@ import { usePathname } from 'next/navigation';
 import { signOut } from 'next-auth/react';
 import { useTheme } from '@/app/providers';
 
+type OpsRole = 'super_admin' | 'partner';
+
 interface NavLink {
   href: string;
   label: string;
-  /** Only show this link when at least one of these flags is true */
-  gated?: 'partner' | 'admin' | null;
+  /** Only show this link to the listed role */
+  gated?: OpsRole | null;
 }
 
 const NAV: NavLink[] = [
@@ -20,17 +22,19 @@ const NAV: NavLink[] = [
   { href: '/today', label: 'Today' },
 ];
 
+// Pricing config — super_admin only.
 const NAV_ADMIN: NavLink[] = [
-  { href: '/packages', label: 'Packages', gated: 'admin' },
-  { href: '/team', label: 'Team', gated: 'admin' },
+  { href: '/rates', label: 'Rates & Globals', gated: 'super_admin' },
+  { href: '/packages', label: 'Packages', gated: 'super_admin' },
+  { href: '/corporate', label: 'Corporate', gated: 'super_admin' },
+  { href: '/team', label: 'Team', gated: 'super_admin' },
 ];
 
 /**
  * App-shell sidebar. Persistent on desktop, collapses to a top bar on
- * mobile (handled in layout). Reads role from the session (wired in
- * Week 1 once auth is live).
+ * mobile (handled in layout). Reads role from the session.
  */
-export function Sidebar({ role = 'partner' }: { role?: 'admin' | 'partner' }) {
+export function Sidebar({ role = 'partner' }: { role?: OpsRole }) {
   const pathname = usePathname();
   const { theme, toggle } = useTheme();
 
@@ -72,7 +76,7 @@ export function Sidebar({ role = 'partner' }: { role?: 'admin' | 'partner' }) {
           <NavItem key={link.href} link={link} active={pathname === link.href} />
         ))}
 
-        {role === 'admin' && (
+        {role === 'super_admin' && (
           <>
             <div
               style={{
@@ -84,7 +88,7 @@ export function Sidebar({ role = 'partner' }: { role?: 'admin' | 'partner' }) {
                 padding: '1rem 0.75rem 0.4rem',
               }}
             >
-              Admin
+              Pricing &amp; Admin
             </div>
             {NAV_ADMIN.map((link) => (
               <NavItem key={link.href} link={link} active={pathname === link.href} />

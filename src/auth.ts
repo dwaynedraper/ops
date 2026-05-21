@@ -27,7 +27,7 @@ declare module 'next-auth' {
   interface Session {
     user: {
       id: string;
-      role: 'admin' | 'partner';
+      role: 'super_admin' | 'partner';
       displayName: string | null;
     } & DefaultSession['user'];
   }
@@ -100,7 +100,7 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
      * indexed on user_id (its primary key).
      */
     async session({ session, user }) {
-      const profile = await sqlOne<{ role: 'admin' | 'partner'; display_name: string | null }>`
+      const profile = await sqlOne<{ role: 'super_admin' | 'partner'; display_name: string | null }>`
         SELECT role, display_name FROM ops_profiles WHERE user_id = ${user.id}
       `;
       session.user.id = user.id;
@@ -112,8 +112,8 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
 
   events: {
     /**
-     * On first sign-in, create the ops_profile row. The bootstrap admin
-     * email (first entry in ALLOWED_EMAILS) gets role='admin'; everyone
+     * On first sign-in, create the ops_profile row. The bootstrap email
+     * (first entry in ALLOWED_EMAILS) gets role='super_admin'; everyone
      * else starts as 'partner'.
      *
      * Auth.js fires this exactly once per user — on the row insert that
@@ -121,7 +121,7 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
      * but not createUser.
      */
     async createUser({ user }) {
-      const role = isBootstrapAdminEmail(user.email) ? 'admin' : 'partner';
+      const role = isBootstrapAdminEmail(user.email) ? 'super_admin' : 'partner';
       const displayName = user.name ?? null;
       await getPool().query(
         `INSERT INTO ops_profiles (user_id, role, display_name)

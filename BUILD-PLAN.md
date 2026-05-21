@@ -49,14 +49,15 @@ on the same foundation once those two prove themselves in real use.
 
 Two roles, both internal:
 
-**Admin (Dean).** Sees costs, margins, internal notes, the full
-methodology breakdown. Can manage the package catalog and the partner
-roster. There is exactly one admin at launch.
+**Super-admin (Dean).** Sees costs, margins, internal notes, the full
+methodology breakdown. Owns all pricing config — the Rates page, the
+package worksheets, the corporate formula. Manages the partner roster.
+There is one super-admin at launch (`dean@sharpsightedstudio.com`); a
+super-admin can elevate another person to super-admin.
 
 **Partner (Kelsey-shaped role).** Sees client-facing prices only — no
-costs, no margins, no internal notes. Builds quotes for their own
-prospects. Cannot edit the catalog. Bootstrap-allowlisted by email; an
-admin promotes someone to admin manually if ever needed.
+costs, no margins, no internal notes, no pricing config. Builds quotes
+for their own prospects. Bootstrap-allowlisted by email.
 
 There is no public-user role. Robots are explicitly disallowed in
 `metadata` in `src/app/layout.tsx`. Anyone hitting any route without a
@@ -192,10 +193,10 @@ Access control happens in two places:
    allowlist (`/signin/*`, `/api/auth/*`, static assets).
 
 Roles are assigned on first sign-in by the `createUser` event:
-the bootstrap admin (the first email in `ALLOWED_EMAILS`) becomes
-`role='admin'`; everyone else starts as `role='partner'`. Promotion to
-admin is a manual SQL update for v1; an admin UI lands post-MVP if it's
-ever needed.
+the bootstrap email (the first in `ALLOWED_EMAILS`) becomes
+`role='super_admin'`; everyone else starts as `role='partner'`.
+Promotion to super-admin is a manual SQL update for v1; a roster UI
+lands post-MVP if it's ever needed.
 
 ---
 
@@ -285,8 +286,8 @@ custom `sendVerificationRequest` that calls the Resend API directly
 with a branded HTML email. Wrote `src/proxy.ts` (Next.js 16's
 middleware successor) gating every non-public route. Built the branded
 sign-in surface (`/signin`, `/signin/verify-request`, `/signin/error`).
-`createUser` event upserts `ops_profiles` row with `role='admin'` for
-the bootstrap email, `role='partner'` for everyone else.
+`createUser` event upserts `ops_profiles` row with `role='super_admin'`
+for the bootstrap email, `role='partner'` for everyone else.
 
 **Files added.** `src/auth.ts`, `src/proxy.ts`,
 `src/lib/email-allowlist.ts`, `src/lib/magic-link-email.ts`,
@@ -295,7 +296,7 @@ the bootstrap email, `role='partner'` for everyone else.
 `src/app/signin/error/page.tsx`.
 
 **Verified.** End-to-end magic-link sign-in works locally. Dashboard
-recognizes the bootstrap admin and renders the admin sidebar section.
+recognizes the bootstrap super-admin and renders the admin sidebar section.
 
 #### Day 6-7 — Vercel deploy + DNS ✓ (2026-05-19)
 
@@ -365,15 +366,24 @@ got a `--fresh-catalog` flag for the structural transition.
 `pricing.ts` extended with `priceFromCostLines()` — sums mixed-role
 cost lines (LP at $75 + 2S at $30 on the same package) into a
 breakdown. Seed rewritten to populate globals + packages + cost
-lines; every package's `base_price` is now *computed* from its lines,
-not hand-typed. All seven verified against the spreadsheet.
+lines; every package's `base_price` is now *computed* from its lines.
 
-**Day 11-12 — admin UI.** Two admin-only routes:
+Then two product decisions reshaped the catalog (D-013, D-014):
+corporate headshots left the worksheet for a parametric formula
+(`corporate_pricing` table + `computeTeamDay()` in `pricing.ts`), and
+the top role was renamed `admin` → `super_admin`. The catalog settled
+at 5 worksheet packages + 8 addons + the corporate formula. All prices
+verified.
+
+**Day 11-12 — admin UI.** Three super-admin-only routes:
 - `/rates` — the Globals sheet as an editable form (LP, Saga, 2S,
   PA, XM rates; default and specialty margins; commission, tax).
 - `/packages/[slug]` — the per-package worksheet. Editable time and
   hard-cost line items, role dropdowns, live Working Price / Website
   Price recompute. Draft state until Publish (see D-012).
+- `/corporate` — the corporate formula config (Single Executive
+  prices, Team Day base/promo, per-person rates, volume tiers). Same
+  draft-until-Publish gate.
 
 #### Day 13-15 — Calculator UI
 
@@ -492,7 +502,7 @@ retires as a working tool.
 | `AUTH_TRUST_HOST`   | `true`                                                                                 | Required behind the Vercel proxy.                           |
 | `AUTH_RESEND_KEY`   | `re_...` from resend.com                                                               | Same key works for dev and prod.                            |
 | `EMAIL_FROM`        | `"Sharp Sighted Ops <no-reply@sharpsighted.studio>"`                                   | Once the sending domain is verified on Resend.              |
-| `ALLOWED_EMAILS`    | `dean@sharpsightedstudio.com,...`                                                      | First entry is the bootstrap admin.                         |
+| `ALLOWED_EMAILS`    | `dean@sharpsightedstudio.com,...`                                                      | First entry is the bootstrap super-admin.                   |
 
 ### 6.3 DNS — adding the ops subdomain on Namecheap
 
@@ -571,7 +581,7 @@ bandwidth. For 1-5 users this is nowhere near a concern, but worth
 monitoring once partners start being added.
 
 **Role escalation.** No admin UI for promoting a partner to admin in
-v1; promotion is a manual `UPDATE ops_profiles SET role='admin' WHERE
+v1; promotion is a manual `UPDATE ops_profiles SET role='super_admin' WHERE
 user_id=...;`. If that becomes more than rare, build the UI.
 
 **Open question — sales partner onboarding flow.** The "teach by
@@ -814,6 +824,62 @@ flat $1,600 is a 12-person snapshot, not the pricing model itself.
 spread on Team Day because the math number reflects "full 12-person
 day" while `base_price` is setup-only. Worth a note in the seed
 report so the spread isn't misread.
+
+**Resolved by D-013.** Corporate headshots left the worksheet model
+entirely. Team Day is now a parametric formula — base + per-person +
+per-person featured, with volume discounts. The setup+per-person
+intent of D-010 is fully realized there.
+
+### D-013 · Corporate headshots run on a parametric formula (2026-05-19)
+
+**Decision.** Corporate headshots (Single Executive, Team Day) are
+removed from the cost-line worksheet entirely. They price on a small
+parametric formula whose inputs live in a `corporate_pricing` key/value
+table, edited on a dedicated `/corporate` page:
+
+- **Single Executive** — flat: `$670` standard, `$920` featured.
+- **Team Day** — `base + (standard_count × per_person × (1 − vol))
+  + (featured_count × featured_per_person × (1 − vol))`, where `base`
+  is `$600` or `$300` with the first-time/promo toggle.
+
+The volume discount (5% at 15+, 15% at 30+) is evaluated **per rate
+type against that type's own headcount** — 15 standard headshots
+discount the standard rate; the featured rate is discounted only if
+15+ people also take featured. The two are independent.
+
+**Rationale.** Corporate's economics aren't a labor breakdown — they're
+"a base plus a per-head rate." Forcing it through the cost-line
+worksheet would be modeling the wrong thing. A dedicated formula is
+simpler to reason about and matches how Dean actually quotes a team.
+Corporate is also deliberately priced to market (low-mid of the DFW
+high-end range) while the portfolio builds — a parametric model makes
+a market-wide reprice a two-field edit.
+
+**Consequences.** `corp-single` and `corp-team-day` are no longer
+`packages` rows. The three corporate add-ons (Featured upgrade,
+per-person, Featured-for-principal) are absorbed into the formula and
+dropped from the addon catalog. Catalog is now 5 worksheet packages +
+8 addons + the corporate formula. A corporate quote stores
+`package_id = NULL` and its detail in `quotes.package_snapshot`.
+
+**Single Executive correction.** The earlier $500 figure was a
+mistake; standard is $670, featured $920.
+
+### D-014 · Top role renamed `admin` → `super_admin` (2026-05-19)
+
+**Decision.** The role set is `super_admin | partner`. All pricing
+config — the Rates page, package worksheets, the corporate formula —
+is super-admin-only. `dean@sharpsightedstudio.com` is the bootstrap
+super-admin and can elevate others.
+
+**Rationale.** Dean asked for pricing surfaces to be locked to a
+clearly-named top role. Two roles is enough for the foreseeable team;
+a middle "admin" tier had no described job, so it wasn't built.
+
+**Migration.** `schema.sql` carries an idempotent `DO` block that
+renames any existing `admin` row to `super_admin` and swaps the
+`ops_profiles` role CHECK constraint. Safe on both fresh and existing
+databases; runs on every `db:migrate`.
 
 ---
 

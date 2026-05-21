@@ -66,6 +66,7 @@ const CATALOG_TABLES = [
   'package_cost_lines',
   'packages',
   'pricing_globals',
+  'corporate_pricing',
 ];
 
 const client = new pg.Client({

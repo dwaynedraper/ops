@@ -155,41 +155,9 @@ const PACKAGES = [
       h('Meals / Incidentals', 200),
     ],
   },
-  {
-    slug: 'corp-single', name: 'The Single Executive', branch: 'corporate',
-    description: 'One executive · on-site mobile studio · 1–3 polished finals with full retouch · files for LinkedIn, web, print · 5-business-day delivery.',
-    default_margin: 0.30, sort_order: 40,
-    lines: [
-      t('Discovery / Consultation', 0.5, 'lp'),
-      t('Planning & Pre-Production', 0.5, 'lp'),
-      t('Travel / Setup', 2, 'lp'),
-      t('Shooting', 1, 'lp'),
-      t('Post-Production / Editing', 1, 'lp'),
-      t('Delivery Prep', 0.5, 'lp'),
-      h('COGS — prints, paper, packaging', 5),
-      h('Outsourced Editing / Retouching', 50),
-      h('Software Subscriptions', 10),
-      h('Transportation', 25),
-    ],
-  },
-  {
-    slug: 'corp-team-day', name: 'The Team Day', branch: 'corporate',
-    description: 'Team headshot day · up to 15 people · one visit · cohesive lighting · files named, sized, ready · 3–5 day delivery. NOTE: customer-facing model is $600 setup + per-person (see D-010); this worksheet models the full 12-person day from the spreadsheet.',
-    default_margin: 0.30, sort_order: 50,
-    lines: [
-      t('Discovery / Consultation', 1, 'lp'),
-      t('Planning & Pre-Production', 1, 'lp'),
-      t('Travel / Setup', 2, 'lp'),
-      t('Shooting', 4, 'lp'),
-      t('Post-Production / Editing', 8, 'lp'),
-      t('Delivery Prep', 1, 'lp'),
-      t('Client Communication / Revisions', 1, 'lp'),
-      h('COGS — prints, paper, packaging', 10),
-      h('Outsourced Editing / Retouching', 200),
-      h('Software Subscriptions', 20),
-      h('Transportation', 30),
-    ],
-  },
+  // NOTE: Corporate headshots (Single Executive, Team Day) are NOT in
+  // the worksheet model — they price on a parametric formula. See the
+  // CORPORATE_PRICING block below and decision D-013.
   {
     slug: 'essentials', name: 'The Essentials Package', branch: 'realestate',
     description: 'Story-driven stills · MLS-optimized · aerial · floor plan · 20-second vertical reel · white-glove MLS delivery · 24-hour turnaround.',
@@ -245,21 +213,37 @@ const ADDONS = [
   { slug: 'saga-additional-day', name: 'Additional production day or expanded video', package_slug: 'the-saga', branch: null,
     description: 'A third production day or an expanded documentary video deliverable beyond the standard Saga scope.',
     time_hours: 10, hard_cost: 200, margin_override: null, base_price: 2500, unit_label: null, sort_order: 220 },
-  { slug: 'single-featured-upgrade', name: 'Featured Executive upgrade', package_slug: 'corp-single', branch: null,
-    description: 'Adds a 20-minute environmental editorial sit + wardrobe change. Delivers 3–5 editorial images.',
-    time_hours: 1.5, hard_cost: 30, margin_override: null, base_price: 225, unit_label: null, sort_order: 230 },
-  { slug: 'corp-team-day-per-person', name: 'Team headshot · per person', package_slug: 'corp-team-day', branch: null,
-    description: 'Per-person headshot on a Team Day shoot. Midpoint of the $70–$90 range. Multiplied by headcount.',
-    time_hours: 0.5, hard_cost: 5, margin_override: null, base_price: 80, unit_label: 'per person', sort_order: 240 },
-  { slug: 'corp-team-day-featured-principal', name: 'Featured upgrade for a principal', package_slug: 'corp-team-day', branch: null,
-    description: 'Featured Executive treatment for 1–2 principals on a Team Day. Midpoint of the $250–$350 range.',
-    time_hours: 1, hard_cost: 20, margin_override: null, base_price: 300, unit_label: 'per principal', sort_order: 250 },
+  // Corporate add-ons (Featured upgrade, per-person, Featured-for-principal)
+  // are absorbed into the corporate formula — see CORPORATE_PRICING.
   { slug: 'essentials-cinematic-walkthrough', name: 'Cinematic walkthrough with agent voiceover', package_slug: 'essentials', branch: null,
     description: 'Gimbal-stabilized walkthrough video with agent voiceover, color-graded and music-bedded.',
     time_hours: 3, hard_cost: 90, margin_override: null, base_price: 500, unit_label: null, sort_order: 260 },
   { slug: 'retainer-additional-clips', name: 'Additional 12 clips per quarter', package_slug: 'visibility-retainer', branch: null,
     description: 'A second batch of 12 branded short-form clips in the same quarter, from existing session footage.',
     time_hours: 4, hard_cost: 120, margin_override: null, base_price: 700, unit_label: null, sort_order: 270 },
+];
+
+// ═══════════════════════════════════════════════════════════════════════
+// CORPORATE PRICING — parametric formula config (D-013)
+// Corporate headshots do not use the cost-line worksheet. These are the
+// editable inputs; the formula lives in src/lib/pricing.ts.
+//
+// Single Executive prices are fixed by Dean ($670 / $920). The Team Day
+// per-person rates below ($80 standard, $300 featured) are placeholders
+// carried over from the wall card — Dean to confirm/edit on the
+// /corporate config page.
+// ═══════════════════════════════════════════════════════════════════════
+const CORPORATE_PRICING = [
+  { key: 'single_standard_price',        label: 'Single Executive — standard',     value: 670,  unit: 'usd',            notes: 'One executive, standard headshot deliverable.',           sort_order: 10 },
+  { key: 'single_featured_price',        label: 'Single Executive — featured',     value: 920,  unit: 'usd',            notes: 'One executive, Featured editorial deliverable.',          sort_order: 20 },
+  { key: 'team_base_price',              label: 'Team Day — base',                 value: 600,  unit: 'usd',            notes: 'Team Day setup/base fee, standard.',                      sort_order: 30 },
+  { key: 'team_base_promo_price',        label: 'Team Day — base (first-time/promo)', value: 300, unit: 'usd',          notes: 'Half-off base for new customers; promo toggle.',          sort_order: 40 },
+  { key: 'team_per_person_rate',         label: 'Team Day — per person (standard)', value: 80,   unit: 'usd_per_person', notes: 'PLACEHOLDER from wall card — confirm.',                   sort_order: 50 },
+  { key: 'team_featured_per_person_rate',label: 'Team Day — per person (featured)', value: 300,  unit: 'usd_per_person', notes: 'PLACEHOLDER from wall card — confirm.',                   sort_order: 60 },
+  { key: 'volume_tier1_min',             label: 'Volume tier 1 — min headcount',   value: 15,   unit: 'count',          notes: 'At/above this count, tier-1 discount applies.',           sort_order: 70 },
+  { key: 'volume_tier1_discount',        label: 'Volume tier 1 — discount',        value: 0.05, unit: 'ratio',          notes: '5% off the per-person rate at 15+.',                      sort_order: 80 },
+  { key: 'volume_tier2_min',             label: 'Volume tier 2 — min headcount',   value: 30,   unit: 'count',          notes: 'At/above this count, tier-2 discount applies.',           sort_order: 90 },
+  { key: 'volume_tier2_discount',        label: 'Volume tier 2 — discount',        value: 0.15, unit: 'ratio',          notes: '15% off the per-person rate at 30+.',                     sort_order: 100 },
 ];
 
 // ─── DB ───────────────────────────────────────────────────────────────
@@ -279,7 +263,7 @@ const globalsMap = Object.fromEntries(GLOBALS.map((g) => [g.key, g.value]));
   console.log('\n  Sharp Sighted Ops · pricing worksheet seed\n');
   console.log(`  Target  : ${maskUrl(connectionString)}`);
   console.log(`  Mode    : ${dryRun ? 'DRY-RUN' : reset ? 'RESET + SEED' : 'UPSERT'}`);
-  console.log(`  Counts  : ${GLOBALS.length} globals · ${PACKAGES.length} packages · ${ADDONS.length} addons\n`);
+  console.log(`  Counts  : ${GLOBALS.length} globals · ${PACKAGES.length} packages · ${ADDONS.length} addons · ${CORPORATE_PRICING.length} corporate params\n`);
 
   try {
     await client.connect();
@@ -290,8 +274,8 @@ const globalsMap = Object.fromEntries(GLOBALS.map((g) => [g.key, g.value]));
     }
 
     if (reset) {
-      console.log('  ⚠  --reset: TRUNCATE package_cost_lines, addons, packages, pricing_globals.');
-      await client.query('TRUNCATE package_cost_lines, addons, packages, pricing_globals RESTART IDENTITY CASCADE;');
+      console.log('  ⚠  --reset: TRUNCATE package_cost_lines, addons, packages, pricing_globals, corporate_pricing.');
+      await client.query('TRUNCATE package_cost_lines, addons, packages, pricing_globals, corporate_pricing RESTART IDENTITY CASCADE;');
     }
 
     // ─── globals ────────────────────────────────────────────────────
@@ -306,6 +290,19 @@ const globalsMap = Object.fromEntries(GLOBALS.map((g) => [g.key, g.value]));
       );
     }
     console.log(`  ✓ ${GLOBALS.length} pricing globals upserted.`);
+
+    // ─── corporate pricing ──────────────────────────────────────────
+    for (const c of CORPORATE_PRICING) {
+      await client.query(
+        `INSERT INTO corporate_pricing (key, label, value, unit, notes, sort_order)
+         VALUES ($1,$2,$3,$4,$5,$6)
+         ON CONFLICT (key) DO UPDATE SET
+           label=EXCLUDED.label, value=EXCLUDED.value, unit=EXCLUDED.unit,
+           notes=EXCLUDED.notes, sort_order=EXCLUDED.sort_order;`,
+        [c.key, c.label, c.value, c.unit, c.notes, c.sort_order],
+      );
+    }
+    console.log(`  ✓ ${CORPORATE_PRICING.length} corporate pricing params upserted.`);
 
     // ─── packages + cost lines ──────────────────────────────────────
     const pkgIdBySlug = new Map();
@@ -389,10 +386,30 @@ function printPriceReport() {
       `  ${pad(p.slug, 24)} ${pad(r.hours, 6)} ${pad('$' + fmt(r.timeCost), 9)} ${pad('$' + fmt(r.hardCost), 9)} ${pad('$' + fmt(r.working), 10)} ${pad('$' + fmt(r.website), 9)}`,
     );
   }
+
+  // ─── Corporate formula preview ──────────────────────────────────────
+  const c = Object.fromEntries(CORPORATE_PRICING.map((r) => [r.key, r.value]));
+  const vDisc = (n) =>
+    n >= c.volume_tier2_min ? c.volume_tier2_discount
+    : n >= c.volume_tier1_min ? c.volume_tier1_discount
+    : 0;
+  const teamDay = (std, feat, promo) => {
+    const base = promo ? c.team_base_promo_price : c.team_base_price;
+    const s = std * c.team_per_person_rate * (1 - vDisc(std));
+    const f = feat * c.team_featured_per_person_rate * (1 - vDisc(feat));
+    return Math.round((base + s + f) * 100) / 100;
+  };
+  console.log('\n  CORPORATE — parametric formula (not the worksheet)\n');
+  console.log(`    Single Executive · standard          $${fmt(c.single_standard_price)}`);
+  console.log(`    Single Executive · featured          $${fmt(c.single_featured_price)}`);
+  console.log(`    Team Day · 12 standard               $${fmt(teamDay(12, 0, false))}`);
+  console.log(`    Team Day · 12 standard (first-time)  $${fmt(teamDay(12, 0, true))}`);
+  console.log(`    Team Day · 15 standard (5% volume)   $${fmt(teamDay(15, 0, false))}`);
+  console.log(`    Team Day · 30 standard (15% volume)  $${fmt(teamDay(30, 0, false))}`);
+  console.log(`    Team Day · 15 std + 2 featured       $${fmt(teamDay(15, 2, false))}`);
   console.log('');
-  console.log('  Note: corp-team-day computes the full 12-person day ($1,600).');
-  console.log('  The customer-facing model is $600 setup + per-person (D-010) —');
-  console.log('  resolve before the calculator. All other packages are final.\n');
+  console.log('  Team Day per-person rates ($80 / $300) are placeholders —');
+  console.log('  set the real numbers on the /corporate config page.\n');
 }
 
 function pad(s, w) { s = String(s); return s.length >= w ? s : s + ' '.repeat(w - s.length); }

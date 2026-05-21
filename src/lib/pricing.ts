@@ -244,6 +244,127 @@ export function priceFromCostLines(
   };
 }
 
+// ═══════════════════════════════════════════════════════════════════════
+// Corporate headshots — parametric formula
+//
+// Corporate does NOT use the cost-line worksheet (see D-013). It runs on
+// a small set of editable parameters stored in the corporate_pricing
+// table. Two products:
+//
+//   Single Executive — flat: standard price or featured price.
+//   Team Day         — base + per-person headshots + per-person featured,
+//                       with a volume discount applied per rate type.
+//
+// Volume discount rule (D-013 / Q&A 2026-05-19): the discount tier is
+// chosen by the headcount WITHIN that rate type. 15 standard headshots
+// discount the standard rate; the featured rate is discounted only if
+// 15+ people also take the featured set. The two are independent.
+// ═══════════════════════════════════════════════════════════════════════
+
+export interface CorporatePricing {
+  singleStandardPrice: number;
+  singleFeaturedPrice: number;
+  teamBasePrice: number;
+  teamBasePromoPrice: number;
+  teamPerPersonRate: number;
+  teamFeaturedPerPersonRate: number;
+  volumeTier1Min: number;       // e.g. 15
+  volumeTier1Discount: number;  // e.g. 0.05
+  volumeTier2Min: number;       // e.g. 30
+  volumeTier2Discount: number;  // e.g. 0.15
+}
+
+/**
+ * Resolve the volume discount for a given headcount. Tier 2 wins over
+ * tier 1 when both thresholds are met.
+ */
+export function volumeDiscount(count: number, cfg: CorporatePricing): number {
+  if (count >= cfg.volumeTier2Min) return cfg.volumeTier2Discount;
+  if (count >= cfg.volumeTier1Min) return cfg.volumeTier1Discount;
+  return 0;
+}
+
+/** Single Executive is a flat price — standard or featured. */
+export function singleExecPrice(featured: boolean, cfg: CorporatePricing): number {
+  return featured ? cfg.singleFeaturedPrice : cfg.singleStandardPrice;
+}
+
+export interface TeamDayInputs {
+  /** People taking a standard headshot. */
+  standardCount: number;
+  /** People taking the featured set. */
+  featuredCount: number;
+  /** First-time / promo: halves the base price. */
+  promo: boolean;
+}
+
+export interface TeamDayResult {
+  base: number;
+  standardCount: number;
+  standardDiscount: number;   // decimal, e.g. 0.05
+  standardSubtotal: number;
+  featuredCount: number;
+  featuredDiscount: number;
+  featuredSubtotal: number;
+  total: number;
+}
+
+/**
+ * Compute a Team Day quote. The total is NOT rounded to the nearest
+ * $100 — corporate is a per-person formula, so the sum is shown exactly
+ * (to the cent, then rounded to whole cents).
+ */
+export function computeTeamDay(inputs: TeamDayInputs, cfg: CorporatePricing): TeamDayResult {
+  const base = inputs.promo ? cfg.teamBasePromoPrice : cfg.teamBasePrice;
+
+  const standardDiscount = volumeDiscount(inputs.standardCount, cfg);
+  const featuredDiscount = volumeDiscount(inputs.featuredCount, cfg);
+
+  const standardSubtotal = roundCents(
+    inputs.standardCount * cfg.teamPerPersonRate * (1 - standardDiscount),
+  );
+  const featuredSubtotal = roundCents(
+    inputs.featuredCount * cfg.teamFeaturedPerPersonRate * (1 - featuredDiscount),
+  );
+
+  return {
+    base,
+    standardCount: inputs.standardCount,
+    standardDiscount,
+    standardSubtotal,
+    featuredCount: inputs.featuredCount,
+    featuredDiscount,
+    featuredSubtotal,
+    total: roundCents(base + standardSubtotal + featuredSubtotal),
+  };
+}
+
+/**
+ * Build a CorporatePricing object from corporate_pricing key/value rows.
+ * Throws if a key is missing — a gap is a seed bug, not a zero.
+ */
+export function corporatePricingFromRows(rows: Record<string, number>): CorporatePricing {
+  const need = (k: string): number => {
+    const v = rows[k];
+    if (v === undefined || v === null) {
+      throw new Error(`corporate_pricing is missing "${k}".`);
+    }
+    return v;
+  };
+  return {
+    singleStandardPrice: need('single_standard_price'),
+    singleFeaturedPrice: need('single_featured_price'),
+    teamBasePrice: need('team_base_price'),
+    teamBasePromoPrice: need('team_base_promo_price'),
+    teamPerPersonRate: need('team_per_person_rate'),
+    teamFeaturedPerPersonRate: need('team_featured_per_person_rate'),
+    volumeTier1Min: need('volume_tier1_min'),
+    volumeTier1Discount: need('volume_tier1_discount'),
+    volumeTier2Min: need('volume_tier2_min'),
+    volumeTier2Discount: need('volume_tier2_discount'),
+  };
+}
+
 // ─── Convenience: format ────────────────────────────────────────────────
 export function fmtMoney(n: number, opts: { cents?: boolean } = {}): string {
   if (opts.cents) {

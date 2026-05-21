@@ -13,9 +13,59 @@ lives in `README.md`. This file is the time-ordered receipt.
 ## [Unreleased]
 
 ### Planned next
-- Day 11-12 — Admin UI: /rates page + /packages/[slug] worksheet page
+- Day 11-12 — Admin UI: /rates, /packages/[slug] worksheet, /corporate
 - Day 13-15 — Calculator UI with live total
-- Day 16 — Role-aware view (admin sees cost/margin; partner doesn't)
+- Day 16 — Role-aware view (super_admin sees cost/margin; partner doesn't)
+
+---
+
+## 2026-05-19 — Week 2, Day 10 (cont.) · Corporate formula + super_admin role
+
+Two product decisions from Dean reshaped the catalog before the seed
+was ever run.
+
+### Added
+- `corporate_pricing` table — key/value config for the corporate
+  headshots formula (Single Executive prices, Team Day base + promo,
+  per-person rates, volume tiers). Editable by super-admin.
+- `src/lib/pricing.ts` — corporate formula: `computeTeamDay()`,
+  `singleExecPrice()`, `volumeDiscount()`, `corporatePricingFromRows()`,
+  and the `CorporatePricing` / `TeamDayInputs` / `TeamDayResult` types.
+  Verified: 12 std = $1,560; 12 std promo = $1,260; 15 std = $1,740
+  (5%); 30 std = $2,640 (15%); 15 std + 2 featured = $2,340 (standard
+  discounted, featured not — per the per-rate-type rule).
+
+### Changed
+- Corporate headshots removed from the cost-line worksheet. `corp-single`
+  and `corp-team-day` are no longer `packages` rows; the three corporate
+  add-ons are absorbed into the formula and dropped. Catalog is now
+  **5 worksheet packages + 8 addons + the corporate formula**.
+- `src/lib/db/schema.sql` — `ops_profiles` role CHECK is now
+  `super_admin | partner`; added `corporate_pricing` table + its
+  `updated_at` trigger; added an idempotent `DO` block that renames any
+  existing `admin` row to `super_admin` and swaps the CHECK constraint.
+- `src/auth.ts` — session type and `createUser` event use `super_admin`.
+- `src/components/Sidebar.tsx` — role type `super_admin | partner`; the
+  admin nav section (now "Pricing & Admin") lists Rates, Packages,
+  Corporate, Team — all super-admin-gated.
+- `scripts/db-seed.mjs` — seeds the 10-row corporate_pricing config;
+  drops the 2 corporate packages and 3 corporate addons; the report now
+  previews the corporate formula.
+- `scripts/db-migrate.mjs` — `corporate_pricing` added to the
+  `--fresh-catalog` drop list.
+
+### Decided
+- D-013 — corporate headshots run on a parametric formula, not the
+  worksheet. Single Executive $670 / $920; Team Day base + per-person +
+  per-person-featured with per-rate-type volume discounts. Resolves
+  D-010 (the setup + per-person intent is realized here).
+- D-014 — top role renamed `admin` → `super_admin`; pricing config is
+  super-admin-only.
+
+### Noted (not built)
+- V2.0 quote-override-request feature recorded in BUILD-PLAN §9 — a
+  partner-initiated price-override form routed to Dean's phones + email.
+  Explicitly the last build step.
 
 ---
 

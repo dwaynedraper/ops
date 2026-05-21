@@ -28,10 +28,10 @@ export function isAllowedEmail(email: string | null | undefined): boolean {
 }
 
 /**
- * The first email in ALLOWED_EMAILS is treated as the bootstrap admin.
- * On first sign-in, that user's ops_profile is created with role='admin'.
- * Every other allowed email gets role='partner' by default; an admin can
- * promote them later.
+ * The first email in ALLOWED_EMAILS is the bootstrap super-admin.
+ * On first sign-in, that user's ops_profile is created with
+ * role='super_admin'. Every other allowed email gets role='partner';
+ * a super-admin can promote a partner later.
  */
 export function isBootstrapAdminEmail(email: string | null | undefined): boolean {
   if (!email) return false;

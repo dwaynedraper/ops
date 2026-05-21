@@ -92,7 +92,7 @@ CREATE TABLE IF NOT EXISTS verification_token (
 CREATE TABLE IF NOT EXISTS ops_profiles (
   user_id      UUID PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
   role         TEXT NOT NULL DEFAULT 'partner'
-                  CHECK (role IN ('admin', 'partner')),
+                  CHECK (role IN ('super_admin', 'partner')),
   display_name TEXT,
   active       BOOLEAN NOT NULL DEFAULT TRUE,
   invited_by   UUID REFERENCES users(id) ON DELETE SET NULL,
@@ -219,6 +219,29 @@ CREATE INDEX IF NOT EXISTS addons_package_id_idx ON addons(package_id);
 CREATE INDEX IF NOT EXISTS addons_branch_idx    ON addons(branch);
 CREATE INDEX IF NOT EXISTS addons_active_idx    ON addons(is_active);
 
+-- ─── corporate_pricing ─────────────────────────────────────────────
+-- Corporate headshots price on a parametric formula, NOT the cost-line
+-- worksheet (see D-013). This key/value table holds the editable inputs;
+-- the calculator's Corporate branch resolves them in src/lib/pricing.ts.
+--
+--   Single Executive  = single_standard_price | single_featured_price
+--   Team Day total    = base (promo or standard)
+--                     + standard_count × per_person × (1 − volume disc)
+--                     + featured_count × featured_per_person × (1 − disc)
+--
+-- The volume discount is evaluated per rate type against THAT type's own
+-- headcount: 15 standard headshots discounts the standard rate only; the
+-- featured rate is discounted only if 15+ people also take featured.
+CREATE TABLE IF NOT EXISTS corporate_pricing (
+  key         TEXT PRIMARY KEY,
+  label       TEXT NOT NULL,
+  value       NUMERIC(12,4) NOT NULL,
+  unit        TEXT,            -- 'usd' | 'usd_per_person' | 'ratio' | 'count'
+  notes       TEXT,
+  sort_order  INTEGER NOT NULL DEFAULT 100,
+  updated_at  TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
 -- ─── quotes ────────────────────────────────────────────────────────
 -- One row per quote built in the calculator. Totals are denormalized
 -- (sums of quote_lines below); we re-compute and persist them every
@@ -336,5 +359,32 @@ BEGIN
   IF NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgname = 'pricing_globals_updated_at') THEN
     CREATE TRIGGER pricing_globals_updated_at BEFORE UPDATE ON pricing_globals
       FOR EACH ROW EXECUTE FUNCTION trg_set_updated_at();
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgname = 'corporate_pricing_updated_at') THEN
+    CREATE TRIGGER corporate_pricing_updated_at BEFORE UPDATE ON corporate_pricing
+      FOR EACH ROW EXECUTE FUNCTION trg_set_updated_at();
+  END IF;
+END $$;
+
+-- ────────────────────────────────────────────────────────────────────
+-- Role rename: 'admin' → 'super_admin'. Idempotent — safe on a fresh
+-- database (the ops_profiles CHECK above already names super_admin, so
+-- this is a no-op) and on an existing one (migrates the row data and
+-- swaps the CHECK constraint). Runs on every db:migrate.
+-- ────────────────────────────────────────────────────────────────────
+DO $$
+BEGIN
+  IF EXISTS (
+    SELECT 1 FROM pg_constraint
+    WHERE conrelid = 'ops_profiles'::regclass
+      AND contype = 'c'
+      AND pg_get_constraintdef(oid) LIKE '%role%'
+      AND pg_get_constraintdef(oid) NOT LIKE '%super_admin%'
+  ) THEN
+    -- Drop the old CHECK first so the data migration isn't rejected by it.
+    ALTER TABLE ops_profiles DROP CONSTRAINT ops_profiles_role_check;
+    UPDATE ops_profiles SET role = 'super_admin' WHERE role = 'admin';
+    ALTER TABLE ops_profiles ADD CONSTRAINT ops_profiles_role_check
+      CHECK (role IN ('super_admin', 'partner'));
   END IF;
 END $$;
