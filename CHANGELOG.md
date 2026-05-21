@@ -13,9 +13,57 @@ lives in `README.md`. This file is the time-ordered receipt.
 ## [Unreleased]
 
 ### Planned next
-- Day 11-13 — Calculator UI with live total
-- Day 14 — Role-aware view (admin sees methodology spread; partner doesn't)
-- Week 4 — Admin editor for packages/addons (D-009)
+- Day 11-12 — Admin UI: /rates page + /packages/[slug] worksheet page
+- Day 13-15 — Calculator UI with live total
+- Day 16 — Role-aware view (admin sees cost/margin; partner doesn't)
+
+---
+
+## 2026-05-19 — Week 2, Day 10 · Pricing worksheet data layer
+
+The pricing model moved from flat per-package inputs to an editable
+cost-line worksheet. Driven by a product decision: the spreadsheet's
+cost-plus *formulas* should live in ops, so a price change flows to
+the calculator and every partner's next quote with no re-seed and no
+stale-quote window. See decisions D-011 and D-012 in BUILD-PLAN.md.
+
+### Changed
+- `src/lib/db/schema.sql` — `packages` lost its flat `time_hours` /
+  `lp_rate` / `hard_cost` columns; cost now derives from cost lines.
+  Two tables added: `pricing_globals` (editable rate table) and
+  `package_cost_lines` (one row per worksheet line — time or hard,
+  time lines carry an hours value + a rate_role). New `updated_at`
+  trigger on `pricing_globals`.
+- `scripts/db-migrate.mjs` — added `--fresh-catalog` flag: drops the
+  catalog + quote tables (all empty) before re-applying the schema so
+  the structural change lands cleanly. Auth tables untouched.
+- `scripts/db-seed.mjs` — rewritten. Seeds 10 pricing globals, 7
+  packages with their full cost-line worksheets (mirroring the master
+  spreadsheet's package sheets), and 11 addons. Each package's
+  `base_price` is now COMPUTED from its cost lines, not hand-typed.
+- `src/lib/pricing.ts` — added `priceFromCostLines()`, `resolveRate()`,
+  and the `CostLine` / `PricingGlobals` / `WorksheetResult` types.
+  Handles mixed rate roles (Saga: LP hours at $75 + 2S hours at $30).
+- `package.json` — added `db:migrate:fresh` script.
+
+### Verified
+- All 7 packages compute exactly to target: Verse $900, Story $1,700,
+  Saga $8,500, Single $500, Team Day $1,600, Essentials $400,
+  Retainer $1,900. Math checked standalone before commit.
+
+### Decided
+- D-011 — pricing worksheet (cost lines + globals) editable in ops;
+  flat package columns removed; supersedes the flat-input half of
+  D-007.
+- D-012 — worksheet edits are draft until Publish; leaving a dirty
+  page raises a Stay / Reset / Publish modal.
+
+### Open before the calculator
+- `corp-team-day` computes $1,600 (full 12-person day from the
+  spreadsheet) but the customer-facing model is $600 setup +
+  per-person (D-010). Needs one product decision when the calculator
+  is built: accept $1,600 flat, or treat the Team Day worksheet as a
+  reference-only full-day estimate.
 
 ---
 

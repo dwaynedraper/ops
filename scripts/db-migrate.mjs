@@ -51,6 +51,22 @@ if (!connectionString) {
 }
 
 const check = process.argv.includes('--check');
+const freshCatalog = process.argv.includes('--fresh-catalog');
+
+// Catalog + quote tables, in FK-safe drop order. The --fresh-catalog
+// flag drops these before re-applying the schema, so a structural
+// change to packages (e.g. the cost-line refactor) lands cleanly.
+// It does NOT touch the auth tables (users, accounts, sessions,
+// verification_token) or ops_profiles — sign-in data is preserved.
+const CATALOG_TABLES = [
+  'quote_events',
+  'quote_lines',
+  'quotes',
+  'addons',
+  'package_cost_lines',
+  'packages',
+  'pricing_globals',
+];
 
 const client = new pg.Client({
   connectionString,
@@ -63,10 +79,21 @@ const banner = '\n  Sharp Sighted Ops · DB migrator\n';
   console.log(banner);
   console.log(`  Target  : ${maskUrl(connectionString)}`);
   console.log(`  Schema  : ${schemaPath}`);
-  console.log(`  Mode    : ${check ? 'CHECK (read-only)' : 'APPLY'}\n`);
+  console.log(
+    `  Mode    : ${check ? 'CHECK (read-only)' : freshCatalog ? 'FRESH-CATALOG + APPLY' : 'APPLY'}\n`,
+  );
 
   try {
     await client.connect();
+
+    if (freshCatalog && !check) {
+      console.log('  ⚠  --fresh-catalog: dropping catalog + quote tables first.');
+      console.log('     Auth tables (users, sessions, ops_profiles, …) are untouched.');
+      for (const t of CATALOG_TABLES) {
+        await client.query(`DROP TABLE IF EXISTS ${t} CASCADE;`);
+      }
+      console.log(`     Dropped: ${CATALOG_TABLES.join(', ')}\n`);
+    }
 
     if (check) {
       const { rows } = await client.query(`

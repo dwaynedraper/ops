@@ -63,10 +63,12 @@ cookie is present — the proxy gates the whole app.
 npm run dev           Turbopack dev server
 npm run build         Production build
 npm run lint          ESLint
-npm run db:migrate    Apply src/lib/db/schema.sql to DATABASE_URL (idempotent)
-npm run db:check      List the public tables currently in the DB (read-only)
-npm run db:seed       Upsert the package + addon catalog (idempotent)
-npm run db:seed:dry   Print the methodology-vs-retail report; write nothing
+npm run db:migrate        Apply src/lib/db/schema.sql to DATABASE_URL (idempotent)
+npm run db:migrate:fresh  Drop catalog + quote tables, then re-apply schema
+                          (destructive to catalog; auth tables preserved)
+npm run db:check          List the public tables currently in the DB (read-only)
+npm run db:seed           Seed globals + packages + cost lines + addons
+npm run db:seed:dry       Print the computed price report; write nothing
 ```
 
 ### A note on the Neon connection string

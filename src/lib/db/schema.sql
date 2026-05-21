@@ -103,12 +103,32 @@ CREATE TABLE IF NOT EXISTS ops_profiles (
 CREATE INDEX IF NOT EXISTS ops_profiles_role_idx ON ops_profiles(role);
 CREATE INDEX IF NOT EXISTS ops_profiles_active_idx ON ops_profiles(active);
 
+-- ─── pricing_globals ───────────────────────────────────────────────
+-- The Globals sheet from the master spreadsheet — hourly rates and
+-- default margins, as editable key/value rows. A package_cost_lines
+-- row resolves its rate_role against this table. Editing a global and
+-- publishing changes every package's *computed* working price; each
+-- package's base_price still only moves when that package itself is
+-- republished from its worksheet.
+CREATE TABLE IF NOT EXISTS pricing_globals (
+  key         TEXT PRIMARY KEY,
+  label       TEXT NOT NULL,
+  value       NUMERIC(12,4) NOT NULL,
+  unit        TEXT,            -- 'usd_per_hour' | 'ratio' — display hint
+  notes       TEXT,
+  sort_order  INTEGER NOT NULL DEFAULT 100,
+  updated_at  TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
 -- ─── packages ──────────────────────────────────────────────────────
 -- Verse, Story, Saga, Single, Team Day, Essentials, Visibility Retainer.
--- Each package carries its cost-plus inputs (time, hard cost, margin)
--- AND its rounded display price. We store the rounded price separately
--- because the methodology might round-up but admin can manually override
--- per package (e.g., Verse stays at $900 even if the math says $850).
+-- The cost-plus inputs live in package_cost_lines (one row per worksheet
+-- line). This table holds identity, the editable margin, and base_price
+-- — the PUBLISHED price the calculator and sales partners read. The
+-- worksheet recomputes a working price live as an admin edits; the
+-- base_price column only changes when the admin hits Publish. That
+-- separation is the whole point: partners never see an in-progress
+-- price experiment.
 CREATE TABLE IF NOT EXISTS packages (
   id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   slug            TEXT NOT NULL UNIQUE,
@@ -117,17 +137,13 @@ CREATE TABLE IF NOT EXISTS packages (
                     CHECK (branch IN ('portraits', 'corporate', 'realestate')),
   description     TEXT,
 
-  -- Cost-plus inputs
-  time_hours      NUMERIC(6,2)  NOT NULL DEFAULT 0,
-  lp_rate         NUMERIC(8,2)  NOT NULL DEFAULT 50.00,  -- $/hr; Saga overrides to 75
-  hard_cost       NUMERIC(10,2) NOT NULL DEFAULT 0,
-  default_margin  NUMERIC(4,3)  NOT NULL DEFAULT 0.30,   -- 30% standard, 20% for Photo Lessons
+  -- Editable margin (worksheet input). 0.30 standard, 0.20 specialty.
+  default_margin  NUMERIC(4,3)  NOT NULL DEFAULT 0.30,
 
-  -- Final display price (rounded up to nearest $100 by methodology,
-  -- but admin can override). This is what the calculator shows.
-  base_price      NUMERIC(10,2) NOT NULL,
+  -- PUBLISHED price — what the calculator shows. Set on Publish from
+  -- the worksheet's computed website price. Never moves on its own.
+  base_price      NUMERIC(10,2) NOT NULL DEFAULT 0,
 
-  -- Display
   is_active       BOOLEAN NOT NULL DEFAULT TRUE,
   sort_order      INTEGER NOT NULL DEFAULT 100,
 
@@ -137,6 +153,39 @@ CREATE TABLE IF NOT EXISTS packages (
 
 CREATE INDEX IF NOT EXISTS packages_branch_idx ON packages(branch);
 CREATE INDEX IF NOT EXISTS packages_active_idx ON packages(is_active);
+
+-- ─── package_cost_lines ────────────────────────────────────────────
+-- One row per worksheet line item — the spreadsheet's per-package rows,
+-- normalized. A 'time' line has hours + rate_role (resolved against
+-- pricing_globals); a 'hard' line has a flat dollar amount. The
+-- package's cost basis = SUM(time: hours × resolved rate)
+--                      + SUM(hard: amount).
+CREATE TABLE IF NOT EXISTS package_cost_lines (
+  id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  package_id  UUID NOT NULL REFERENCES packages(id) ON DELETE CASCADE,
+  kind        TEXT NOT NULL CHECK (kind IN ('time', 'hard')),
+  category    TEXT NOT NULL,
+
+  -- time lines: hours + rate_role set, amount NULL
+  hours       NUMERIC(8,2),
+  rate_role   TEXT CHECK (rate_role IN ('lp', 'lp_saga', 'second_shooter', 'pa', 'xm')),
+
+  -- hard lines: amount set, hours + rate_role NULL
+  amount      NUMERIC(12,2),
+
+  sort_order  INTEGER NOT NULL DEFAULT 100,
+  created_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
+
+  -- A row is well-formed as exactly one of the two kinds.
+  CHECK (
+    (kind = 'time' AND hours IS NOT NULL AND rate_role IS NOT NULL AND amount IS NULL)
+    OR
+    (kind = 'hard' AND amount IS NOT NULL AND hours IS NULL AND rate_role IS NULL)
+  )
+);
+
+CREATE INDEX IF NOT EXISTS package_cost_lines_package_idx
+  ON package_cost_lines(package_id, sort_order);
 
 -- ─── addons ────────────────────────────────────────────────────────
 -- Gift Collection, Featured upgrade, Cinematic walkthrough, etc.
@@ -282,6 +331,10 @@ BEGIN
   END IF;
   IF NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgname = 'quotes_updated_at') THEN
     CREATE TRIGGER quotes_updated_at BEFORE UPDATE ON quotes
+      FOR EACH ROW EXECUTE FUNCTION trg_set_updated_at();
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgname = 'pricing_globals_updated_at') THEN
+    CREATE TRIGGER pricing_globals_updated_at BEFORE UPDATE ON pricing_globals
       FOR EACH ROW EXECUTE FUNCTION trg_set_updated_at();
   END IF;
 END $$;

@@ -5,7 +5,7 @@
 > dated history. README.md is the local-dev quickstart; this is the
 > full operating reference.
 
-**Last updated:** 2026-05-19 · Week 1 complete · Week 2 starting (Day 8).
+**Last updated:** 2026-05-19 · Week 1 complete · Week 2 in progress (Day 10 — pricing worksheet data layer done; admin UI next).
 
 ---
 
@@ -342,15 +342,40 @@ admin awareness. Idempotent — re-run safe on price changes.
 **Files added.** `scripts/db-seed.mjs`. `package.json` updated with
 `db:seed` and `db:seed:dry` scripts.
 
-#### Day 9-10 — Seed catalog
+#### Day 9 — Catalog reconciled to current spreadsheet ✓ (2026-05-19)
 
-Run the seed against the live Neon DB. Walk through every package and
-addon by hand, comparing the computed display price to the spreadsheet.
-Adjust margin overrides or hard-cost inputs until every number matches.
-Build the read-only `/packages` admin page so the catalog can be eyeballed
-in the browser.
+Audited the seed against the current master spreadsheet; corrected
+five divergences (Verse hours, Saga $8,500, Single $500, Retainer
+$1,900, Story Exhibition +$2,200). See CHANGELOG and decisions
+D-007/D-008.
 
-#### Day 11-13 — Calculator UI
+#### Day 10-12 — Pricing worksheet + admin editor ◐ (in progress, started 2026-05-19)
+
+Re-sequenced from the original plan. Dean asked for the spreadsheet's
+cost-plus *worksheet* to be editable inside ops — not just the final
+price — so pricing is fully integrated and a partner can never quote
+a number stale relative to a pricing change. This absorbs the Week 4
+admin-editor work (old D-009) and expands it.
+
+**Day 10 — data layer (done 2026-05-19).** Schema restructured:
+`pricing_globals` (the rate table) and `package_cost_lines` (one row
+per worksheet line, time or hard) added; `packages` lost its flat
+cost columns and now derives cost from its lines. `db-migrate.mjs`
+got a `--fresh-catalog` flag for the structural transition.
+`pricing.ts` extended with `priceFromCostLines()` — sums mixed-role
+cost lines (LP at $75 + 2S at $30 on the same package) into a
+breakdown. Seed rewritten to populate globals + packages + cost
+lines; every package's `base_price` is now *computed* from its lines,
+not hand-typed. All seven verified against the spreadsheet.
+
+**Day 11-12 — admin UI.** Two admin-only routes:
+- `/rates` — the Globals sheet as an editable form (LP, Saga, 2S,
+  PA, XM rates; default and specialty margins; commission, tax).
+- `/packages/[slug]` — the per-package worksheet. Editable time and
+  hard-cost line items, role dropdowns, live Working Price / Website
+  Price recompute. Draft state until Publish (see D-012).
+
+#### Day 13-15 — Calculator UI
 
 The headline module. New route `/calculator`:
 
@@ -362,17 +387,21 @@ The headline module. New route `/calculator`:
   - For partner: display price only
 - Quote summary panel ready for the "Save quote" mechanic in Week 3
 
-`src/lib/pricing.ts` does the math; the UI is a presentation layer.
+Reads each package's published `base_price`. `src/lib/pricing.ts`
+does the math; the UI is a presentation layer.
 
-#### Day 14 — Role-aware view + polish
+#### Day 16 — Role-aware view + polish
 
 Wire `session.user.role` into the calculator surface. Partner view
-strips cost / margin / internal notes from every panel. Add the
-"What you see" eyebrow on the admin view making it clear they're
-looking at the privileged breakdown.
+strips cost / margin / internal notes from every panel.
 
 **End-of-week milestone.** Dean can quote any package + add-on combo
-in 30 seconds and trust the number.
+in 30 seconds and trust the number — and adjust any price in ops
+without touching code.
+
+**Sequencing note.** This re-sequence pushes the calculator ~2 days
+and Week 3 starts ~Day 17. The Week 4 admin-editor task is removed
+(built here instead). Realistic landing: Day 30-32.
 
 ---
 
@@ -705,6 +734,51 @@ and lets the spreadsheet retire as authoritative.
 **Trade-off.** Means the master spreadsheet stays as a second
 authoritative-looking source for ~3 weeks. The seed script is
 idempotent and easy to update, so drift is recoverable.
+
+### D-011 · Pricing worksheet — cost lines + globals, editable in ops (2026-05-19)
+
+**Decision.** Each package's cost-plus inputs are stored as
+`package_cost_lines` (one row per worksheet line item — time or hard)
+resolved against an editable `pricing_globals` rate table. The flat
+`time_hours` / `lp_rate` / `hard_cost` columns on `packages` are
+removed. Admins edit the worksheet inside ops; the spreadsheet
+retires as authoritative once the admin UI ships.
+
+**Rationale.** Dean asked for the spreadsheet's *formulas* — not just
+the final price — to live in ops, so a price change flows through to
+the calculator and to every sales partner's next quote immediately.
+No window where a partner quotes a stale number because pricing moved
+and the seed wasn't re-run. The cost-line model also handles mixed
+rate roles cleanly (Saga bills LP hours at $75 and second-shooter
+hours at $30 on the same package).
+
+**Trade-off.** A one-time destructive schema change (`--fresh-catalog`).
+Safe because the catalog tables were still empty — the seed had never
+been run. After this, schema returns to additive-only.
+
+**Supersedes.** The flat-input half of D-007. The "retail stored
+separately from methodology" intent survives in spirit: `base_price`
+is still a distinct published value, but it's now the *computed*
+website price captured at Publish time, not a hand-typed override.
+
+### D-012 · Worksheet edits are draft until Publish (2026-05-19)
+
+**Decision.** Editing a package worksheet or the Rates page changes
+local page state only. Nothing reaches the database — and therefore
+nothing reaches the calculator or sales partners — until the admin
+hits **Publish**. Attempting to leave a page with unpublished changes
+raises a modal with three choices: **Stay** (keep editing), **Reset**
+(discard the draft, revert to the DB state), **Publish** (commit,
+then leave).
+
+**Rationale.** Dean wants to see the impact of a pricing adjustment —
+"how much difference would this make?" — without committing it. The
+draft gate makes the worksheet a safe experimentation surface. The
+DB always holds the published truth; the page holds the experiment.
+
+**Trade-off.** Requires client-side navigation interception (a
+`beforeunload` guard for tab-close plus an in-app nav guard). Modest
+extra UI work; worth it for the "no surprise price changes" guarantee.
 
 ### D-010 · Team Day stays as setup + per-person, not flat (2026-05-19)
 

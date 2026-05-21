@@ -127,6 +127,123 @@ function roundCents(n: number): number {
   return Math.round(n * 100) / 100;
 }
 
+// ═══════════════════════════════════════════════════════════════════════
+// Worksheet model — cost lines + globals → price
+//
+// A package's price is computed from its worksheet rather than from flat
+// inputs. The worksheet is a set of cost lines (time or hard) plus the
+// global rate table. This section sums those into the PricingInputs the
+// methodology above already consumes, so the two layers compose cleanly:
+//
+//   cost lines + globals  →  priceFromCostLines()  →  PricingBreakdown
+// ═══════════════════════════════════════════════════════════════════════
+
+/** Roles a time line can bill at. Each maps to a pricing_globals key. */
+export type RateRole = 'lp' | 'lp_saga' | 'second_shooter' | 'pa' | 'xm';
+
+/** rate_role → pricing_globals.key */
+const RATE_ROLE_GLOBAL: Record<RateRole, string> = {
+  lp: 'lp_rate',
+  lp_saga: 'lp_saga_rate',
+  second_shooter: 'second_shooter_rate',
+  pa: 'pa_rate',
+  xm: 'xm_rate',
+};
+
+export interface CostLine {
+  kind: 'time' | 'hard';
+  category: string;
+  /** time lines only */
+  hours?: number | null;
+  /** time lines only */
+  rateRole?: RateRole | null;
+  /** hard lines only */
+  amount?: number | null;
+}
+
+/** A resolved view of pricing_globals: key → numeric value. */
+export type PricingGlobals = Record<string, number>;
+
+export interface WorksheetResult extends PricingBreakdown {
+  /** Sum of all time-line hours, regardless of role. */
+  totalHours: number;
+  /** Per-role hour subtotals, for the worksheet summary. */
+  hoursByRole: Partial<Record<RateRole, number>>;
+}
+
+/**
+ * Resolve a rate role against the globals table. Throws if the global
+ * is missing — a missing rate is a seed/config bug, not something to
+ * paper over with a zero.
+ */
+export function resolveRate(role: RateRole, globals: PricingGlobals): number {
+  const key = RATE_ROLE_GLOBAL[role];
+  const rate = globals[key];
+  if (rate === undefined || rate === null) {
+    throw new Error(`pricing_globals is missing "${key}" (for rate role "${role}").`);
+  }
+  return rate;
+}
+
+/**
+ * Run the full worksheet computation: sum cost lines into a blended
+ * time cost (roles can mix — LP at $75 and 2S at $30 on the same
+ * package) and a hard cost, then apply margin and round-up.
+ *
+ * This is what the worksheet page calls on every keystroke to show the
+ * live Working Price / Website Price, and what the seed calls to derive
+ * each package's published base_price.
+ *
+ * It does NOT route through priceFromCostBasis() because that function
+ * assumes a single hourly rate; the worksheet's time cost is already
+ * fully resolved across mixed roles, so we compose the breakdown here.
+ */
+export function priceFromCostLines(
+  lines: CostLine[],
+  globals: PricingGlobals,
+  margin: number,
+): WorksheetResult {
+  let timeCost = 0;
+  let hardCost = 0;
+  let totalHours = 0;
+  const hoursByRole: Partial<Record<RateRole, number>> = {};
+
+  for (const line of lines) {
+    if (line.kind === 'time') {
+      const hours = line.hours ?? 0;
+      const role = line.rateRole;
+      if (!role) {
+        throw new Error(`Time line "${line.category}" has no rate role.`);
+      }
+      timeCost += hours * resolveRate(role, globals);
+      totalHours += hours;
+      hoursByRole[role] = (hoursByRole[role] ?? 0) + hours;
+    } else {
+      hardCost += line.amount ?? 0;
+    }
+  }
+
+  const tc = roundCents(timeCost);
+  const hc = roundCents(hardCost);
+  const costBasis = roundCents(tc + hc);
+  const workingPrice = roundCents(costBasis * (1 + margin));
+  const marginAmount = roundCents(workingPrice - costBasis);
+  const displayPrice = Math.ceil(workingPrice / ROUND_UP_STEP) * ROUND_UP_STEP;
+
+  return {
+    timeCost: tc,
+    hardCost: hc,
+    costBasis,
+    marginAmount,
+    workingPrice,
+    displayPrice,
+    margin,
+    lpRate: 0, // not meaningful for a mixed-role worksheet
+    totalHours,
+    hoursByRole,
+  };
+}
+
 // ─── Convenience: format ────────────────────────────────────────────────
 export function fmtMoney(n: number, opts: { cents?: boolean } = {}): string {
   if (opts.cents) {
