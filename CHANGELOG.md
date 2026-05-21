@@ -20,6 +20,42 @@ lives in `README.md`. This file is the time-ordered receipt.
 
 ---
 
+## 2026-05-21 — Phase A · Pricing calculator UI
+
+The first working module. `/calculator` turns the pricing engine into a
+surface: pick a branch, pick a package, layer add-ons, watch the total
+settle; or run the corporate parametric formula. Save persists the
+quote.
+
+### Added
+- `src/lib/catalog.ts` — `getCatalog()`, the single read path for the
+  pricing system. Returns published packages (with cost basis computed
+  live from worksheet cost lines for the admin profit view), applicable
+  add-ons, the corporate formula config, and the resolved rate table.
+  Also defines the shared quote input types.
+- `src/app/calculator/page.tsx` — server route; gates on the session,
+  loads the catalog, renders the client component.
+- `src/app/calculator/CalculatorClient.tsx` — the interactive surface.
+  Branch picker, package cards, add-on checklist, corporate panel
+  (Single Executive / Team Day with the first-time promo toggle), a
+  client-info block, and a sticky summary that re-prices live. The
+  super-admin summary also shows cost basis + margin on package quotes.
+- `src/app/calculator/actions.ts` — `saveQuote` server action. The
+  client sends a *selection* (package + add-ons, or corporate inputs),
+  never prices; the action re-fetches the catalog, recomputes every
+  number, and writes the quote, its lines, and a `created` event in one
+  transaction.
+- `globals.css` — `.calc-layout` / `.calc-summary` for the builder +
+  sticky-summary two-column layout.
+
+### Notes
+- Pricing math is imported from `src/lib/pricing.ts` on both sides, so
+  the live preview and the server-persisted total agree to the cent.
+- The quote library (`/quotes` list + detail) is still to come; a saved
+  quote currently confirms inline with its quote number.
+
+---
+
 ## 2026-05-21 — Week 2 · Reframe: ops is a pipeline + light CRM
 
 Dean re-scoped ops mid-build. It is a sales pipeline plus a light CRM —

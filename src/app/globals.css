@@ -360,6 +360,25 @@ h1, h2, h3, h4, h5, h6 {
   .app-shell-main { padding: 2rem 2.5rem; }
 }
 
+/* ─── Calculator layout — builder + sticky summary ────────────────────── */
+.calc-layout {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 1.25rem;
+}
+
+@media (min-width: 900px) {
+  .calc-layout {
+    grid-template-columns: minmax(0, 1fr) 340px;
+    align-items: start;
+  }
+}
+
+.calc-summary {
+  position: sticky;
+  top: 1.5rem;
+}
+
 /* ─── Container for centered narrow content (auth, marketing) ─────────── */
 .container-narrow {
   max-width: 720px;
