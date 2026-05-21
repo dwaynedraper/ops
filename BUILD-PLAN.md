@@ -385,6 +385,38 @@ verified.
   prices, Team Day base/promo, per-person rates, volume tiers). Same
   draft-until-Publish gate.
 
+### Reframe — pipeline + light CRM (2026-05-21)
+
+Dean re-scoped ops mid-build (see D-015 through D-020). It is a sales
+pipeline plus a light CRM, not a calculator with extra pages. The
+day-numbered Week 3–4 plan below is **superseded** by three phases;
+it stays for history.
+
+**Phase A — Calculator** ✓ (complete 2026-05-21). Standalone
+`/calculator`: branch → package → add-ons, or the corporate parametric
+formula; live total; "Save quote" persists to `quotes` / `quote_lines`
+/ `quote_events`. Server recomputes every number from a sent
+*selection* — client prices are never trusted.
+
+**Phase B — CRM pipeline.** Additive migration (`prospects`,
+`rank_factors`, `contact_scripts`, `prospect_contacts`,
+`prospect_notes`; `prospect_id` on `quotes`) + seed of default rank
+factors and scripts. Then the pages: Research (entry gate + live 0–10
+scoring), Tracking (contact cycle, script fill, copy-paste output),
+Client page (mini CRM — details, inline calculator, pinned facts +
+notes timeline, signed-by, quote history), Dashboard (follow-ups due,
+pipeline counts, 10-qualified banner). Owner-scoped visibility.
+
+**Phase C — Super-admin editors.** Pricing worksheet / Rates /
+Corporate **plus** the rank-factor and script editors — all
+draft-until-Publish (D-012). Buffer phase: until it lands, those
+configs are edited via seed/SQL, so if anything slips to v1.1 it is the
+editor UIs, never the pipeline.
+
+Then quote PDF export and polish.
+
+---
+
 #### Day 13-15 — Calculator UI
 
 The headline module. New route `/calculator`:
@@ -594,19 +626,16 @@ walks through v1.
 
 ## 9. Post-MVP roadmap
 
-The MVP gets the calculator and quote library shipped in 30 days. The
-following modules are designed but not built yet:
+The MVP now ships the calculator, the CRM pipeline, and the quote
+library in ~30 days (see the §5 reframe). The following modules are
+designed but not built yet:
 
-**Prospect Tracker.** The Prospect Playbook as software. Zillow source
-→ contact info → outreach template → discovery scheduled → discovery
-completed → quote sent → close. Each stage has its own check-the-box
-state and follow-up timer. Pipeline view shows everything in one glance.
-
-**Daily Queue.** "What do I do first today?" The ADHD operational need
-you keep mentioning. Tasks ranked by impact, day-shape aware (W/Th
-shoot days, Fri-Tue W-2 day-job mornings blocked), with Pomodoro-style
-timers. Pulls from the prospect tracker's "next action" field and from
-any manual entries you add.
+**Prospect Tracker + Daily Queue — promoted into the MVP (2026-05-21).**
+What sat here as post-MVP is now Phase B of the build (see the §5
+reframe and D-015 through D-020): the Research, Tracking, Client, and
+Dashboard pages. The dashboard's follow-up queue — prospects due for
+contact, computed on read — subsumes the Daily Queue's "what do I do
+first today" need.
 
 **Sales Partner Onboarding Flow.** A guided first-quote tutorial that
 teaches by doing. Annotates the calculator at each step ("Verse is
@@ -880,6 +909,66 @@ a middle "admin" tier had no described job, so it wasn't built.
 renames any existing `admin` row to `super_admin` and swaps the
 `ops_profiles` role CHECK constraint. Safe on both fresh and existing
 databases; runs on every `db:migrate`.
+
+### D-015 · Ops is a sales pipeline + light CRM, not just a calculator (2026-05-21)
+
+**Decision.** Ops's job is to run the whole sales motion: research real
+estate agents, score them, work the qualified ones through a contact
+cycle, sign them, and keep a light client record. Pricing is one tool
+*inside* a client page, not the center of the app. Explicitly **not** a
+Jira/Monday clone — no kanban builder, no custom fields, no automation
+editor. Build order: finish the calculator (Phase A) → CRM pipeline
+pages (Phase B) → super-admin editors (Phase C).
+
+**Rationale.** The original scope under-described the app. Dean's actual
+need is a tracker shaped to his specific business. The "teach by doing"
+onboarding thesis only works if the pipeline the partners operate is
+the product itself.
+
+### D-016 · One prospect record, lifecycle stages (2026-05-21)
+
+**Decision.** A prospect is a single `prospects` row that moves through
+stages: `researching → qualified → contacting → responded → signed →
+client` (plus `passed` / `dormant`). The research page and the client
+page are the same record at different stages — no separate prospect vs.
+client tables to keep in sync. Each row has an `owner_id` (the rep who
+researched it) and a `signed_by_id` (who closed it).
+
+**Rationale.** A prospect and a client are the same entity over time.
+Splitting them invites divergence; a stage enum doesn't.
+
+### D-017 · Rank scoring is editable config (2026-05-21)
+
+**Decision.** The research page scores agents 0–10. The scoring fields
+and weights live in a `rank_factors` config table, super-admin editable
+in ops — the same philosophy as `pricing_globals`. Per-prospect answers
+are stored as JSONB on the prospect so adding/retuning a factor never
+orphans rows. Bands: **8–10 qualified, 6–7 borderline, ≤5 "Don't
+message."** Thresholds are themselves config.
+
+### D-018 · Contact scripts are editable config (2026-05-21)
+
+**Decision.** Outreach scripts live in a `contact_scripts` table, one
+per contact stage, with `{{placeholder}}` slots and a
+`followup_after_days` interval. Super-admin edits them in ops; reps
+always copy-paste the current version. No deploy needed to retune
+wording.
+
+### D-019 · Owner-scoped prospect visibility (2026-05-21)
+
+**Decision.** A rep sees only the prospects they own; a super_admin sees
+everyone's. Keeps each rep's dashboard and follow-up queue focused on
+their own pipeline.
+
+### D-020 · Follow-ups computed on read, no scheduler (2026-05-21)
+
+**Decision.** "Needs follow-up" is computed at query time — the latest
+`prospect_contacts` row has no response and is older than that step's
+`followup_after_days`. No cron, no background job for v1. A scheduled
+email-reminder task can be added later without changing the data model.
+
+**Rationale.** The dashboard already runs a query on every load; folding
+the follow-up logic into it is simpler and has no moving parts to break.
 
 ---
 

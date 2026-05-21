@@ -13,9 +13,36 @@ lives in `README.md`. This file is the time-ordered receipt.
 ## [Unreleased]
 
 ### Planned next
-- Day 11-12 — Admin UI: /rates, /packages/[slug] worksheet, /corporate
-- Day 13-15 — Calculator UI with live total
-- Day 16 — Role-aware view (super_admin sees cost/margin; partner doesn't)
+- Phase B — CRM migration + seed; Research, Tracking, Client, Dashboard pages
+- Phase C — super-admin editors (pricing worksheet, rank factors, scripts),
+  all draft-until-Publish
+- Quote PDF export + polish
+
+---
+
+## 2026-05-21 — Week 2 · Reframe: ops is a pipeline + light CRM
+
+Dean re-scoped ops mid-build. It is a sales pipeline plus a light CRM —
+research real estate agents, score them, work them through a contact
+cycle, sign them, keep a light client record — with pricing as one tool
+inside a client page. Not a Jira/Monday clone.
+
+### Decided
+- D-015 — ops is a sales pipeline + light CRM, not a calculator with
+  extra pages. Build order: calculator (Phase A) → CRM pipeline
+  (Phase B) → super-admin editors (Phase C).
+- D-016 — one `prospects` record with lifecycle stages; the research
+  page and the client page are the same row at different stages.
+- D-017 — rank scoring is editable config (`rank_factors` + JSONB
+  answers). Bands: 8–10 qualified, 6–7 borderline, ≤5 don't message.
+- D-018 — contact scripts are editable config (`contact_scripts`).
+- D-019 — owner-scoped prospect visibility; super_admin sees all.
+- D-020 — follow-ups computed on read; no scheduler in v1.
+
+### Changed
+- `BUILD-PLAN.md` — §5 gains a reframe block (Phases A/B/C) that
+  supersedes the day-numbered Week 3–4 plan; §9 marks the Prospect
+  Tracker / Daily Queue promoted into the MVP; §10 adds D-015–D-020.
 
 ---
 
