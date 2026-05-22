@@ -19,6 +19,27 @@ lives in `README.md`. This file is the time-ordered receipt.
 
 ---
 
+## 2026-05-21 — Test suite · contact-cycle + scoring unit tests
+
+### Added
+- Vitest as the unit-test runner (matching the `ripped` project) —
+  `vitest.config.ts`, plus `test:unit` / `test:unit:watch` scripts.
+- `src/lib/tracking.test.ts` — contact-cycle progression: every
+  `computeCycle` trigger checked against a synthetic `now` (ready,
+  waiting, the day-3 follow-up boundary, overdue, per-step intervals,
+  cycle_done) plus `nextScript` ordering.
+- `src/lib/prospects.test.ts` — `scoreProspect` 0–10 rank, band
+  classification boundaries, `stageForBand`, and the `STAGE_NEXT` map.
+
+### Changed
+- `tsconfig.json` excludes `**/*.test.ts` and `vitest.config.ts` from
+  the Next build typecheck — vitest type-checks them itself.
+
+### To run
+- `npm install` (picks up vitest), then `npm run test:unit`.
+
+---
+
 ## 2026-05-21 — Phase C · pricing editors (Rates, Corporate, worksheet)
 
 The three pricing-config screens are now editable inside ops, each
