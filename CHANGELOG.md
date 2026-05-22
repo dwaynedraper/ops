@@ -13,9 +13,38 @@ lives in `README.md`. This file is the time-ordered receipt.
 ## [Unreleased]
 
 ### Planned next
-- Phase C — super-admin editors (pricing worksheet, rates, corporate,
-  rank factors, scripts), all draft-until-Publish
+- Phase C — the rank-factor and script editors, draft-until-Publish
+  (the pricing editors — Rates, Corporate, worksheet — shipped 2026-05-21)
 - Quote PDF export + polish
+
+---
+
+## 2026-05-21 — Phase C · pricing editors (Rates, Corporate, worksheet)
+
+The three pricing-config screens are now editable inside ops, each
+draft-until-Publish (D-012) — editing the seed script or raw SQL is no
+longer the only way to move a price. The rank-factor and script editors
+are still to come.
+
+### Added
+- `src/components/DraftGuard.tsx` — the reusable draft-until-Publish
+  safety net: a `beforeunload` guard for tab close, plus a capture-phase
+  interceptor on in-app link navigation that raises a Stay / Reset /
+  Publish modal. Used by all three pricing editors.
+- `/rates` — the `pricing_globals` rate table as an editable form
+  (hourly rates and margins), super-admin gated. RatesClient + actions.
+- `/corporate` — the `corporate_pricing` parametric formula, grouped
+  Single Executive / Team Day / Volume, with a live preview that
+  re-prices example teams from the real `pricing.ts` functions.
+  CorporateClient + actions.
+- `/packages` + `/packages/[slug]` — the per-package cost worksheet:
+  editable time and hard-cost lines, rate-role dropdowns, add/remove
+  rows, an editable margin, and a live Working / Website price
+  recompute. Publish recomputes `base_price` from the lines and
+  replaces `package_cost_lines` wholesale in one transaction.
+
+### Verified
+- `tsc --noEmit` and `eslint` clean across `src`.
 
 ---
 

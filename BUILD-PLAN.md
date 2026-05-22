@@ -5,7 +5,7 @@
 > dated history. README.md is the local-dev quickstart; this is the
 > full operating reference.
 
-**Last updated:** 2026-05-21 · Week 1 complete · Phase A (calculator) and Phase B (Research, Tracking, Client, Dashboard) complete · Phase C (super-admin editors) next.
+**Last updated:** 2026-05-21 · Week 1 complete · Phase A (calculator) and Phase B (Research, Tracking, Client, Dashboard) complete · Phase C pricing editors (Rates, Corporate, worksheet) complete · Phase C rank-factor + script editors next.
 
 ---
 
@@ -410,10 +410,13 @@ Owner-scoped visibility throughout. The full sales motion runs end to
 end. See D-021 and the 2026-05-21 CHANGELOG entry.
 
 **Phase C — Super-admin editors.** Pricing worksheet / Rates /
-Corporate **plus** the rank-factor and script editors — all
-draft-until-Publish (D-012). Buffer phase: until it lands, those
-configs are edited via seed/SQL, so if anything slips to v1.1 it is the
-editor UIs, never the pipeline.
+Corporate ✓ (shipped 2026-05-21) **plus** the rank-factor and script
+editors (still to come) — all draft-until-Publish (D-012). The shared
+`DraftGuard` component (beforeunload + in-app nav interception + the
+Stay/Reset/Publish modal) backs all of them. Buffer phase: until the
+rank-factor and script editors land, that config is edited via
+seed/SQL, so if anything slips to v1.1 it is those two editor UIs,
+never the pipeline.
 
 Then quote PDF export and polish.
 
