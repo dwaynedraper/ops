@@ -15,6 +15,7 @@ export interface OwnedProspect {
   id: string;
   ownerId: string;
   stage: ProspectStage;
+  workflowKey: string;
 }
 
 export type ProspectAccess =
@@ -31,8 +32,12 @@ export async function loadOwnedProspect(prospectId: string): Promise<ProspectAcc
   const userId = session?.user?.id;
   if (!userId) return { error: 'Your session has expired — sign in again.' };
 
-  const row = await sqlOne<{ owner_id: string; stage: ProspectStage }>`
-    SELECT owner_id, stage FROM prospects WHERE id = ${prospectId}`;
+  const row = await sqlOne<{
+    owner_id: string;
+    stage: ProspectStage;
+    workflow_key: string;
+  }>`
+    SELECT owner_id, stage, workflow_key FROM prospects WHERE id = ${prospectId}`;
   if (!row) return { error: 'That prospect is no longer in the pipeline.' };
 
   const isAdmin = session.user?.role === 'super_admin';
@@ -41,7 +46,12 @@ export async function loadOwnedProspect(prospectId: string): Promise<ProspectAcc
   }
 
   return {
-    prospect: { id: prospectId, ownerId: row.owner_id, stage: row.stage },
+    prospect: {
+      id: prospectId,
+      ownerId: row.owner_id,
+      stage: row.stage,
+      workflowKey: row.workflow_key,
+    },
     userId,
   };
 }

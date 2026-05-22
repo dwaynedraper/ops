@@ -27,6 +27,18 @@ export interface ContactScript {
   body: string;
 }
 
+/**
+ * A per-workflow handoff link. Resolves a config placeholder — a
+ * {{link_key}} token in a script — to a live URL. The rep never types
+ * these; the composer fills them automatically (see schema.sql ·
+ * handoff_links, PHASE-D-PLAN §8).
+ */
+export interface HandoffLink {
+  linkKey: string;
+  label: string;
+  url: string;
+}
+
 /** A logged touch, as the tracking page renders it (serializable). */
 export interface ContactLog {
   id: string;
@@ -66,8 +78,9 @@ export interface CycleContact {
 export interface TrackingCard {
   prospect: {
     id: string;
-    agentName: string;
-    agency: string | null;
+    workflowKey: string;
+    contactName: string;
+    orgName: string | null;
     email: string | null;
     phone: string | null;
     marketArea: string | null;
@@ -99,6 +112,27 @@ export function extractPlaceholders(...texts: (string | null | undefined)[]): st
     }
   }
   return seen;
+}
+
+/**
+ * Split placeholders into the two kinds (PHASE-D-PLAN §8). A token whose
+ * name matches a handoff link's key is a *config* placeholder — resolved
+ * automatically to the link's URL, never shown as an input. Everything
+ * else is a *human* placeholder the rep fills at compose time.
+ */
+export function splitPlaceholders(
+  placeholders: string[],
+  links: HandoffLink[],
+): { human: string[]; config: HandoffLink[] } {
+  const byKey = new Map(links.map((l) => [l.linkKey, l]));
+  const human: string[] = [];
+  const config: HandoffLink[] = [];
+  for (const key of placeholders) {
+    const link = byKey.get(key);
+    if (link) config.push(link);
+    else human.push(key);
+  }
+  return { human, config };
 }
 
 /**

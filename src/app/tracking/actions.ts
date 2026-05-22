@@ -36,7 +36,8 @@ export async function logContact(input: {
 
   const script = await sqlOne<{ id: string; channel: string }>`
     SELECT id, channel FROM contact_scripts
-    WHERE stage_key = ${input.stepKey} AND active = true`;
+    WHERE workflow_key = ${loaded.prospect.workflowKey}
+      AND stage_key = ${input.stepKey} AND active = true`;
   if (!script) return { ok: false, error: 'That contact step is no longer active.' };
 
   const body = input.filledBody.trim();

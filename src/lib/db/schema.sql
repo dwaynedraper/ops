@@ -331,66 +331,101 @@ CREATE TABLE IF NOT EXISTS quote_events (
 CREATE INDEX IF NOT EXISTS quote_events_quote_id_idx ON quote_events(quote_id, created_at DESC);
 
 -- ════════════════════════════════════════════════════════════════════
--- LAYER 3 — CRM / sales pipeline (Phase B)
+-- LAYER 3 — CRM / multi-workflow sales pipeline (Phase B → D)
 --
--- Ops runs the whole sales motion: research real estate agents, score
--- them, work the qualified ones through a contact cycle, sign them, and
--- keep a light client record. See decisions D-015 through D-020.
+-- Ops runs several sales motions — one per offering. Each is a
+-- `workflow`: Real Estate Media, Corporate Headshots, Story Portraits,
+-- The Saga, and The 10% Rule. A workflow owns its own entry gate,
+-- scoring factors, contact scripts, handoff links, and vocabulary; all
+-- five run on the same Research → Tracking → Client machinery. See
+-- PHASE-D-PLAN.md and decisions D-015 through D-027.
 --
--- A `prospect` is ONE row that moves through lifecycle stages — the
--- research page and the client page are the same record at different
--- stages. Reps see only the prospects they own; a super_admin sees all.
+-- A `prospect` is ONE row, belonging to one workflow, that moves through
+-- lifecycle stages — the research page and the client page are the same
+-- record at different stages. Reps see only the prospects they own; a
+-- super_admin sees all.
 -- ════════════════════════════════════════════════════════════════════
 
+-- ─── workflows ─────────────────────────────────────────────────────
+-- One row per sales motion. `branch` defaults the client-page calculator
+-- (NULL for the 10% workflow — contributed work, no quote). contact_noun
+-- and org_noun drive the UI labels so each workflow reads natively.
+CREATE TABLE IF NOT EXISTS workflows (
+  workflow_key TEXT PRIMARY KEY,
+  name         TEXT NOT NULL,
+  branch       TEXT CHECK (branch IN ('portraits', 'realestate', 'corporate')),
+  contact_noun TEXT NOT NULL DEFAULT 'Contact',
+  org_noun     TEXT,
+  accent       TEXT NOT NULL DEFAULT '#94a3b8',
+  active       BOOLEAN NOT NULL DEFAULT TRUE,
+  sort_order   INTEGER NOT NULL DEFAULT 100,
+  created_at   TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at   TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS workflows_active_idx ON workflows(active, sort_order);
+
 -- ─── rank_factors ──────────────────────────────────────────────────
--- Editable scoring config for the research page (D-017). Each factor
+-- Editable scoring config, scoped per workflow (D-017). Each factor
 -- contributes points toward a prospect's 0-10 rank:
 --   bool   factor → `weight` if the answer is true, else 0
 --   number factor → weight × min(value, max_input) / max_input
--- The rank is raw points ÷ Σ weights × 10. Super-admin editable.
+-- The rank is raw points ÷ Σ weights × 10. A factor with is_gate = true
+-- is an entry-gate question — every gate factor must answer true for the
+-- prospect to enter the pipeline. Super-admin editable.
 CREATE TABLE IF NOT EXISTS rank_factors (
-  key         TEXT PRIMARY KEY,
-  label       TEXT NOT NULL,
-  help_text   TEXT,
-  kind        TEXT NOT NULL CHECK (kind IN ('bool', 'number')),
-  weight      NUMERIC(6,2) NOT NULL DEFAULT 1,
+  workflow_key TEXT NOT NULL REFERENCES workflows(workflow_key) ON DELETE CASCADE,
+  key          TEXT NOT NULL,
+  label        TEXT NOT NULL,
+  help_text    TEXT,
+  kind         TEXT NOT NULL CHECK (kind IN ('bool', 'number')),
+  weight       NUMERIC(6,2) NOT NULL DEFAULT 1,
   -- number factors only: the input value that earns full weight
-  max_input   NUMERIC(12,2),
-  sort_order  INTEGER NOT NULL DEFAULT 100,
-  active      BOOLEAN NOT NULL DEFAULT TRUE,
-  updated_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
+  max_input    NUMERIC(12,2),
+  -- gate factors must answer true to enter the pipeline; a gate is bool
+  is_gate      BOOLEAN NOT NULL DEFAULT FALSE,
+  sort_order   INTEGER NOT NULL DEFAULT 100,
+  active       BOOLEAN NOT NULL DEFAULT TRUE,
+  updated_at   TIMESTAMPTZ NOT NULL DEFAULT now(),
+  PRIMARY KEY (workflow_key, key),
   CHECK (
     (kind = 'number' AND max_input IS NOT NULL AND max_input > 0)
     OR (kind = 'bool' AND max_input IS NULL)
-  )
+  ),
+  CHECK (NOT is_gate OR kind = 'bool')
 );
 
-CREATE INDEX IF NOT EXISTS rank_factors_active_idx ON rank_factors(active, sort_order);
+CREATE INDEX IF NOT EXISTS rank_factors_workflow_idx
+  ON rank_factors(workflow_key, active, sort_order);
 
 -- ─── rank_config ───────────────────────────────────────────────────
--- Rank thresholds, as editable key/value rows (D-017):
+-- Rank thresholds, as editable key/value rows scoped per workflow (D-017):
 --   qualified_min          — score at/above this is "qualified"
 --   borderline_min         — score at/above this is "borderline";
 --                            below it the research page says "don't message"
 --   qualified_target_count — once a rep has this many qualified
 --                            prospects, prompt them to start contacting
 CREATE TABLE IF NOT EXISTS rank_config (
-  key         TEXT PRIMARY KEY,
-  label       TEXT NOT NULL,
-  value       NUMERIC(10,2) NOT NULL,
-  notes       TEXT,
-  updated_at  TIMESTAMPTZ NOT NULL DEFAULT now()
+  workflow_key TEXT NOT NULL REFERENCES workflows(workflow_key) ON DELETE CASCADE,
+  key          TEXT NOT NULL,
+  label        TEXT NOT NULL,
+  value        NUMERIC(10,2) NOT NULL,
+  notes        TEXT,
+  updated_at   TIMESTAMPTZ NOT NULL DEFAULT now(),
+  PRIMARY KEY (workflow_key, key)
 );
 
 -- ─── contact_scripts ───────────────────────────────────────────────
--- Editable outreach templates (D-018), one per contact-cycle stage.
--- The tracking page parses {{placeholder}} slots from the subject/body,
--- renders an input per slot, and produces a copy-paste message. A step
--- is "due for follow-up" `followup_after_days` after it was sent with
--- no response (0 = no follow-up — the cycle ends there).
+-- Editable outreach templates per workflow (D-018), one per contact-
+-- cycle stage. The tracking page parses {{placeholder}} slots from the
+-- subject/body, renders an input per human slot, resolves config slots
+-- (handoff links) automatically, and produces a copy-paste message. A
+-- step is "due for follow-up" `followup_after_days` after it was sent
+-- with no response (0 = no follow-up — the cycle ends there).
 CREATE TABLE IF NOT EXISTS contact_scripts (
   id                  UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  stage_key           TEXT NOT NULL UNIQUE,
+  workflow_key        TEXT NOT NULL REFERENCES workflows(workflow_key) ON DELETE CASCADE,
+  stage_key           TEXT NOT NULL,
   label               TEXT NOT NULL,
   channel             TEXT NOT NULL DEFAULT 'email'
                         CHECK (channel IN ('email', 'dm', 'call')),
@@ -400,54 +435,70 @@ CREATE TABLE IF NOT EXISTS contact_scripts (
   body                TEXT NOT NULL,
   active              BOOLEAN NOT NULL DEFAULT TRUE,
   created_at          TIMESTAMPTZ NOT NULL DEFAULT now(),
-  updated_at          TIMESTAMPTZ NOT NULL DEFAULT now()
+  updated_at          TIMESTAMPTZ NOT NULL DEFAULT now(),
+  UNIQUE (workflow_key, stage_key)
 );
 
-CREATE INDEX IF NOT EXISTS contact_scripts_order_idx ON contact_scripts(active, step_order);
+CREATE INDEX IF NOT EXISTS contact_scripts_workflow_idx
+  ON contact_scripts(workflow_key, active, step_order);
+
+-- ─── handoff_links ─────────────────────────────────────────────────
+-- Per-workflow Sprout Studio / handoff URLs (PHASE-D-PLAN §8). A script
+-- references a link by placeholder — {{link_key}} — and the tracking
+-- composer resolves it automatically from this table. Editing a URL
+-- here updates every script that uses it; no script edit needed.
+CREATE TABLE IF NOT EXISTS handoff_links (
+  workflow_key TEXT NOT NULL REFERENCES workflows(workflow_key) ON DELETE CASCADE,
+  link_key     TEXT NOT NULL,
+  label        TEXT NOT NULL,
+  url          TEXT NOT NULL,
+  sort_order   INTEGER NOT NULL DEFAULT 100,
+  updated_at   TIMESTAMPTZ NOT NULL DEFAULT now(),
+  PRIMARY KEY (workflow_key, link_key)
+);
 
 -- ─── prospects ─────────────────────────────────────────────────────
--- One row per researched agent — the same record from first research
--- through signed client. `owner_id` is the rep who researched it;
--- `signed_by_id` is who closed it (set when stage reaches 'signed').
--- `rank_inputs` holds the per-factor answers as JSONB keyed by
--- rank_factors.key, so adding or retuning a factor never orphans a row;
--- `rank_score` caches the computed 0-10 rank.
+-- One row per researched prospect, belonging to one workflow — the same
+-- record from first research through signed client. `owner_id` is the
+-- rep who researched it; `signed_by_id` is who closed it. `rank_inputs`
+-- holds every factor answer (entry-gate answers included) as JSONB keyed
+-- by rank_factors.key within this prospect's workflow; `rank_score`
+-- caches the computed 0-10 rank. Identity is generic — the workflow's
+-- contact_noun / org_noun supply the UI labels.
 CREATE TABLE IF NOT EXISTS prospects (
-  id                  UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  owner_id            UUID NOT NULL REFERENCES users(id) ON DELETE RESTRICT,
-  signed_by_id        UUID REFERENCES users(id) ON DELETE SET NULL,
+  id            UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  workflow_key  TEXT NOT NULL REFERENCES workflows(workflow_key) ON DELETE RESTRICT,
+  owner_id      UUID NOT NULL REFERENCES users(id) ON DELETE RESTRICT,
+  signed_by_id  UUID REFERENCES users(id) ON DELETE SET NULL,
 
   -- Identity
-  agent_name          TEXT NOT NULL,
-  agency              TEXT,
-  email               TEXT,
-  phone               TEXT,
-  website_url         TEXT,
-  social_url          TEXT,
-  market_area         TEXT,
-
-  -- Entry gate — both must be true to enter the pipeline (D-017)
-  has_target_listing  BOOLEAN NOT NULL DEFAULT TRUE,
-  has_photo_need      BOOLEAN NOT NULL DEFAULT TRUE,
+  contact_name  TEXT NOT NULL,
+  org_name      TEXT,
+  email         TEXT,
+  phone         TEXT,
+  website_url   TEXT,
+  social_url    TEXT,
+  market_area   TEXT,
 
   -- Scoring
-  rank_inputs         JSONB NOT NULL DEFAULT '{}'::jsonb,
-  rank_score          NUMERIC(4,1) NOT NULL DEFAULT 0,
+  rank_inputs   JSONB NOT NULL DEFAULT '{}'::jsonb,
+  rank_score    NUMERIC(4,1) NOT NULL DEFAULT 0,
 
   -- Lifecycle
-  stage               TEXT NOT NULL DEFAULT 'researching'
-                        CHECK (stage IN (
-                          'researching', 'qualified', 'contacting',
-                          'responded', 'signed', 'client',
-                          'passed', 'dormant'
-                        )),
+  stage         TEXT NOT NULL DEFAULT 'researching'
+                  CHECK (stage IN (
+                    'researching', 'qualified', 'contacting',
+                    'responded', 'signed', 'client',
+                    'passed', 'dormant'
+                  )),
 
-  created_at          TIMESTAMPTZ NOT NULL DEFAULT now(),
-  updated_at          TIMESTAMPTZ NOT NULL DEFAULT now()
+  created_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at    TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
 CREATE INDEX IF NOT EXISTS prospects_owner_idx ON prospects(owner_id);
 CREATE INDEX IF NOT EXISTS prospects_stage_idx ON prospects(stage);
+CREATE INDEX IF NOT EXISTS prospects_workflow_idx ON prospects(workflow_key);
 
 -- A quote can attach to a prospect (the client-page inline calculator).
 -- Added by ALTER because `quotes` is defined in Layer 2, above prospects.
@@ -543,6 +594,14 @@ BEGIN
   END IF;
   IF NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgname = 'contact_scripts_updated_at') THEN
     CREATE TRIGGER contact_scripts_updated_at BEFORE UPDATE ON contact_scripts
+      FOR EACH ROW EXECUTE FUNCTION trg_set_updated_at();
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgname = 'workflows_updated_at') THEN
+    CREATE TRIGGER workflows_updated_at BEFORE UPDATE ON workflows
+      FOR EACH ROW EXECUTE FUNCTION trg_set_updated_at();
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgname = 'handoff_links_updated_at') THEN
+    CREATE TRIGGER handoff_links_updated_at BEFORE UPDATE ON handoff_links
       FOR EACH ROW EXECUTE FUNCTION trg_set_updated_at();
   END IF;
 END $$;

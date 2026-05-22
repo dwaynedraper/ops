@@ -1,9 +1,13 @@
 import { describe, it, expect } from 'vitest';
 import {
   computeCycle,
+  extractPlaceholders,
+  fillTemplate,
   nextScript,
+  splitPlaceholders,
   type ContactScript,
   type CycleContact,
+  type HandoffLink,
 } from './tracking';
 
 /**
@@ -122,6 +126,34 @@ describe('computeCycle — contact-cycle progression', () => {
       NOW,
     );
     expect(r.status).toBe('cycle_done');
+  });
+});
+
+describe('splitPlaceholders — human vs config (handoff links)', () => {
+  const LINKS: HandoffLink[] = [
+    { linkKey: 'booking_link', label: 'Connection-call booking', url: 'https://book.example/x' },
+  ];
+
+  it('a token matching a handoff link is a config placeholder', () => {
+    const { human, config } = splitPlaceholders(['first_name', 'booking_link'], LINKS);
+    expect(human).toEqual(['first_name']);
+    expect(config.map((l) => l.linkKey)).toEqual(['booking_link']);
+  });
+
+  it('with no links every placeholder stays human', () => {
+    const { human, config } = splitPlaceholders(['first_name', 'booking_link'], []);
+    expect(human).toEqual(['first_name', 'booking_link']);
+    expect(config).toEqual([]);
+  });
+
+  it('a config placeholder resolves to its live URL in the composed message', () => {
+    const body = 'Book here: {{booking_link}} — thanks, {{rep_name}}';
+    const placeholders = extractPlaceholders(body);
+    const { config } = splitPlaceholders(placeholders, LINKS);
+    const values = Object.fromEntries(LINKS.map((l) => [l.linkKey, l.url]));
+    values.rep_name = 'Dean';
+    expect(config).toHaveLength(1);
+    expect(fillTemplate(body, values)).toBe('Book here: https://book.example/x — thanks, Dean');
   });
 });
 

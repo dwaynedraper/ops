@@ -35,7 +35,23 @@ export interface RankFactor {
   weight: number;
   /** number factors only: the input value that earns full weight. */
   maxInput: number | null;
+  /** A gate factor must answer true for the prospect to enter the pipeline. */
+  isGate: boolean;
   sortOrder: number;
+}
+
+/** A sales workflow — one per offering. See PHASE-D-PLAN.md. */
+export interface Workflow {
+  key: string;
+  name: string;
+  /** Calculator default branch; null for the 10% workflow (no quote). */
+  branch: 'portraits' | 'realestate' | 'corporate' | null;
+  /** UI label for the prospect — "Agent", "Contact", "Executive". */
+  contactNoun: string;
+  /** UI label for the organization; null when the prospect is an individual. */
+  orgNoun: string | null;
+  /** Hex accent for the workflow's chips and badges. */
+  accent: string;
 }
 
 /** Per-factor answers, keyed by RankFactor.key. */
@@ -108,6 +124,14 @@ export function scoreProspect(factors: RankFactor[], inputs: RankInputs): ScoreR
   return { score, totalWeight, earnedPoints, factors: factorScores };
 }
 
+/**
+ * The entry gate: every gate factor must be answered true. A prospect
+ * can't enter the pipeline until all of its workflow's gates pass.
+ */
+export function gatesPassed(factors: RankFactor[], inputs: RankInputs): boolean {
+  return factors.filter((f) => f.isGate).every((f) => inputs[f.key] === true);
+}
+
 /** Classify a 0–10 score into its band. */
 export function classifyBand(score: number, bands: RankBands): ScoreBand {
   if (score >= bands.qualifiedMin) return 'qualified';
@@ -161,22 +185,22 @@ export const STAGE_NEXT: Record<ProspectStage, ProspectStage[]> = {
 // ─── Research page input / result shapes ──────────────────────────────
 
 export interface CreateProspectInput {
-  agentName: string;
-  agency: string;
+  workflowKey: string;
+  contactName: string;
+  orgName: string;
   email: string;
   phone: string;
   websiteUrl: string;
   socialUrl: string;
   marketArea: string;
-  hasTargetListing: boolean;
-  hasPhotoNeed: boolean;
+  /** Per-factor answers, gate factors included, keyed by factor key. */
   rankInputs: RankInputs;
 }
 
 export interface CreateProspectResult {
   ok: boolean;
   id?: string;
-  agentName?: string;
+  contactName?: string;
   score?: number;
   band?: ScoreBand;
   stage?: ProspectStage;
@@ -186,8 +210,9 @@ export interface CreateProspectResult {
 /** A prospect row as the research page list renders it. */
 export interface ProspectListItem {
   id: string;
-  agentName: string;
-  agency: string | null;
+  workflowKey: string;
+  contactName: string;
+  orgName: string | null;
   marketArea: string | null;
   rankScore: number;
   stage: ProspectStage;

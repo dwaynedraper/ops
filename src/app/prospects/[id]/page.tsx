@@ -21,26 +21,29 @@ import {
 /**
  * Client page — a prospect's home record.
  *
- * Server component: gates on the session, loads the prospect (owner-checked
- * — D-019), its notes, its quote history, and the pricing catalog for the
- * embedded calculator. The interactive mini-CRM lives in ClientPageView.
+ * Server component: loads the prospect (owner-checked — D-019) with its
+ * workflow, its notes, its quote history, and the pricing catalog. The
+ * interactive mini-CRM lives in ClientPageView.
  */
 export const dynamic = 'force-dynamic';
 
 interface ProspectRow {
   id: string;
   owner_id: string;
-  signed_by_id: string | null;
+  workflow_key: string;
+  workflow_name: string | null;
+  contact_noun: string | null;
+  org_noun: string | null;
+  branch: 'portraits' | 'realestate' | 'corporate' | null;
+  accent: string | null;
   signed_by_name: string | null;
-  agent_name: string;
-  agency: string | null;
+  contact_name: string;
+  org_name: string | null;
   email: string | null;
   phone: string | null;
   website_url: string | null;
   social_url: string | null;
   market_area: string | null;
-  has_target_listing: boolean;
-  has_photo_need: boolean;
   rank_score: string;
   stage: ProspectStage;
   created_at: Date;
@@ -78,9 +81,9 @@ export async function generateMetadata({
   params: Promise<{ id: string }>;
 }) {
   const { id } = await params;
-  const row = await sqlOne<{ agent_name: string }>`
-    SELECT agent_name FROM prospects WHERE id = ${id}`;
-  return { title: row?.agent_name ?? 'Prospect' };
+  const row = await sqlOne<{ contact_name: string }>`
+    SELECT contact_name FROM prospects WHERE id = ${id}`;
+  return { title: row?.contact_name ?? 'Prospect' };
 }
 
 export default async function ClientPage({
@@ -98,12 +101,14 @@ export default async function ClientPage({
   const isAdmin = role === 'super_admin';
 
   const prospectRow = await sqlOne<ProspectRow>`
-    SELECT p.id, p.owner_id, p.signed_by_id, p.agent_name, p.agency, p.email,
-           p.phone, p.website_url, p.social_url, p.market_area,
-           p.has_target_listing, p.has_photo_need, p.rank_score, p.stage,
-           p.created_at, su.name AS signed_by_name
+    SELECT p.id, p.owner_id, p.workflow_key, p.contact_name, p.org_name, p.email,
+           p.phone, p.website_url, p.social_url, p.market_area, p.rank_score,
+           p.stage, p.created_at,
+           su.name AS signed_by_name,
+           w.name AS workflow_name, w.contact_noun, w.org_noun, w.branch, w.accent
     FROM prospects p
     LEFT JOIN users su ON su.id = p.signed_by_id
+    LEFT JOIN workflows w ON w.workflow_key = p.workflow_key
     WHERE p.id = ${id}`;
 
   // Missing, or not this rep's prospect — both render the branded 404.
@@ -125,7 +130,8 @@ export default async function ClientPage({
       FROM quotes
       WHERE prospect_id = ${id}
       ORDER BY created_at DESC`,
-    sql<ConfigRow>`SELECT key, value FROM rank_config`,
+    sql<ConfigRow>`
+      SELECT key, value FROM rank_config WHERE workflow_key = ${prospectRow.workflow_key}`,
     getCatalog(),
   ]);
 
@@ -140,15 +146,19 @@ export default async function ClientPage({
 
   const prospect: ProspectDetail = {
     id: prospectRow.id,
-    agentName: prospectRow.agent_name,
-    agency: prospectRow.agency,
+    workflowKey: prospectRow.workflow_key,
+    workflowName: prospectRow.workflow_name ?? prospectRow.workflow_key,
+    workflowAccent: prospectRow.accent ?? 'var(--text-faint)',
+    contactNoun: prospectRow.contact_noun ?? 'Contact',
+    orgNoun: prospectRow.org_noun,
+    branch: prospectRow.branch,
+    contactName: prospectRow.contact_name,
+    orgName: prospectRow.org_name,
     email: prospectRow.email,
     phone: prospectRow.phone,
     websiteUrl: prospectRow.website_url,
     socialUrl: prospectRow.social_url,
     marketArea: prospectRow.market_area,
-    hasTargetListing: prospectRow.has_target_listing,
-    hasPhotoNeed: prospectRow.has_photo_need,
     rankScore,
     band: classifyBand(rankScore, bands),
     stage: prospectRow.stage,

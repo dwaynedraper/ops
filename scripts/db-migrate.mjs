@@ -52,6 +52,7 @@ if (!connectionString) {
 
 const check = process.argv.includes('--check');
 const freshCatalog = process.argv.includes('--fresh-catalog');
+const freshCrm = process.argv.includes('--fresh-crm');
 
 // Catalog + quote tables, in FK-safe drop order. The --fresh-catalog
 // flag drops these before re-applying the schema, so a structural
@@ -69,6 +70,21 @@ const CATALOG_TABLES = [
   'corporate_pricing',
 ];
 
+// CRM / pipeline tables, in FK-safe drop order. The --fresh-crm flag
+// drops these (and the quotes.prospect_id column) before re-applying the
+// schema, so the Phase D multi-workflow restructure lands cleanly. Auth
+// and catalog tables are untouched.
+const CRM_TABLES = [
+  'prospect_notes',
+  'prospect_contacts',
+  'prospects',
+  'contact_scripts',
+  'rank_factors',
+  'rank_config',
+  'handoff_links',
+  'workflows',
+];
+
 const client = new pg.Client({
   connectionString,
   ssl: connectionString.includes('localhost') ? false : { rejectUnauthorized: false },
@@ -80,9 +96,12 @@ const banner = '\n  Sharp Sighted Ops · DB migrator\n';
   console.log(banner);
   console.log(`  Target  : ${maskUrl(connectionString)}`);
   console.log(`  Schema  : ${schemaPath}`);
-  console.log(
-    `  Mode    : ${check ? 'CHECK (read-only)' : freshCatalog ? 'FRESH-CATALOG + APPLY' : 'APPLY'}\n`,
-  );
+  const mode = check
+    ? 'CHECK (read-only)'
+    : [freshCatalog && 'FRESH-CATALOG', freshCrm && 'FRESH-CRM', 'APPLY']
+        .filter(Boolean)
+        .join(' + ');
+  console.log(`  Mode    : ${mode}\n`);
 
   try {
     await client.connect();
@@ -94,6 +113,18 @@ const banner = '\n  Sharp Sighted Ops · DB migrator\n';
         await client.query(`DROP TABLE IF EXISTS ${t} CASCADE;`);
       }
       console.log(`     Dropped: ${CATALOG_TABLES.join(', ')}\n`);
+    }
+
+    if (freshCrm && !check) {
+      console.log('  ⚠  --fresh-crm: dropping CRM / pipeline tables first.');
+      console.log('     Auth and catalog tables are untouched.');
+      for (const t of CRM_TABLES) {
+        await client.query(`DROP TABLE IF EXISTS ${t} CASCADE;`);
+      }
+      // The quotes.prospect_id FK is dropped with `prospects`; drop the
+      // column too so the schema re-adds it with a fresh FK.
+      await client.query('ALTER TABLE IF EXISTS quotes DROP COLUMN IF EXISTS prospect_id;');
+      console.log(`     Dropped: ${CRM_TABLES.join(', ')} (+ quotes.prospect_id)\n`);
     }
 
     if (check) {

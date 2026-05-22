@@ -29,8 +29,8 @@ function orNull(s: string): string | null {
 /** Update the prospect's identity / contact details. */
 export async function updateProspectDetails(input: {
   prospectId: string;
-  agentName: string;
-  agency: string;
+  contactName: string;
+  orgName: string;
   email: string;
   phone: string;
   websiteUrl: string;
@@ -40,19 +40,19 @@ export async function updateProspectDetails(input: {
   const loaded = await loadOwnedProspect(input.prospectId);
   if ('error' in loaded) return { ok: false, error: loaded.error };
 
-  const agentName = input.agentName.trim();
-  if (!agentName) return { ok: false, error: 'The agent needs a name.' };
+  const contactName = input.contactName.trim();
+  if (!contactName) return { ok: false, error: 'The prospect needs a name.' };
 
   try {
     await sql`
       UPDATE prospects SET
-        agent_name  = ${agentName},
-        agency      = ${orNull(input.agency)},
-        email       = ${orNull(input.email)},
-        phone       = ${orNull(input.phone)},
-        website_url = ${orNull(input.websiteUrl)},
-        social_url  = ${orNull(input.socialUrl)},
-        market_area = ${orNull(input.marketArea)}
+        contact_name = ${contactName},
+        org_name     = ${orNull(input.orgName)},
+        email        = ${orNull(input.email)},
+        phone        = ${orNull(input.phone)},
+        website_url  = ${orNull(input.websiteUrl)},
+        social_url   = ${orNull(input.socialUrl)},
+        market_area  = ${orNull(input.marketArea)}
       WHERE id = ${input.prospectId}`;
 
     revalidatePath(`/prospects/${input.prospectId}`);

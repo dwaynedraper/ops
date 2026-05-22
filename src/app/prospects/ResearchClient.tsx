@@ -1,34 +1,47 @@
 'use client';
 
 /**
- * The research surface — interactive.
+ * The research surface — interactive, multi-workflow.
  *
- * A rep enters an agent, clears the two entry gates, and answers the
- * rank factors; the score panel re-rates 0–10 live on every change.
- * "Add" sends the answers (never the score) to createProspect, which
- * recomputes server-side and persists.
- *
- * Scoring math is imported from src/lib/prospects.ts so this component
- * and the server agree to the decimal.
+ * A rep picks the workflow they're researching for; the entry gate,
+ * scoring factors, and identity labels all adapt to it. The score panel
+ * re-rates live. "Add" sends the answers + the workflow to createProspect,
+ * which recomputes server-side and persists.
  */
 
-import { useMemo, useState } from 'react';
+import { useState } from 'react';
+import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import {
   scoreProspect,
   classifyBand,
+  gatesPassed,
   type RankFactor,
   type RankBands,
   type RankInputs,
   type ScoreBand,
+  type ProspectStage,
+  type ProspectListItem,
   type CreateProspectInput,
   type CreateProspectResult,
 } from '@/lib/prospects';
 import { createProspect } from './actions';
 
+export interface ResearchWorkflow {
+  key: string;
+  name: string;
+  branch: 'portraits' | 'realestate' | 'corporate' | null;
+  contactNoun: string;
+  orgNoun: string | null;
+  accent: string;
+  factors: RankFactor[];
+  bands: RankBands;
+  qualifiedCount: number;
+}
+
 interface Identity {
-  agentName: string;
-  agency: string;
+  contactName: string;
+  orgName: string;
   email: string;
   phone: string;
   websiteUrl: string;
@@ -37,8 +50,8 @@ interface Identity {
 }
 
 const EMPTY_IDENTITY: Identity = {
-  agentName: '',
-  agency: '',
+  contactName: '',
+  orgName: '',
   email: '',
   phone: '',
   websiteUrl: '',
@@ -50,7 +63,7 @@ const BAND_META: Record<ScoreBand, { label: string; color: string; note: string 
   qualified: {
     label: 'Qualified',
     color: 'var(--good)',
-    note: 'Strong candidate. Work this one — start the contact cycle.',
+    note: 'Strong fit. Work this one — it earns a place in the pipeline.',
   },
   borderline: {
     label: 'Borderline',
@@ -58,10 +71,29 @@ const BAND_META: Record<ScoreBand, { label: string; color: string; note: string 
     note: 'A judgment call. Add it and revisit, or keep researching.',
   },
   reject: {
-    label: "Don't message",
+    label: 'Below the bar',
     color: 'var(--bad)',
-    note: 'Below threshold. Logging it keeps it off the re-research pile.',
+    note: 'Under threshold. Logging it keeps it off the re-research pile.',
   },
+};
+
+type StageTone = 'good' | 'warn' | 'accent' | 'cyan' | 'muted';
+const STAGE_META: Record<ProspectStage, { label: string; tone: StageTone }> = {
+  researching: { label: 'Researching', tone: 'muted' },
+  qualified: { label: 'Qualified', tone: 'good' },
+  contacting: { label: 'Contacting', tone: 'accent' },
+  responded: { label: 'Responded', tone: 'warn' },
+  signed: { label: 'Signed', tone: 'good' },
+  client: { label: 'Client', tone: 'cyan' },
+  passed: { label: 'Passed', tone: 'muted' },
+  dormant: { label: 'Dormant', tone: 'muted' },
+};
+const TONE_COLOR: Record<StageTone, string> = {
+  good: 'var(--good)',
+  warn: 'var(--warn)',
+  accent: 'var(--accent)',
+  cyan: 'var(--brand-cyan)',
+  muted: 'var(--text-faint)',
 };
 
 function initialInputs(factors: RankFactor[]): RankInputs {
@@ -71,51 +103,65 @@ function initialInputs(factors: RankFactor[]): RankInputs {
 }
 
 export function ResearchClient({
-  factors,
-  bands,
-  qualifiedCount,
+  workflows,
+  prospects,
 }: {
-  factors: RankFactor[];
-  bands: RankBands;
-  qualifiedCount: number;
+  workflows: ResearchWorkflow[];
+  prospects: ProspectListItem[];
 }) {
   const router = useRouter();
 
+  const [selectedKey, setSelectedKey] = useState(workflows[0]?.key ?? '');
   const [identity, setIdentity] = useState<Identity>(EMPTY_IDENTITY);
-  const [hasTargetListing, setHasTargetListing] = useState(true);
-  const [hasPhotoNeed, setHasPhotoNeed] = useState(true);
-  const [inputs, setInputs] = useState<RankInputs>(() => initialInputs(factors));
-
+  const [inputs, setInputs] = useState<RankInputs>(() =>
+    workflows[0] ? initialInputs(workflows[0].factors) : {},
+  );
   const [submitting, setSubmitting] = useState(false);
   const [result, setResult] = useState<CreateProspectResult | null>(null);
 
-  // ─── Live score ───────────────────────────────────────────────────────
-  const scored = useMemo(() => scoreProspect(factors, inputs), [factors, inputs]);
-  const band = classifyBand(scored.score, bands);
-  const labelByKey = useMemo(
-    () => new Map(factors.map((f) => [f.key, f.label])),
-    [factors],
-  );
+  const wf = workflows.find((w) => w.key === selectedKey) ?? workflows[0] ?? null;
 
-  const gateOpen = hasTargetListing && hasPhotoNeed;
-  const hasName = identity.agentName.trim().length > 0;
+  if (!wf) {
+    return (
+      <div className="surface-card">
+        <p style={{ fontSize: '0.86rem', color: 'var(--text-muted)' }}>
+          No workflows configured yet — seed the database to start researching.
+        </p>
+      </div>
+    );
+  }
+
+  const gateFactors = wf.factors.filter((f) => f.isGate);
+  const scoringFactors = wf.factors.filter((f) => !f.isGate);
+
+  const scored = scoreProspect(scoringFactors, inputs);
+  const band = classifyBand(scored.score, wf.bands);
+  const gateOpen = gatesPassed(wf.factors, inputs);
+  const hasName = identity.contactName.trim().length > 0;
   const canSubmit = gateOpen && hasName && !submitting;
+
+  const myProspects = prospects.filter((p) => p.workflowKey === wf.key);
+
+  function selectWorkflow(key: string) {
+    const next = workflows.find((w) => w.key === key);
+    if (!next) return;
+    setSelectedKey(key);
+    setIdentity(EMPTY_IDENTITY);
+    setInputs(initialInputs(next.factors));
+    setResult(null);
+  }
 
   function patchIdentity(patch: Partial<Identity>) {
     setIdentity((prev) => ({ ...prev, ...patch }));
     setResult(null);
   }
-
   function setFactor(key: string, value: boolean | number) {
     setInputs((prev) => ({ ...prev, [key]: value }));
     setResult(null);
   }
-
   function reset() {
     setIdentity(EMPTY_IDENTITY);
-    setHasTargetListing(true);
-    setHasPhotoNeed(true);
-    setInputs(initialInputs(factors));
+    setInputs(initialInputs(wf!.factors));
     setResult(null);
   }
 
@@ -124,21 +170,19 @@ export function ResearchClient({
     setSubmitting(true);
     setResult(null);
     const payload: CreateProspectInput = {
-      agentName: identity.agentName,
-      agency: identity.agency,
+      workflowKey: wf!.key,
+      contactName: identity.contactName,
+      orgName: identity.orgName,
       email: identity.email,
       phone: identity.phone,
       websiteUrl: identity.websiteUrl,
       socialUrl: identity.socialUrl,
       marketArea: identity.marketArea,
-      hasTargetListing,
-      hasPhotoNeed,
       rankInputs: inputs,
     };
     try {
       const res = await createProspect(payload);
       setResult(res);
-      // Refresh the server-rendered prospect list below the tool.
       if (res.ok) router.refresh();
     } catch (err) {
       setResult({
@@ -150,341 +194,473 @@ export function ResearchClient({
     }
   }
 
-  // Button label + style follow the band — a reject is logged, not "added".
   let buttonLabel: string;
   if (!gateOpen) buttonLabel = 'Entry gate not cleared';
   else if (submitting) buttonLabel = 'Saving…';
   else if (band === 'qualified') buttonLabel = 'Add qualified prospect';
   else if (band === 'borderline') buttonLabel = 'Add borderline prospect';
-  else buttonLabel = 'Log as passed';
+  else buttonLabel = 'Log as below-bar';
 
   return (
-    <div className="research-layout">
-      {/* ─── Form ──────────────────────────────────────────────────────── */}
-      <div style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
-        {/* Agent identity */}
-        <div className="surface-tool">
-          <div className="eyebrow" style={{ marginBottom: '0.25rem' }}>
-            The agent
-          </div>
-          <p style={{ fontSize: '0.78rem', color: 'var(--text-muted)', marginBottom: '0.9rem' }}>
-            Name is required. Fill in the rest as you find it — you can finish the
-            record on their client page later.
-          </p>
-          <div
-            style={{
-              display: 'grid',
-              gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))',
-              gap: '0.75rem',
-            }}
-          >
-            <Field label="Agent name">
-              <input
-                className="input"
-                value={identity.agentName}
-                onChange={(e) => patchIdentity({ agentName: e.target.value })}
-                placeholder="Jordan Avery"
-              />
-            </Field>
-            <Field label="Agency">
-              <input
-                className="input"
-                value={identity.agency}
-                onChange={(e) => patchIdentity({ agency: e.target.value })}
-                placeholder="Avery & Co. Realty"
-              />
-            </Field>
-            <Field label="Market area">
-              <input
-                className="input"
-                value={identity.marketArea}
-                onChange={(e) => patchIdentity({ marketArea: e.target.value })}
-                placeholder="Frisco / Prosper"
-              />
-            </Field>
-            <Field label="Email">
-              <input
-                className="input"
-                type="email"
-                value={identity.email}
-                onChange={(e) => patchIdentity({ email: e.target.value })}
-                placeholder="jordan@averyco.com"
-              />
-            </Field>
-            <Field label="Phone">
-              <input
-                className="input"
-                value={identity.phone}
-                onChange={(e) => patchIdentity({ phone: e.target.value })}
-                placeholder="(214) 555-0100"
-              />
-            </Field>
-            <Field label="Website">
-              <input
-                className="input"
-                value={identity.websiteUrl}
-                onChange={(e) => patchIdentity({ websiteUrl: e.target.value })}
-                placeholder="averyco.com"
-              />
-            </Field>
-            <Field label="Social profile">
-              <input
-                className="input"
-                value={identity.socialUrl}
-                onChange={(e) => patchIdentity({ socialUrl: e.target.value })}
-                placeholder="instagram.com/jordanavery"
-              />
-            </Field>
-          </div>
-        </div>
-
-        {/* Entry gate */}
-        <div className="surface-tool">
-          <div className="eyebrow" style={{ marginBottom: '0.25rem' }}>
-            Entry gate
-          </div>
-          <p style={{ fontSize: '0.78rem', color: 'var(--text-muted)', marginBottom: '0.9rem' }}>
-            Both have to be true for this agent to be a prospect at all. If either
-            is off, there&apos;s nothing to sell yet — move on.
-          </p>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
-            <GateToggle
-              checked={hasTargetListing}
-              onChange={(v) => {
-                setHasTargetListing(v);
-                setResult(null);
+    <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
+      {/* ─── Workflow picker ───────────────────────────────────────────── */}
+      <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
+        {workflows.map((w) => {
+          const active = w.key === wf.key;
+          return (
+            <button
+              key={w.key}
+              onClick={() => selectWorkflow(w.key)}
+              style={{
+                padding: '0.5rem 0.95rem',
+                borderRadius: 'var(--radius-sm)',
+                border: `1px solid ${active ? w.accent : 'var(--border-strong)'}`,
+                background: active ? `${w.accent}22` : 'transparent',
+                color: active ? 'var(--text)' : 'var(--text-mid)',
+                fontSize: '0.78rem',
+                fontWeight: 600,
+                cursor: 'pointer',
+                transition: 'border-color 0.15s, background 0.15s, color 0.15s',
               }}
-              label="Has a current target listing"
-              help="A live listing in the $500K–$2M range worth shooting now."
-            />
-            <GateToggle
-              checked={hasPhotoNeed}
-              onChange={(v) => {
-                setHasPhotoNeed(v);
-                setResult(null);
-              }}
-              label="Has a visible photo need"
-              help="Their current media is weak, missing, or off-brand — a real gap."
-            />
-          </div>
-          {!gateOpen && (
-            <p style={{ fontSize: '0.76rem', color: 'var(--warn)', marginTop: '0.75rem' }}>
-              Gate not cleared — this agent can&apos;t enter the pipeline yet.
-            </p>
-          )}
-        </div>
+            >
+              <span
+                aria-hidden
+                style={{
+                  display: 'inline-block',
+                  width: 8,
+                  height: 8,
+                  borderRadius: '50%',
+                  background: w.accent,
+                  marginRight: '0.45rem',
+                }}
+              />
+              {w.name}
+            </button>
+          );
+        })}
+      </div>
 
-        {/* Scoring */}
-        <div className="surface-tool">
-          <div className="eyebrow" style={{ marginBottom: '0.25rem' }}>
-            Score the fit
-          </div>
-          <p style={{ fontSize: '0.78rem', color: 'var(--text-muted)', marginBottom: '0.9rem' }}>
-            Answer what you can verify. The rank updates live in the panel.
-          </p>
-          {factors.length === 0 ? (
-            <p style={{ fontSize: '0.82rem', color: 'var(--text-muted)' }}>
-              No rank factors configured yet — seed the CRM config to score prospects.
+      <div className="research-layout">
+        {/* ─── Form ────────────────────────────────────────────────────── */}
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
+          {/* Identity */}
+          <div className="surface-tool">
+            <div className="eyebrow" style={{ marginBottom: '0.25rem' }}>
+              The {wf.contactNoun.toLowerCase()}
+            </div>
+            <p style={{ fontSize: '0.78rem', color: 'var(--text-muted)', marginBottom: '0.9rem' }}>
+              Name is required. Fill in the rest as you find it — you can finish the
+              record on the client page later.
             </p>
-          ) : (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
-              {factors.map((f) =>
-                f.kind === 'bool' ? (
-                  <BoolFactor
+            <div
+              style={{
+                display: 'grid',
+                gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))',
+                gap: '0.75rem',
+              }}
+            >
+              <Field label={`${wf.contactNoun} name`}>
+                <input
+                  className="input"
+                  value={identity.contactName}
+                  onChange={(e) => patchIdentity({ contactName: e.target.value })}
+                  placeholder="Jordan Avery"
+                />
+              </Field>
+              {wf.orgNoun && (
+                <Field label={wf.orgNoun}>
+                  <input
+                    className="input"
+                    value={identity.orgName}
+                    onChange={(e) => patchIdentity({ orgName: e.target.value })}
+                  />
+                </Field>
+              )}
+              <Field label="Market area">
+                <input
+                  className="input"
+                  value={identity.marketArea}
+                  onChange={(e) => patchIdentity({ marketArea: e.target.value })}
+                  placeholder="Frisco / Prosper"
+                />
+              </Field>
+              <Field label="Email">
+                <input
+                  className="input"
+                  type="email"
+                  value={identity.email}
+                  onChange={(e) => patchIdentity({ email: e.target.value })}
+                />
+              </Field>
+              <Field label="Phone">
+                <input
+                  className="input"
+                  value={identity.phone}
+                  onChange={(e) => patchIdentity({ phone: e.target.value })}
+                />
+              </Field>
+              <Field label="Website">
+                <input
+                  className="input"
+                  value={identity.websiteUrl}
+                  onChange={(e) => patchIdentity({ websiteUrl: e.target.value })}
+                />
+              </Field>
+              <Field label="Social profile">
+                <input
+                  className="input"
+                  value={identity.socialUrl}
+                  onChange={(e) => patchIdentity({ socialUrl: e.target.value })}
+                />
+              </Field>
+            </div>
+          </div>
+
+          {/* Entry gate */}
+          {gateFactors.length > 0 && (
+            <div className="surface-tool">
+              <div className="eyebrow" style={{ marginBottom: '0.25rem' }}>
+                Entry gate
+              </div>
+              <p style={{ fontSize: '0.78rem', color: 'var(--text-muted)', marginBottom: '0.9rem' }}>
+                Every gate has to be true for this {wf.contactNoun.toLowerCase()} to be a
+                prospect at all. If one is off, there&apos;s nothing to work yet.
+              </p>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+                {gateFactors.map((f) => (
+                  <GateToggle
                     key={f.key}
                     factor={f}
                     checked={inputs[f.key] === true}
                     onChange={(v) => setFactor(f.key, v)}
                   />
-                ) : (
-                  <NumberFactor
-                    key={f.key}
-                    factor={f}
-                    value={typeof inputs[f.key] === 'number' ? (inputs[f.key] as number) : 0}
-                    onChange={(v) => setFactor(f.key, v)}
-                  />
-                ),
+                ))}
+              </div>
+              {!gateOpen && (
+                <p style={{ fontSize: '0.76rem', color: 'var(--warn)', marginTop: '0.75rem' }}>
+                  Gate not cleared — this {wf.contactNoun.toLowerCase()} can&apos;t enter the
+                  pipeline yet.
+                </p>
               )}
             </div>
           )}
-        </div>
-      </div>
 
-      {/* ─── Live score panel ──────────────────────────────────────────── */}
-      <div className="research-score">
-        <div
-          className="surface-tool"
-          style={{ display: 'flex', flexDirection: 'column', gap: '0.85rem' }}
-        >
-          <div className="eyebrow">Rank</div>
-
-          {/* Score */}
-          <div style={{ display: 'flex', alignItems: 'baseline', gap: '0.4rem' }}>
-            <span
-              className="money"
-              style={{ fontSize: '2.6rem', lineHeight: 1, color: BAND_META[band].color }}
-            >
-              {scored.score.toFixed(1)}
-            </span>
-            <span style={{ fontSize: '0.95rem', color: 'var(--text-faint)' }}>/ 10</span>
-          </div>
-
-          {/* Band */}
-          <div>
-            <span
-              style={{
-                display: 'inline-block',
-                fontSize: '0.64rem',
-                letterSpacing: '0.14em',
-                textTransform: 'uppercase',
-                fontWeight: 700,
-                color: BAND_META[band].color,
-                border: `1px solid ${BAND_META[band].color}`,
-                borderRadius: 'var(--radius-sm)',
-                padding: '0.22rem 0.55rem',
-              }}
-            >
-              {BAND_META[band].label}
-            </span>
-            <p
-              style={{
-                fontSize: '0.75rem',
-                color: 'var(--text-muted)',
-                marginTop: '0.5rem',
-                lineHeight: 1.5,
-              }}
-            >
-              {gateOpen
-                ? BAND_META[band].note
-                : 'Clear both entry gates before this score means anything.'}
+          {/* Scoring */}
+          <div className="surface-tool">
+            <div className="eyebrow" style={{ marginBottom: '0.25rem' }}>
+              Score the fit
+            </div>
+            <p style={{ fontSize: '0.78rem', color: 'var(--text-muted)', marginBottom: '0.9rem' }}>
+              Answer what you can verify. The rank updates live in the panel.
             </p>
+            {scoringFactors.length === 0 ? (
+              <p style={{ fontSize: '0.82rem', color: 'var(--text-muted)' }}>
+                No scoring factors configured for this workflow yet.
+              </p>
+            ) : (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+                {scoringFactors.map((f) =>
+                  f.kind === 'bool' ? (
+                    <BoolFactor
+                      key={f.key}
+                      factor={f}
+                      checked={inputs[f.key] === true}
+                      onChange={(v) => setFactor(f.key, v)}
+                    />
+                  ) : (
+                    <NumberFactor
+                      key={f.key}
+                      factor={f}
+                      value={typeof inputs[f.key] === 'number' ? (inputs[f.key] as number) : 0}
+                      onChange={(v) => setFactor(f.key, v)}
+                    />
+                  ),
+                )}
+              </div>
+            )}
           </div>
+        </div>
 
-          {/* Breakdown */}
-          {scored.factors.length > 0 && (
+        {/* ─── Live score panel ────────────────────────────────────────── */}
+        <div className="research-score">
+          <div
+            className="surface-tool"
+            style={{ display: 'flex', flexDirection: 'column', gap: '0.85rem' }}
+          >
+            <div className="eyebrow">{wf.name} · rank</div>
+
+            <div style={{ display: 'flex', alignItems: 'baseline', gap: '0.4rem' }}>
+              <span
+                className="money"
+                style={{ fontSize: '2.6rem', lineHeight: 1, color: BAND_META[band].color }}
+              >
+                {scored.score.toFixed(1)}
+              </span>
+              <span style={{ fontSize: '0.95rem', color: 'var(--text-faint)' }}>/ 10</span>
+            </div>
+
+            <div>
+              <span
+                style={{
+                  display: 'inline-block',
+                  fontSize: '0.64rem',
+                  letterSpacing: '0.14em',
+                  textTransform: 'uppercase',
+                  fontWeight: 700,
+                  color: BAND_META[band].color,
+                  border: `1px solid ${BAND_META[band].color}`,
+                  borderRadius: 'var(--radius-sm)',
+                  padding: '0.22rem 0.55rem',
+                }}
+              >
+                {BAND_META[band].label}
+              </span>
+              <p
+                style={{
+                  fontSize: '0.75rem',
+                  color: 'var(--text-muted)',
+                  marginTop: '0.5rem',
+                  lineHeight: 1.5,
+                }}
+              >
+                {gateOpen
+                  ? BAND_META[band].note
+                  : 'Clear every entry gate before this score means anything.'}
+              </p>
+            </div>
+
+            {scored.factors.length > 0 && (
+              <div
+                style={{
+                  borderTop: '1px solid var(--border)',
+                  paddingTop: '0.7rem',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: '0.3rem',
+                }}
+              >
+                {scored.factors.map((fs) => {
+                  const label = scoringFactors.find((f) => f.key === fs.key)?.label ?? fs.key;
+                  const filled = fs.weight > 0 ? fs.earned / fs.weight : 0;
+                  return (
+                    <div
+                      key={fs.key}
+                      style={{
+                        display: 'flex',
+                        justifyContent: 'space-between',
+                        gap: '0.6rem',
+                        fontSize: '0.74rem',
+                      }}
+                    >
+                      <span
+                        style={{
+                          color: filled > 0 ? 'var(--text-mid)' : 'var(--text-faint)',
+                          overflow: 'hidden',
+                          textOverflow: 'ellipsis',
+                          whiteSpace: 'nowrap',
+                        }}
+                      >
+                        {label}
+                      </span>
+                      <span
+                        className="money"
+                        style={{
+                          color: filled > 0 ? 'var(--text)' : 'var(--text-faint)',
+                          whiteSpace: 'nowrap',
+                        }}
+                      >
+                        {fs.earned.toFixed(1)} / {fs.weight}
+                      </span>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+
             <div
               style={{
                 borderTop: '1px solid var(--border)',
                 paddingTop: '0.7rem',
-                display: 'flex',
-                flexDirection: 'column',
-                gap: '0.3rem',
+                fontSize: '0.74rem',
               }}
             >
-              {scored.factors.map((fs) => {
-                const filled = fs.weight > 0 ? fs.earned / fs.weight : 0;
-                return (
-                  <div
-                    key={fs.key}
+              <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                <span style={{ color: 'var(--text-mid)' }}>Qualified pipeline</span>
+                <span className="money" style={{ color: 'var(--text)' }}>
+                  {wf.qualifiedCount} / {wf.bands.targetCount}
+                </span>
+              </div>
+              <p style={{ color: 'var(--text-faint)', marginTop: '0.35rem', lineHeight: 1.5 }}>
+                {wf.qualifiedCount >= wf.bands.targetCount
+                  ? 'Target hit — time to start the contact cycle.'
+                  : `${wf.bands.targetCount - wf.qualifiedCount} more to hit the contact target.`}
+              </p>
+            </div>
+
+            {result?.ok ? (
+              <div
+                style={{
+                  background: 'var(--steel-dim)',
+                  border: '1px solid var(--border)',
+                  borderRadius: 'var(--radius-sm)',
+                  padding: '0.75rem',
+                  fontSize: '0.8rem',
+                  lineHeight: 1.5,
+                }}
+              >
+                <strong style={{ color: 'var(--text)' }}>{result.contactName}</strong> saved —
+                scored {result.score?.toFixed(1)}, stage{' '}
+                <strong style={{ color: 'var(--text)' }}>{result.stage}</strong>.
+                <button
+                  onClick={reset}
+                  className="btn-ghost"
+                  style={{ marginTop: '0.5rem', padding: '0.3rem 0' }}
+                >
+                  Research another
+                </button>
+              </div>
+            ) : (
+              <>
+                <button
+                  className={band === 'reject' ? 'btn-outline' : 'btn-primary'}
+                  style={{ justifyContent: 'center', width: '100%' }}
+                  disabled={!canSubmit}
+                  onClick={onSubmit}
+                >
+                  {buttonLabel}
+                </button>
+                {!hasName && gateOpen && (
+                  <p style={{ fontSize: '0.74rem', color: 'var(--text-faint)' }}>
+                    Add a name to save.
+                  </p>
+                )}
+                {result && !result.ok && (
+                  <p style={{ fontSize: '0.78rem', color: 'var(--bad)' }}>{result.error}</p>
+                )}
+              </>
+            )}
+          </div>
+
+          <p
+            style={{
+              fontSize: '0.72rem',
+              color: 'var(--text-faint)',
+              marginTop: '0.6rem',
+              textAlign: 'center',
+            }}
+          >
+            Stay Sharp. Stay Seen. Stay Human.
+          </p>
+        </div>
+      </div>
+
+      {/* ─── This workflow's prospects ───────────────────────────────────── */}
+      <section>
+        <div className="eyebrow" style={{ marginBottom: '0.85rem' }}>
+          Your {wf.name} prospects
+        </div>
+        {myProspects.length === 0 ? (
+          <div className="surface-card">
+            <p style={{ fontSize: '0.86rem', color: 'var(--text-muted)' }}>
+              No prospects in this workflow yet — research one above.
+            </p>
+          </div>
+        ) : (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.4rem' }}>
+            {myProspects.map((p) => {
+              const stage = STAGE_META[p.stage];
+              const pBand = classifyBand(p.rankScore, wf.bands);
+              const scoreColor =
+                pBand === 'qualified'
+                  ? 'var(--good)'
+                  : pBand === 'borderline'
+                    ? 'var(--warn)'
+                    : 'var(--text-faint)';
+              return (
+                <Link
+                  key={p.id}
+                  href={`/prospects/${p.id}`}
+                  className="surface-tool"
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '0.85rem',
+                    padding: '0.7rem 0.9rem',
+                    textDecoration: 'none',
+                    color: 'inherit',
+                  }}
+                >
+                  <span
+                    className="money"
                     style={{
-                      display: 'flex',
-                      justifyContent: 'space-between',
-                      gap: '0.6rem',
-                      fontSize: '0.74rem',
+                      fontSize: '1.15rem',
+                      color: scoreColor,
+                      minWidth: '2.4rem',
+                      textAlign: 'center',
+                      flexShrink: 0,
                     }}
                   >
+                    {p.rankScore.toFixed(1)}
+                  </span>
+                  <span style={{ flex: 1, minWidth: 0 }}>
                     <span
                       style={{
-                        color: filled > 0 ? 'var(--text-mid)' : 'var(--text-faint)',
+                        display: 'block',
+                        fontSize: '0.88rem',
+                        fontWeight: 600,
+                        color: 'var(--text)',
                         overflow: 'hidden',
                         textOverflow: 'ellipsis',
                         whiteSpace: 'nowrap',
                       }}
                     >
-                      {labelByKey.get(fs.key) ?? fs.key}
+                      {p.contactName}
                     </span>
                     <span
-                      className="money"
                       style={{
-                        color: filled > 0 ? 'var(--text)' : 'var(--text-faint)',
+                        display: 'block',
+                        fontSize: '0.74rem',
+                        color: 'var(--text-muted)',
+                        overflow: 'hidden',
+                        textOverflow: 'ellipsis',
                         whiteSpace: 'nowrap',
                       }}
                     >
-                      {fs.earned.toFixed(1)} / {fs.weight}
+                      {[p.orgName, p.marketArea].filter(Boolean).join(' · ') || '—'}
                     </span>
-                  </div>
-                );
-              })}
-            </div>
-          )}
-
-          {/* Qualified progress */}
-          <div
-            style={{
-              borderTop: '1px solid var(--border)',
-              paddingTop: '0.7rem',
-              fontSize: '0.74rem',
-            }}
-          >
-            <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-              <span style={{ color: 'var(--text-mid)' }}>Qualified pipeline</span>
-              <span className="money" style={{ color: 'var(--text)' }}>
-                {qualifiedCount} / {bands.targetCount}
-              </span>
-            </div>
-            <p style={{ color: 'var(--text-faint)', marginTop: '0.35rem', lineHeight: 1.5 }}>
-              {qualifiedCount >= bands.targetCount
-                ? 'Target hit — time to start the contact cycle.'
-                : `${bands.targetCount - qualifiedCount} more to hit the contact target.`}
-            </p>
+                  </span>
+                  <span
+                    style={{
+                      fontSize: '0.62rem',
+                      letterSpacing: '0.14em',
+                      textTransform: 'uppercase',
+                      fontWeight: 700,
+                      color: TONE_COLOR[stage.tone],
+                      border: `1px solid ${TONE_COLOR[stage.tone]}`,
+                      borderRadius: 'var(--radius-sm)',
+                      padding: '0.2rem 0.5rem',
+                      flexShrink: 0,
+                    }}
+                  >
+                    {stage.label}
+                  </span>
+                  <span
+                    style={{
+                      fontSize: '0.72rem',
+                      color: 'var(--text-faint)',
+                      minWidth: '3.2rem',
+                      textAlign: 'right',
+                      flexShrink: 0,
+                    }}
+                  >
+                    {p.createdAt}
+                  </span>
+                </Link>
+              );
+            })}
           </div>
-
-          {/* Action / result */}
-          {result?.ok ? (
-            <div
-              style={{
-                background: 'var(--steel-dim)',
-                border: '1px solid var(--border)',
-                borderRadius: 'var(--radius-sm)',
-                padding: '0.75rem',
-                fontSize: '0.8rem',
-                lineHeight: 1.5,
-              }}
-            >
-              <strong style={{ color: 'var(--text)' }}>{result.agentName}</strong> saved —
-              scored {result.score?.toFixed(1)}, stage{' '}
-              <strong style={{ color: 'var(--text)' }}>{result.stage}</strong>.
-              <button
-                onClick={reset}
-                className="btn-ghost"
-                style={{ marginTop: '0.5rem', padding: '0.3rem 0' }}
-              >
-                Research another
-              </button>
-            </div>
-          ) : (
-            <>
-              <button
-                className={band === 'reject' ? 'btn-outline' : 'btn-primary'}
-                style={{ justifyContent: 'center', width: '100%' }}
-                disabled={!canSubmit}
-                onClick={onSubmit}
-              >
-                {buttonLabel}
-              </button>
-              {!hasName && gateOpen && (
-                <p style={{ fontSize: '0.74rem', color: 'var(--text-faint)' }}>
-                  Add the agent&apos;s name to save.
-                </p>
-              )}
-              {result && !result.ok && (
-                <p style={{ fontSize: '0.78rem', color: 'var(--bad)' }}>{result.error}</p>
-              )}
-            </>
-          )}
-        </div>
-
-        <p
-          style={{
-            fontSize: '0.72rem',
-            color: 'var(--text-faint)',
-            marginTop: '0.6rem',
-            textAlign: 'center',
-          }}
-        >
-          Stay Sharp. Stay Seen. Stay Human.
-        </p>
-      </div>
+        )}
+      </section>
     </div>
   );
 }
@@ -501,15 +677,13 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
 }
 
 function GateToggle({
+  factor,
   checked,
   onChange,
-  label,
-  help,
 }: {
+  factor: RankFactor;
   checked: boolean;
   onChange: (v: boolean) => void;
-  label: string;
-  help: string;
 }) {
   return (
     <label
@@ -539,10 +713,14 @@ function GateToggle({
         }}
       />
       <div style={{ minWidth: 0 }}>
-        <div style={{ fontSize: '0.83rem', color: 'var(--text)', fontWeight: 600 }}>{label}</div>
-        <div style={{ fontSize: '0.72rem', color: 'var(--text-faint)', lineHeight: 1.4 }}>
-          {help}
+        <div style={{ fontSize: '0.83rem', color: 'var(--text)', fontWeight: 600 }}>
+          {factor.label}
         </div>
+        {factor.helpText && (
+          <div style={{ fontSize: '0.72rem', color: 'var(--text-faint)', lineHeight: 1.4 }}>
+            {factor.helpText}
+          </div>
+        )}
       </div>
     </label>
   );

@@ -1,15 +1,16 @@
 'use server';
 
 /**
- * Contact-script editor server action.
+ * Script + handoff-link editor server action.
  *
- * `publishScripts` commits the outreach scripts the tracking page hands
- * reps. Super-admin only (D-014); a local draft until this runs (D-012).
+ * `publishScripts` commits one workflow's outreach scripts and its
+ * handoff links together (PHASE-D-PLAN §8). Super-admin only (D-014); a
+ * local draft until this runs (D-012).
  *
- * Scripts are upserted by `stage_key` — a logged contact snapshots the
- * message it sent, so editing a script never rewrites history. Step
- * order is derived from the list order. Retiring a script is done with
- * its `active` flag.
+ * Scripts are upserted by (workflow_key, stage_key); a logged contact
+ * snapshots its message, so an edit never rewrites history. Handoff
+ * links have no dependents, so the workflow's link set is replaced
+ * wholesale — link keys can change freely.
  */
 
 import { revalidatePath } from 'next/cache';
@@ -28,6 +29,12 @@ export interface ScriptInput {
   active: boolean;
 }
 
+export interface LinkInput {
+  linkKey: string;
+  label: string;
+  url: string;
+}
+
 export interface PublishScriptsResult {
   ok: boolean;
   error?: string;
@@ -38,7 +45,9 @@ function slugify(s: string): string {
 }
 
 export async function publishScripts(input: {
+  workflowKey: string;
   scripts: ScriptInput[];
+  links: LinkInput[];
 }): Promise<PublishScriptsResult> {
   const session = await auth();
   if (session?.user?.role !== 'super_admin') {
@@ -49,8 +58,9 @@ export async function publishScripts(input: {
     return { ok: false, error: 'Keep at least one contact script.' };
   }
 
-  const used = new Set<string>();
-  const resolved: {
+  // ─── Resolve scripts ────────────────────────────────────────────────
+  const usedStage = new Set<string>();
+  const scripts: {
     stageKey: string;
     label: string;
     channel: ContactChannel;
@@ -65,31 +75,24 @@ export async function publishScripts(input: {
   for (const s of input.scripts) {
     const label = s.label.trim();
     if (!label) return { ok: false, error: 'Every script needs a label.' };
-
     const body = s.body.trim();
     if (!body) return { ok: false, error: `“${label}” needs a message body.` };
-
     if (s.channel !== 'email' && s.channel !== 'dm' && s.channel !== 'call') {
       return { ok: false, error: `“${label}” has an invalid channel.` };
     }
     if (!Number.isInteger(s.followupAfterDays) || s.followupAfterDays < 0) {
-      return {
-        ok: false,
-        error: `“${label}” needs a whole follow-up-days value of 0 or more.`,
-      };
+      return { ok: false, error: `“${label}” needs a whole follow-up-days value of 0 or more.` };
     }
-
     let key = s.stageKey.trim();
     if (!key) {
       const base = slugify(label) || 'step';
       key = base;
       let n = 2;
-      while (used.has(key)) key = `${base}_${n++}`;
+      while (usedStage.has(key)) key = `${base}_${n++}`;
     }
-    if (used.has(key)) return { ok: false, error: `Duplicate script key “${key}”.` };
-    used.add(key);
-
-    resolved.push({
+    if (usedStage.has(key)) return { ok: false, error: `Duplicate script key “${key}”.` };
+    usedStage.add(key);
+    scripts.push({
       stageKey: key,
       label,
       channel: s.channel,
@@ -102,21 +105,61 @@ export async function publishScripts(input: {
     order += 10;
   }
 
+  // ─── Resolve handoff links ──────────────────────────────────────────
+  const usedLink = new Set<string>();
+  const links: { linkKey: string; label: string; url: string; sortOrder: number }[] = [];
+  let linkOrder = 10;
+
+  for (const l of input.links) {
+    const label = l.label.trim();
+    const url = l.url.trim();
+    const key = slugify(l.linkKey);
+    if (!key) return { ok: false, error: 'Every handoff link needs a key.' };
+    if (!label) return { ok: false, error: `Handoff link “${key}” needs a label.` };
+    if (!url) return { ok: false, error: `Handoff link “${key}” needs a URL.` };
+    if (usedLink.has(key)) return { ok: false, error: `Duplicate handoff-link key “${key}”.` };
+    usedLink.add(key);
+    links.push({ linkKey: key, label, url, sortOrder: linkOrder });
+    linkOrder += 10;
+  }
+
   const pool = getPool();
   const dbc = await pool.connect();
   try {
     await dbc.query('BEGIN');
 
-    for (const s of resolved) {
+    const wf = await dbc.query<{ workflow_key: string }>(
+      'SELECT workflow_key FROM workflows WHERE workflow_key = $1',
+      [input.workflowKey],
+    );
+    if (wf.rows.length === 0) {
+      await dbc.query('ROLLBACK');
+      return { ok: false, error: 'That workflow no longer exists.' };
+    }
+
+    for (const s of scripts) {
       await dbc.query(
         `INSERT INTO contact_scripts
-           (stage_key, label, channel, step_order, followup_after_days, subject, body, active)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
-         ON CONFLICT (stage_key) DO UPDATE SET
+           (workflow_key, stage_key, label, channel, step_order, followup_after_days, subject, body, active)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
+         ON CONFLICT (workflow_key, stage_key) DO UPDATE SET
            label=EXCLUDED.label, channel=EXCLUDED.channel, step_order=EXCLUDED.step_order,
            followup_after_days=EXCLUDED.followup_after_days, subject=EXCLUDED.subject,
            body=EXCLUDED.body, active=EXCLUDED.active`,
-        [s.stageKey, s.label, s.channel, s.stepOrder, s.followupAfterDays, s.subject, s.body, s.active],
+        [
+          input.workflowKey, s.stageKey, s.label, s.channel, s.stepOrder,
+          s.followupAfterDays, s.subject, s.body, s.active,
+        ],
+      );
+    }
+
+    // Links have no dependents — replace the workflow's set wholesale.
+    await dbc.query('DELETE FROM handoff_links WHERE workflow_key = $1', [input.workflowKey]);
+    for (const l of links) {
+      await dbc.query(
+        `INSERT INTO handoff_links (workflow_key, link_key, label, url, sort_order)
+         VALUES ($1,$2,$3,$4,$5)`,
+        [input.workflowKey, l.linkKey, l.label, l.url, l.sortOrder],
       );
     }
 

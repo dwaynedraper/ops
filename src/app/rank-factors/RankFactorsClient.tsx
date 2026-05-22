@@ -1,15 +1,17 @@
 'use client';
 
 /**
- * Rank-factor editor — interactive.
+ * Rank-factor editor — interactive, per workflow.
  *
- * Edits the research scoring config as a local draft (D-012): the rank
- * factors and the qualified / borderline / target thresholds. DraftGuard
- * catches an attempt to leave with unpublished changes.
+ * Pick a workflow, then edit its rank factors and thresholds as a local
+ * draft (D-012). A factor can be marked a gate — an entry-gate question
+ * that must answer yes; gates are always yes/no. DraftGuard catches an
+ * attempt to leave the page with unpublished changes; switching workflow
+ * is blocked while a draft is dirty so nothing is lost.
  *
- * Existing factors can be deactivated but not removed — a factor key may
- * be referenced in a prospect's saved answers. Factors added in this
- * draft (not yet saved) can be removed outright.
+ * Existing factors can be deactivated but not removed — a key may be
+ * referenced in a prospect's saved answers. Factors added in this draft
+ * can be removed outright.
  */
 
 import { useMemo, useState } from 'react';
@@ -24,6 +26,7 @@ export interface FactorInit {
   kind: RankFactorKind;
   weight: number;
   maxInput: number | null;
+  isGate: boolean;
   active: boolean;
 }
 
@@ -31,6 +34,14 @@ export interface ThresholdsInit {
   qualifiedMin: number;
   borderlineMin: number;
   targetCount: number;
+}
+
+export interface WorkflowConfig {
+  key: string;
+  name: string;
+  accent: string;
+  factors: FactorInit[];
+  thresholds: ThresholdsInit;
 }
 
 interface FactorDraft {
@@ -42,6 +53,7 @@ interface FactorDraft {
   kind: RankFactorKind;
   weight: string;
   maxInput: string;
+  isGate: boolean;
   active: boolean;
 }
 
@@ -65,7 +77,16 @@ function toDraft(f: FactorInit): FactorDraft {
     kind: f.kind,
     weight: String(f.weight),
     maxInput: f.maxInput === null ? '' : String(f.maxInput),
+    isGate: f.isGate,
     active: f.active,
+  };
+}
+
+function toThresholds(t: ThresholdsInit): Thresholds {
+  return {
+    qualifiedMin: String(t.qualifiedMin),
+    borderlineMin: String(t.borderlineMin),
+    targetCount: String(t.targetCount),
   };
 }
 
@@ -78,41 +99,63 @@ function serialize(factors: FactorDraft[], t: Thresholds): string {
       kind: f.kind,
       weight: f.weight,
       maxInput: f.maxInput,
+      isGate: f.isGate,
       active: f.active,
     })),
     t,
   });
 }
 
-export function RankFactorsClient({
-  factors: initialFactors,
-  thresholds: initialThresholds,
-}: {
-  factors: FactorInit[];
-  thresholds: ThresholdsInit;
-}) {
-  const initialDrafts = useMemo(() => initialFactors.map(toDraft), [initialFactors]);
-  const initialT: Thresholds = useMemo(
-    () => ({
-      qualifiedMin: String(initialThresholds.qualifiedMin),
-      borderlineMin: String(initialThresholds.borderlineMin),
-      targetCount: String(initialThresholds.targetCount),
-    }),
-    [initialThresholds],
-  );
+export function RankFactorsClient({ workflows }: { workflows: WorkflowConfig[] }) {
+  const [selectedKey, setSelectedKey] = useState(workflows[0]?.key ?? '');
+  const wf = workflows.find((w) => w.key === selectedKey) ?? workflows[0] ?? null;
 
-  const [factors, setFactors] = useState<FactorDraft[]>(initialDrafts);
-  const [thresholds, setThresholds] = useState<Thresholds>(initialT);
-  const [baseline, setBaseline] = useState<string>(() => serialize(initialDrafts, initialT));
+  const [factors, setFactors] = useState<FactorDraft[]>(() =>
+    (workflows[0]?.factors ?? []).map(toDraft),
+  );
+  const [thresholds, setThresholds] = useState<Thresholds>(() =>
+    toThresholds(workflows[0]?.thresholds ?? { qualifiedMin: 8, borderlineMin: 6, targetCount: 10 }),
+  );
+  const [baseline, setBaseline] = useState<string>(() =>
+    serialize(
+      (workflows[0]?.factors ?? []).map(toDraft),
+      toThresholds(workflows[0]?.thresholds ?? { qualifiedMin: 8, borderlineMin: 6, targetCount: 10 }),
+    ),
+  );
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [saved, setSaved] = useState(false);
 
   const dirty = serialize(factors, thresholds) !== baseline;
 
-  const activeWeight = factors
-    .filter((f) => f.active)
-    .reduce((sum, f) => sum + (Number(f.weight) || 0), 0);
+  const activeWeight = useMemo(
+    () => factors.filter((f) => f.active).reduce((s, f) => s + (Number(f.weight) || 0), 0),
+    [factors],
+  );
+
+  if (!wf) {
+    return (
+      <div className="surface-card">
+        <p style={{ fontSize: '0.86rem', color: 'var(--text-muted)' }}>
+          No workflows configured yet — seed the database first.
+        </p>
+      </div>
+    );
+  }
+
+  function selectWorkflow(key: string) {
+    if (dirty) return;
+    const next = workflows.find((w) => w.key === key);
+    if (!next) return;
+    const drafts = next.factors.map(toDraft);
+    const th = toThresholds(next.thresholds);
+    setSelectedKey(key);
+    setFactors(drafts);
+    setThresholds(th);
+    setBaseline(serialize(drafts, th));
+    setError(null);
+    setSaved(false);
+  }
 
   function patch(localId: string, p: Partial<FactorDraft>) {
     setFactors((prev) => prev.map((f) => (f.localId === localId ? { ...f, ...p } : f)));
@@ -134,6 +177,7 @@ export function RankFactorsClient({
         kind: 'bool',
         weight: '1',
         maxInput: '',
+        isGate: false,
         active: true,
       },
     ]);
@@ -145,8 +189,10 @@ export function RankFactorsClient({
   }
 
   function reset() {
-    setFactors(initialDrafts);
-    setThresholds(initialT);
+    const drafts = wf!.factors.map(toDraft);
+    const th = toThresholds(wf!.thresholds);
+    setFactors(drafts);
+    setThresholds(th);
     setError(null);
     setSaved(false);
   }
@@ -158,12 +204,14 @@ export function RankFactorsClient({
       key: f.isNew ? '' : f.key,
       label: f.label,
       helpText: f.helpText,
-      kind: f.kind,
+      kind: f.isGate ? 'bool' : f.kind,
       weight: Number(f.weight) || 0,
-      maxInput: f.kind === 'number' ? Number(f.maxInput) || 0 : null,
+      maxInput: !f.isGate && f.kind === 'number' ? Number(f.maxInput) || 0 : null,
+      isGate: f.isGate,
       active: f.active,
     }));
     const res = await publishRankConfig({
+      workflowKey: selectedKey,
       factors: payloadFactors,
       thresholds: {
         qualifiedMin: Number(thresholds.qualifiedMin) || 0,
@@ -186,6 +234,40 @@ export function RankFactorsClient({
     <div style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
       <DraftGuard dirty={dirty} onReset={reset} onPublish={publish} what="scoring changes" />
 
+      {/* Workflow picker */}
+      <div>
+        <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
+          {workflows.map((w) => {
+            const active = w.key === selectedKey;
+            return (
+              <button
+                key={w.key}
+                onClick={() => selectWorkflow(w.key)}
+                disabled={dirty && !active}
+                style={{
+                  padding: '0.5rem 0.95rem',
+                  borderRadius: 'var(--radius-sm)',
+                  border: `1px solid ${active ? w.accent : 'var(--border-strong)'}`,
+                  background: active ? `${w.accent}22` : 'transparent',
+                  color: active ? 'var(--text)' : 'var(--text-mid)',
+                  fontSize: '0.78rem',
+                  fontWeight: 600,
+                  cursor: dirty && !active ? 'not-allowed' : 'pointer',
+                  opacity: dirty && !active ? 0.5 : 1,
+                }}
+              >
+                {w.name}
+              </button>
+            );
+          })}
+        </div>
+        {dirty && (
+          <p style={{ fontSize: '0.72rem', color: 'var(--text-faint)', marginTop: '0.5rem' }}>
+            Publish or reset your changes to switch workflow.
+          </p>
+        )}
+      </div>
+
       {/* Factors */}
       <div className="surface-tool">
         <div
@@ -196,9 +278,9 @@ export function RankFactorsClient({
             marginBottom: '0.85rem',
           }}
         >
-          <div className="eyebrow">Rank factors</div>
+          <div className="eyebrow">{wf.name} · rank factors</div>
           <span style={{ fontSize: '0.72rem', color: 'var(--text-faint)' }}>
-            {factors.filter((f) => f.active).length} active · total weight {activeWeight}
+            {factors.filter((f) => f.active && !f.isGate).length} scoring · total weight {activeWeight}
           </span>
         </div>
 
@@ -217,20 +299,21 @@ export function RankFactorsClient({
           Add factor
         </button>
         <p style={{ fontSize: '0.72rem', color: 'var(--text-faint)', marginTop: '0.6rem' }}>
-          A maxed-out agent always scores 10 — weights set each factor&apos;s share of
-          that. Deactivate a factor to drop it from scoring without losing its history.
+          A maxed-out prospect always scores 10 — weights set each factor&apos;s share.
+          Gates are yes/no and don&apos;t score; mark a factor a gate to make it an
+          entry requirement. Deactivate a factor to drop it without losing its history.
         </p>
       </div>
 
       {/* Thresholds */}
       <div className="surface-tool">
         <div className="eyebrow" style={{ marginBottom: '0.85rem' }}>
-          Thresholds
+          {wf.name} · thresholds
         </div>
         <div style={{ display: 'flex', flexDirection: 'column', gap: '0.85rem' }}>
           <ThresholdRow
             label="Qualified — minimum score"
-            help="At or above this, an agent is a strong candidate."
+            help="At or above this, a prospect is a strong candidate."
             value={thresholds.qualifiedMin}
             onChange={(v) => patchThreshold({ qualifiedMin: v })}
           />
@@ -260,14 +343,14 @@ export function RankFactorsClient({
         }}
       >
         <button className="btn-primary" disabled={!dirty || busy} onClick={publish}>
-          {busy ? 'Publishing…' : 'Publish scoring config'}
+          {busy ? 'Publishing…' : `Publish ${wf.name} scoring`}
         </button>
         <button className="btn-outline" disabled={!dirty || busy} onClick={reset}>
           Reset
         </button>
         {dirty && (
           <span style={{ fontSize: '0.78rem', color: 'var(--warn)' }}>
-            Unpublished — the research page still uses the old config.
+            Unpublished — research still uses the old config.
           </span>
         )}
         {!dirty && saved && (
@@ -296,7 +379,7 @@ function FactorCard({
   return (
     <div
       style={{
-        border: `1px solid ${f.active ? 'var(--border)' : 'var(--border)'}`,
+        border: '1px solid var(--border)',
         borderRadius: 'var(--radius-sm)',
         background: f.active ? 'var(--surface-tool-2)' : 'transparent',
         padding: '0.75rem',
@@ -319,31 +402,59 @@ function FactorCard({
         onChange={(e) => onPatch(f.localId, { helpText: e.target.value })}
         style={{ fontSize: '0.82rem' }}
       />
-      <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap' }}>
-        <select
-          className="select"
-          value={f.kind}
-          onChange={(e) => onPatch(f.localId, { kind: e.target.value as RankFactorKind })}
-          style={{ width: 130 }}
-          aria-label="Factor kind"
+      <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem', flexWrap: 'wrap' }}>
+        <label
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: '0.4rem',
+            fontSize: '0.78rem',
+            color: 'var(--text-mid)',
+            cursor: 'pointer',
+          }}
         >
-          <option value="bool">Yes / no</option>
-          <option value="number">Number</option>
-        </select>
-        <label style={{ display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
-          <span style={{ fontSize: '0.72rem', color: 'var(--text-faint)' }}>Weight</span>
           <input
-            type="number"
-            step="0.5"
-            min={0}
-            className="input"
-            value={f.weight}
-            onChange={(e) => onPatch(f.localId, { weight: e.target.value })}
-            style={{ width: 64, textAlign: 'right' }}
-            aria-label="Weight"
+            type="checkbox"
+            checked={f.isGate}
+            onChange={(e) =>
+              onPatch(f.localId, e.target.checked ? { isGate: true, kind: 'bool' } : { isGate: false })
+            }
+            style={{ width: 15, height: 15, accentColor: 'var(--accent)', cursor: 'pointer' }}
           />
+          Gate
         </label>
-        {f.kind === 'number' && (
+
+        {f.isGate ? (
+          <span style={{ fontSize: '0.72rem', color: 'var(--text-faint)' }}>yes/no · entry requirement</span>
+        ) : (
+          <select
+            className="select"
+            value={f.kind}
+            onChange={(e) => onPatch(f.localId, { kind: e.target.value as RankFactorKind })}
+            style={{ width: 130 }}
+            aria-label="Factor kind"
+          >
+            <option value="bool">Yes / no</option>
+            <option value="number">Number</option>
+          </select>
+        )}
+
+        {!f.isGate && (
+          <label style={{ display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
+            <span style={{ fontSize: '0.72rem', color: 'var(--text-faint)' }}>Weight</span>
+            <input
+              type="number"
+              step="0.5"
+              min={0}
+              className="input"
+              value={f.weight}
+              onChange={(e) => onPatch(f.localId, { weight: e.target.value })}
+              style={{ width: 64, textAlign: 'right' }}
+              aria-label="Weight"
+            />
+          </label>
+        )}
+        {!f.isGate && f.kind === 'number' && (
           <label style={{ display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
             <span style={{ fontSize: '0.72rem', color: 'var(--text-faint)' }}>Full credit at</span>
             <input

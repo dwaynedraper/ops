@@ -3,14 +3,13 @@
 /**
  * Rank-factor editor server action.
  *
- * `publishRankConfig` commits the research scoring config — the
- * `rank_factors` (what's scored, and how heavily) and `rank_config` (the
- * qualified / borderline / target thresholds). Super-admin only (D-014);
- * a local draft until this runs (D-012).
+ * `publishRankConfig` commits one workflow's research scoring config —
+ * its `rank_factors` (gates and scoring) and `rank_config` thresholds.
+ * Super-admin only (D-014); a local draft until this runs (D-012).
  *
- * Factors are upserted by `key`, never deleted — a key may already be
- * referenced in a prospect's `rank_inputs` JSONB. Retiring a factor is
- * done with its `active` flag (the research page reads active-only).
+ * Factors are upserted by (workflow_key, key), never deleted — a key may
+ * be referenced in a prospect's `rank_inputs`. Retiring a factor uses its
+ * `active` flag.
  */
 
 import { revalidatePath } from 'next/cache';
@@ -26,6 +25,7 @@ export interface RankFactorInput {
   kind: RankFactorKind;
   weight: number;
   maxInput: number | null;
+  isGate: boolean;
   active: boolean;
 }
 
@@ -40,11 +40,27 @@ export interface PublishRankResult {
   error?: string;
 }
 
+const THRESHOLD_META: Record<string, { label: string; notes: string }> = {
+  qualified_min: {
+    label: 'Qualified — minimum score',
+    notes: 'Score at/above this is a highly-qualified candidate.',
+  },
+  borderline_min: {
+    label: 'Borderline — minimum score',
+    notes: 'At/above this is a judgment call; below it, do not message.',
+  },
+  qualified_target_count: {
+    label: 'Qualified target count',
+    notes: 'Once a rep has this many qualified prospects, prompt the contact cycle.',
+  },
+};
+
 function slugify(s: string): string {
   return s.toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '');
 }
 
 export async function publishRankConfig(input: {
+  workflowKey: string;
   factors: RankFactorInput[];
   thresholds: RankThresholdsInput;
 }): Promise<PublishRankResult> {
@@ -57,7 +73,6 @@ export async function publishRankConfig(input: {
     return { ok: false, error: 'Keep at least one rank factor.' };
   }
 
-  // Validate + resolve keys.
   const used = new Set<string>();
   const resolved: {
     key: string;
@@ -66,6 +81,7 @@ export async function publishRankConfig(input: {
     kind: RankFactorKind;
     weight: number;
     maxInput: number | null;
+    isGate: boolean;
     sortOrder: number;
     active: boolean;
   }[] = [];
@@ -76,6 +92,9 @@ export async function publishRankConfig(input: {
     if (!label) return { ok: false, error: 'Every rank factor needs a label.' };
     if (f.kind !== 'bool' && f.kind !== 'number') {
       return { ok: false, error: `“${label}” has an invalid kind.` };
+    }
+    if (f.isGate && f.kind !== 'bool') {
+      return { ok: false, error: `“${label}” is a gate — gate factors must be yes/no.` };
     }
     if (!Number.isFinite(f.weight) || f.weight < 0) {
       return { ok: false, error: `“${label}” needs a weight of 0 or more.` };
@@ -109,6 +128,7 @@ export async function publishRankConfig(input: {
       kind: f.kind,
       weight: f.weight,
       maxInput,
+      isGate: f.isGate,
       sortOrder: order,
       active: f.active,
     });
@@ -134,16 +154,28 @@ export async function publishRankConfig(input: {
   try {
     await dbc.query('BEGIN');
 
+    const wf = await dbc.query<{ workflow_key: string }>(
+      'SELECT workflow_key FROM workflows WHERE workflow_key = $1',
+      [input.workflowKey],
+    );
+    if (wf.rows.length === 0) {
+      await dbc.query('ROLLBACK');
+      return { ok: false, error: 'That workflow no longer exists.' };
+    }
+
     for (const f of resolved) {
       await dbc.query(
         `INSERT INTO rank_factors
-           (key, label, help_text, kind, weight, max_input, sort_order, active)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
-         ON CONFLICT (key) DO UPDATE SET
+           (workflow_key, key, label, help_text, kind, weight, max_input, is_gate, sort_order, active)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
+         ON CONFLICT (workflow_key, key) DO UPDATE SET
            label=EXCLUDED.label, help_text=EXCLUDED.help_text, kind=EXCLUDED.kind,
-           weight=EXCLUDED.weight, max_input=EXCLUDED.max_input,
+           weight=EXCLUDED.weight, max_input=EXCLUDED.max_input, is_gate=EXCLUDED.is_gate,
            sort_order=EXCLUDED.sort_order, active=EXCLUDED.active`,
-        [f.key, f.label, f.helpText, f.kind, f.weight, f.maxInput, f.sortOrder, f.active],
+        [
+          input.workflowKey, f.key, f.label, f.helpText, f.kind, f.weight,
+          f.maxInput, f.isGate, f.sortOrder, f.active,
+        ],
       );
     }
 
@@ -152,7 +184,14 @@ export async function publishRankConfig(input: {
       ['borderline_min', t.borderlineMin],
       ['qualified_target_count', t.targetCount],
     ] as const) {
-      await dbc.query(`UPDATE rank_config SET value = $1 WHERE key = $2`, [value, key]);
+      const meta = THRESHOLD_META[key];
+      await dbc.query(
+        `INSERT INTO rank_config (workflow_key, key, label, value, notes)
+         VALUES ($1,$2,$3,$4,$5)
+         ON CONFLICT (workflow_key, key) DO UPDATE SET
+           label=EXCLUDED.label, value=EXCLUDED.value, notes=EXCLUDED.notes`,
+        [input.workflowKey, key, meta.label, value, meta.notes],
+      );
     }
 
     await dbc.query('COMMIT');

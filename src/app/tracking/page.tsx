@@ -11,28 +11,30 @@ import {
   type ContactChannel,
   type ContactLog,
   type CycleContact,
+  type HandoffLink,
   type TrackingCard,
 } from '@/lib/tracking';
-import { TrackingClient } from './TrackingClient';
+import { TrackingClient, type TrackingWorkflow } from './TrackingClient';
 
 /**
- * Tracking route — the contact cycle.
+ * Tracking route — the contact cycle, multi-workflow.
  *
- * Server component: loads the contact scripts and every owner-scoped
- * prospect currently in a cycle stage (qualified / contacting / responded)
- * with its logged touches, then computes each one's cycle state. The
- * interactive board, script-fill composer, and stage actions live in the
- * client component. proxy.ts already blocks anonymous access.
- *
- * Visibility is owner-scoped (D-019): a partner sees their own prospects,
- * a super_admin sees everyone's.
+ * Server component: loads every active workflow's scripts and every
+ * owner-scoped prospect in a cycle stage. Each prospect's cycle is
+ * computed against its own workflow's scripts.
  */
 export const dynamic = 'force-dynamic';
 
 export const metadata = { title: 'Tracking' };
 
+interface WorkflowRow {
+  workflow_key: string;
+  name: string;
+  accent: string;
+}
 interface ScriptRow {
   id: string;
+  workflow_key: string;
   stage_key: string;
   label: string;
   channel: ContactChannel;
@@ -43,8 +45,9 @@ interface ScriptRow {
 }
 interface ProspectRow {
   id: string;
-  agent_name: string;
-  agency: string | null;
+  workflow_key: string;
+  contact_name: string;
+  org_name: string | null;
   email: string | null;
   phone: string | null;
   market_area: string | null;
@@ -59,6 +62,12 @@ interface ContactRow {
   sent_at: Date;
   response_received: boolean;
 }
+interface LinkRow {
+  workflow_key: string;
+  link_key: string;
+  label: string;
+  url: string;
+}
 
 const DATE_FMT = new Intl.DateTimeFormat('en-US', { month: 'short', day: 'numeric' });
 const CYCLE_STAGES = ['qualified', 'contacting', 'responded'] as const;
@@ -72,39 +81,62 @@ export default async function TrackingPage() {
   const isAdmin = role === 'super_admin';
   const repName = user.displayName ?? user.name ?? '';
 
-  const [scriptRows, prospectRows] = await Promise.all([
+  const [workflowRows, scriptRows, linkRows, prospectRows] = await Promise.all([
+    sql<WorkflowRow>`
+      SELECT workflow_key, name, accent FROM workflows
+      WHERE active = true ORDER BY sort_order, name`,
     sql<ScriptRow>`
-      SELECT id, stage_key, label, channel, step_order, followup_after_days,
-             subject, body
+      SELECT id, workflow_key, stage_key, label, channel, step_order,
+             followup_after_days, subject, body
       FROM contact_scripts
       WHERE active = true
-      ORDER BY step_order`,
+      ORDER BY workflow_key, step_order`,
+    sql<LinkRow>`
+      SELECT workflow_key, link_key, label, url
+      FROM handoff_links
+      ORDER BY workflow_key, sort_order`,
     isAdmin
       ? sql<ProspectRow>`
-          SELECT id, agent_name, agency, email, phone, market_area, stage, rank_score
+          SELECT id, workflow_key, contact_name, org_name, email, phone,
+                 market_area, stage, rank_score
           FROM prospects
           WHERE stage = ANY(${[...CYCLE_STAGES]})
           ORDER BY created_at DESC`
       : sql<ProspectRow>`
-          SELECT id, agent_name, agency, email, phone, market_area, stage, rank_score
+          SELECT id, workflow_key, contact_name, org_name, email, phone,
+                 market_area, stage, rank_score
           FROM prospects
           WHERE stage = ANY(${[...CYCLE_STAGES]}) AND owner_id = ${user.id}
           ORDER BY created_at DESC`,
   ]);
 
-  const scripts: ContactScript[] = scriptRows.map((r) => ({
-    id: r.id,
-    stageKey: r.stage_key,
-    label: r.label,
-    channel: r.channel,
-    stepOrder: r.step_order,
-    followupAfterDays: r.followup_after_days,
-    subject: r.subject,
-    body: r.body,
-  }));
-  const scriptLabel = new Map(scripts.map((s) => [s.stageKey, s.label]));
+  // Scripts grouped by workflow — each prospect's cycle uses its own set.
+  const scriptsByWorkflow: Record<string, ContactScript[]> = {};
+  for (const r of scriptRows) {
+    const script: ContactScript = {
+      id: r.id,
+      stageKey: r.stage_key,
+      label: r.label,
+      channel: r.channel,
+      stepOrder: r.step_order,
+      followupAfterDays: r.followup_after_days,
+      subject: r.subject,
+      body: r.body,
+    };
+    (scriptsByWorkflow[r.workflow_key] ??= []).push(script);
+  }
 
-  // Pull every touch for the prospects on the board in one query.
+  // Handoff links grouped by workflow — the composer resolves a script's
+  // config placeholders (e.g. {{booking_link}}) from its workflow's set.
+  const linksByWorkflow: Record<string, HandoffLink[]> = {};
+  for (const r of linkRows) {
+    (linksByWorkflow[r.workflow_key] ??= []).push({
+      linkKey: r.link_key,
+      label: r.label,
+      url: r.url,
+    });
+  }
+
   const prospectIds = prospectRows.map((p) => p.id);
   const contactRows =
     prospectIds.length > 0
@@ -124,6 +156,8 @@ export default async function TrackingPage() {
 
   const now = new Date();
   const cards: TrackingCard[] = prospectRows.map((p) => {
+    const scripts = scriptsByWorkflow[p.workflow_key] ?? [];
+    const labelByStep = new Map(scripts.map((s) => [s.stageKey, s.label]));
     const rows = contactsByProspect.get(p.id) ?? [];
     const cycleContacts: CycleContact[] = rows.map((c) => ({
       stepKey: c.step_key,
@@ -134,7 +168,7 @@ export default async function TrackingPage() {
     const contacts: ContactLog[] = rows.map((c) => ({
       id: c.id,
       stepKey: c.step_key,
-      stepLabel: scriptLabel.get(c.step_key) ?? c.step_key,
+      stepLabel: labelByStep.get(c.step_key) ?? c.step_key,
       channel: c.channel,
       sentAtLabel: DATE_FMT.format(new Date(c.sent_at)),
       responseReceived: c.response_received,
@@ -142,8 +176,9 @@ export default async function TrackingPage() {
     return {
       prospect: {
         id: p.id,
-        agentName: p.agent_name,
-        agency: p.agency,
+        workflowKey: p.workflow_key,
+        contactName: p.contact_name,
+        orgName: p.org_name,
         email: p.email,
         phone: p.phone,
         marketArea: p.market_area,
@@ -157,7 +192,6 @@ export default async function TrackingPage() {
     };
   });
 
-  // Most urgent first; within 'waiting', soonest due; then higher score.
   cards.sort((a, b) => {
     const r = statusRank(a.status) - statusRank(b.status);
     if (r !== 0) return r;
@@ -167,6 +201,12 @@ export default async function TrackingPage() {
     }
     return b.prospect.rankScore - a.prospect.rankScore;
   });
+
+  const workflows: TrackingWorkflow[] = workflowRows.map((w) => ({
+    key: w.workflow_key,
+    name: w.name,
+    accent: w.accent,
+  }));
 
   return (
     <div className="app-shell">
@@ -190,12 +230,17 @@ export default async function TrackingPage() {
               Work the <em style={{ color: 'var(--accent)' }}>cycle</em>.
             </h1>
             <p style={{ color: 'var(--text-mid)', marginBottom: '1.75rem', maxWidth: '56ch' }}>
-              Every qualified prospect, in order of who needs you next. Fill the
-              script, copy it, send it, log it. The follow-up clock is the app&apos;s
-              job — yours is the message.
+              Every prospect in a contact cycle, across all workflows, in order of
+              who needs you next. Each one runs its own workflow&apos;s scripts.
             </p>
 
-            <TrackingClient cards={cards} scripts={scripts} repName={repName} />
+            <TrackingClient
+              cards={cards}
+              workflows={workflows}
+              scriptsByWorkflow={scriptsByWorkflow}
+              linksByWorkflow={linksByWorkflow}
+              repName={repName}
+            />
           </div>
         </main>
 

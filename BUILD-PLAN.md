@@ -420,6 +420,27 @@ Quote PDF export ✓ (complete 2026-05-21) — the `/quotes/[id]` detail
 page plus an on-demand `@react-pdf/renderer` route. Send-to-client
 (emailing the PDF) and final polish remain.
 
+### Phase D — multi-workflow pipeline (2026-05-21)
+
+The pipeline becomes multi-workflow — one tuned workflow per offering:
+Real Estate Media, Corporate Headshots, Story Portraits, The Saga, and
+The 10% Rule. Each owns its entry gate, scoring factors, contact
+scripts, handoff links, and vocabulary, on the shared Research →
+Tracking → Client machinery. Full detail in **PHASE-D-PLAN.md**; see
+D-022.
+
+Build order: **D1** schema → **D2** Research → **D3** editors → **D4**
+Client List → **D5** Tracking + Dashboard → **D6** handoff links.
+
+**Phase D complete ✓ (2026-05-21).** All six steps landed: the
+five-workflow schema and seed (D1), the adaptive Research page (D2),
+the per-workflow Rank Factor and Script/Links editors (D3), the new
+`/clients` Client List (D4), multi-workflow Tracking + Dashboard (D5),
+and config-backed handoff-link placeholders resolved in the contact
+composer (D6). The build is green again. Recommended additions from
+PHASE-D-PLAN §9 (daily follow-up digest, duplicate check, cross-sell
+links, mobile pass, dead-nav cleanup) remain on the table.
+
 ---
 
 #### Day 13-15 — Calculator UI
@@ -988,6 +1009,26 @@ optional `prospectId`; a quote built on a client page writes
 **Rationale.** One pricing implementation, one source of truth. A
 link-out would need the same plumbing anyway; embedding keeps the rep on
 the record they're working and the quote attaches itself.
+
+### D-022 · The CRM pipeline is multi-workflow (2026-05-21)
+
+**Decision.** Ops runs five sales workflows — Real Estate Media,
+Corporate Headshots, Story Portraits, The Saga, The 10% Rule — each with
+its own entry gate, scoring factors, contact scripts, handoff links, and
+vocabulary, on shared Research → Tracking → Client machinery. The CRM
+config tables and `prospects` are scoped by `workflow_key`; the entry
+gate generalizes to an `is_gate` flag on rank factors; prospect identity
+generalizes (`agent_name` → `contact_name`, `agency` → `org_name`).
+
+**Rationale and the settled sub-decisions** — the workflow set, the
+clean rebuild, the 10% workflow's contribution shape, the owner-scoped
+Client List, no Sprout webhook (handoff links resolve as config-backed
+`{{placeholders}}` instead), and the display names — are recorded in
+PHASE-D-PLAN.md §10.
+
+**Trade-off.** A one-time destructive restructure applied via
+`--fresh-crm`; acceptable because the CRM tables held only test data.
+The app build is intentionally red across the D1→D6 span.
 
 ---
 

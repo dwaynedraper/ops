@@ -251,39 +251,57 @@ const CORPORATE_PRICING = [
 ];
 
 // ═══════════════════════════════════════════════════════════════════════
-// CRM CONFIG — research scoring + contact scripts (Phase B · D-017/D-018)
-// Seeded so the CRM works before its super-admin editors exist. Editable
-// later on the rank-factor and script editor pages.
+// CRM CONFIG — five workflows, each with its own entry gate, scoring
+// factors, contact scripts, and handoff links (Phase D · D-022). Seeded
+// so the pipeline works before its editors do; retunable on the
+// rank-factor and script editor pages.
 // ═══════════════════════════════════════════════════════════════════════
 
-// Rank factors — default weights sum to 10, so a maxed-out agent scores
-// a clean 10. A bool factor earns `weight` when true; the number factor
-// earns weight × min(value, max_input) / max_input.
-const RANK_FACTORS = [
-  { key: 'annual_volume',       label: 'Listings per year ($500K–$2M)',  help_text: 'Homes the agent closes annually in the target price band.',              kind: 'number', weight: 3, max_input: 24,   sort_order: 10 },
-  { key: 'active_social',       label: 'Active on social (last 30 days)', help_text: 'Posts regularly — a sign they value visibility and will value media.',   kind: 'bool',   weight: 2, max_input: null, sort_order: 20 },
-  { key: 'weak_current_photos', label: 'Current listing photos are weak', help_text: 'A visible quality gap on their live listings — the clearest opportunity.', kind: 'bool',   weight: 2, max_input: null, sort_order: 30 },
-  { key: 'pro_website',         label: 'Has a real personal website',     help_text: 'A proper site on their own domain — they invest in their brand.',         kind: 'bool',   weight: 1, max_input: null, sort_order: 40 },
-  { key: 'branded_email',       label: 'Uses a branded email',            help_text: 'Email on their own domain, not a free gmail/yahoo address.',              kind: 'bool',   weight: 1, max_input: null, sort_order: 50 },
-  { key: 'uses_video',          label: 'Already uses video in listings',  help_text: 'Comfortable with video — an easier sell for reels and walkthroughs.',     kind: 'bool',   weight: 1, max_input: null, sort_order: 60 },
+// Default Sprout handoff URL — a placeholder. Dean sets the real
+// per-workflow links on the handoff-links editor.
+const BOOKING_URL = 'https://sharpsightedphotos.sproutstudio.com/book/connection-call-booking';
+
+// Factor builders. A gate factor (is_gate, weight 0) must answer true to
+// enter the pipeline and does not score. Scoring weights sum to 10 per
+// workflow, so a maxed-out prospect lands a clean 10.
+const gate = (key, label, help_text, sort_order) =>
+  ({ key, label, help_text, kind: 'bool', weight: 0, max_input: null, is_gate: true, sort_order });
+const boolF = (key, label, help_text, weight, sort_order) =>
+  ({ key, label, help_text, kind: 'bool', weight, max_input: null, is_gate: false, sort_order });
+const numF = (key, label, help_text, weight, max_input, sort_order) =>
+  ({ key, label, help_text, kind: 'number', weight, max_input, is_gate: false, sort_order });
+
+const thresholds = (qualified, borderline, target) => [
+  { key: 'qualified_min',          label: 'Qualified — minimum score',  value: qualified,  notes: 'Score at/above this is a highly-qualified candidate.' },
+  { key: 'borderline_min',         label: 'Borderline — minimum score', value: borderline, notes: 'At/above this is a judgment call; below it, do not message.' },
+  { key: 'qualified_target_count', label: 'Qualified target count',     value: target,     notes: 'Once a rep has this many qualified prospects, prompt the contact cycle.' },
 ];
 
-// Rank thresholds — bands the research page reads (≤5 = don't message).
-const RANK_CONFIG = [
-  { key: 'qualified_min',          label: 'Qualified — minimum score',  value: 8,  notes: 'Score at/above this is a highly-qualified candidate.' },
-  { key: 'borderline_min',         label: 'Borderline — minimum score', value: 6,  notes: 'At/above this is a judgment call; below it, do not message.' },
-  { key: 'qualified_target_count', label: 'Qualified target count',     value: 10, notes: 'Once a rep has this many qualified prospects, prompt the contact cycle.' },
-];
+const BOOKING_LINK = { link_key: 'booking_link', label: 'Connection-call booking', url: BOOKING_URL, sort_order: 10 };
 
-// Contact scripts — one per contact-cycle stage. {{placeholders}} are
-// filled on the tracking page; {{intro}} is the rep's personalized line.
-// Sharp Sighted Media voice — Dean edits these on the script editor later.
-const CONTACT_SCRIPTS = [
+const WORKFLOWS = [
+  // ─── Real Estate Media ────────────────────────────────────────────
   {
-    stage_key: 'first_touch', label: 'First touch', channel: 'email',
-    step_order: 10, followup_after_days: 3,
-    subject: '{{first_name}} — a quick note on your {{agency}} listings',
-    body: `Hi {{first_name}},
+    workflow_key: 'real_estate', name: 'Real Estate Media', branch: 'realestate',
+    contact_noun: 'Agent', org_noun: 'Agency', accent: '#64748b', sort_order: 10,
+    factors: [
+      gate('has_target_listing', 'Has a current target listing', 'A live listing now in the $500K–$2M range — something worth shooting.', 1),
+      gate('has_photo_need',     'Has a visible photo need',     'Their current listing photos are weak or missing — a real gap to fill.', 2),
+      numF('annual_volume',       'Listings per year ($500K–$2M)',  'Homes the agent closes annually in the target price band.',              3, 24, 10),
+      boolF('active_social',      'Active on social (last 30 days)', 'Posts regularly — a sign they value visibility and will value media.',   2, 20),
+      boolF('weak_current_photos','Current listing photos are weak', 'A visible quality gap on their live listings — the clearest opportunity.', 2, 30),
+      boolF('pro_website',        'Has a real personal website',     'A proper site on their own domain — they invest in their brand.',         1, 40),
+      boolF('branded_email',      'Uses a branded email',            'Email on their own domain, not a free gmail/yahoo address.',              1, 50),
+      boolF('uses_video',         'Already uses video in listings',  'Comfortable with video — an easier sell for reels and walkthroughs.',     1, 60),
+    ],
+    thresholds: thresholds(8, 6, 10),
+    links: [BOOKING_LINK],
+    scripts: [
+      {
+        stage_key: 'first_touch', label: 'First touch', channel: 'email',
+        step_order: 10, followup_after_days: 3,
+        subject: '{{first_name}} — a quick note on your {{agency}} listings',
+        body: `Hi {{first_name}},
 
 {{intro}}
 
@@ -294,12 +312,12 @@ If you have a listing coming up, I'd love to show you what that looks like on on
 Stay Sharp. Stay Seen. Stay Human.
 {{rep_name}} · Sharp Sighted Media
 sharpsighted.media`,
-  },
-  {
-    stage_key: 'followup_1', label: 'Follow-up 1', channel: 'email',
-    step_order: 20, followup_after_days: 4,
-    subject: 'Re: your {{agency}} listings',
-    body: `Hi {{first_name}},
+      },
+      {
+        stage_key: 'followup_1', label: 'Follow-up 1', channel: 'email',
+        step_order: 20, followup_after_days: 4,
+        subject: 'Re: your {{agency}} listings',
+        body: `Hi {{first_name}},
 
 Circling back — no pressure either way. {{intro}}
 
@@ -309,12 +327,12 @@ Worth a look at one of yours?
 
 Stay Sharp. Stay Seen. Stay Human.
 {{rep_name}} · Sharp Sighted Media`,
-  },
-  {
-    stage_key: 'followup_2', label: 'Follow-up 2', channel: 'email',
-    step_order: 30, followup_after_days: 5,
-    subject: 'Re: your {{agency}} listings',
-    body: `Hi {{first_name}},
+      },
+      {
+        stage_key: 'followup_2', label: 'Follow-up 2', channel: 'email',
+        step_order: 30, followup_after_days: 5,
+        subject: 'Re: your {{agency}} listings',
+        body: `Hi {{first_name}},
 
 Last note from me for now. {{intro}}
 
@@ -324,12 +342,12 @@ Reach out whenever the timing is right.
 
 Stay Sharp. Stay Seen. Stay Human.
 {{rep_name}} · Sharp Sighted Media`,
-  },
-  {
-    stage_key: 'final', label: 'Final touch', channel: 'email',
-    step_order: 40, followup_after_days: 0,
-    subject: 'Closing the loop, {{first_name}}',
-    body: `Hi {{first_name}},
+      },
+      {
+        stage_key: 'final', label: 'Final touch', channel: 'email',
+        step_order: 40, followup_after_days: 0,
+        subject: 'Closing the loop, {{first_name}}',
+        body: `Hi {{first_name}},
 
 I won't keep landing in your inbox — but I wanted to close the loop properly. {{intro}}
 
@@ -337,6 +355,281 @@ If real estate media ever moves up your list, sharpsighted.media has examples an
 
 Stay Sharp. Stay Seen. Stay Human.
 {{rep_name}} · Sharp Sighted Media`,
+      },
+    ],
+  },
+
+  // ─── Corporate Headshots ──────────────────────────────────────────
+  {
+    workflow_key: 'corporate', name: 'Corporate Headshots', branch: 'corporate',
+    contact_noun: 'Contact', org_noun: 'Company', accent: '#0ea5e9', sort_order: 20,
+    factors: [
+      gate('has_team_to_shoot', 'Has a team that needs headshots', 'Enough people on staff — roughly 8 or more — to make a Team Day worth booking.', 1),
+      gate('weak_team_photos',  'Current team photos are weak or mismatched', 'Headshots on the site and LinkedIn are dated, inconsistent, DIY, or missing.', 2),
+      numF('headcount',             'Team size',                          'Headcount in the shootable band. Full credit at 40.',                       3, 40, 10),
+      boolF('professional_services','A professional-services firm',        'Law, finance, agency, medical, consulting — image is part of the product.', 2, 20),
+      boolF('recent_growth',        'Hiring or growing',                   'New faces need headshots, and a growing firm rebooks.',                     2, 30),
+      boolF('brand_refresh',        'Brand refresh or new website underway','A redesign is the natural trigger for new team photos.',                    1, 40),
+      boolF('in_service_area',      'In the 121 corridor / DFW',           'Inside the service area — no travel premium needed.',                       1, 50),
+      boolF('decision_maker_known', 'A clear contact who can book it',     'You know who decides — HR, an office manager, a partner.',                  1, 60),
+    ],
+    thresholds: thresholds(8, 6, 8),
+    links: [BOOKING_LINK],
+    scripts: [
+      {
+        stage_key: 'first_touch', label: 'First touch', channel: 'email',
+        step_order: 10, followup_after_days: 3,
+        subject: '{{first_name}} — the headshots on the {{company}} site',
+        body: `Hi {{first_name}},
+
+{{intro}}
+
+I do corporate headshots for firms across the 121 corridor — one on-site session, the whole team, consistent lighting and treatment so every face on your site and LinkedIn finally matches.
+
+Most teams I shoot have headshots taken five different ways over five different years. One Team Day fixes that, and it photographs faster than people expect.
+
+If a refresh is on your radar, here's where to start: {{booking_link}}
+
+Stay Sharp. Stay Seen. Stay Human.
+{{rep_name}} · Sharp Sighted`,
+      },
+      {
+        stage_key: 'followup_1', label: 'Follow-up 1', channel: 'email',
+        step_order: 20, followup_after_days: 4,
+        subject: 'Re: {{company}} headshots',
+        body: `Hi {{first_name}},
+
+Circling back — no pressure. {{intro}}
+
+A Team Day is a $600 base plus a per-person rate, on-site, with same-day-clean turnaround. For a firm where the team's image is part of the pitch, it tends to earn its keep the first time a client looks you up.
+
+Worth a short call? {{booking_link}}
+
+Stay Sharp. Stay Seen. Stay Human.
+{{rep_name}} · Sharp Sighted`,
+      },
+      {
+        stage_key: 'followup_2', label: 'Follow-up 2', channel: 'email',
+        step_order: 30, followup_after_days: 5,
+        subject: 'Re: {{company}} headshots',
+        body: `Hi {{first_name}},
+
+Last note from me for now. {{intro}}
+
+If you're hiring, rebranding, or just tired of the mismatched grid, one session resets all of it — and new hires slot into the same look later.
+
+Whenever the timing's right: {{booking_link}}
+
+Stay Sharp. Stay Seen. Stay Human.
+{{rep_name}} · Sharp Sighted`,
+      },
+      {
+        stage_key: 'final', label: 'Final touch', channel: 'email',
+        step_order: 40, followup_after_days: 0,
+        subject: 'Closing the loop, {{first_name}}',
+        body: `Hi {{first_name}},
+
+I won't keep landing in your inbox. {{intro}}
+
+If team headshots ever move up the list at {{company}}, the door's here and my line is open: {{booking_link}}
+
+Stay Sharp. Stay Seen. Stay Human.
+{{rep_name}} · Sharp Sighted`,
+      },
+    ],
+  },
+
+  // ─── Story Portraits ──────────────────────────────────────────────
+  {
+    workflow_key: 'story_portraits', name: 'Story Portraits', branch: 'portraits',
+    contact_noun: 'Contact', org_noun: null, accent: '#c25f3e', sort_order: 30,
+    factors: [
+      gate('public_facing_brand',  'Has a public-facing personal brand', 'A founder, exec, creator, author, or speaker — someone whose face is part of their work.', 1),
+      gate('weak_personal_photos', 'Current personal photos are weak',   'Their portraits are outdated, DIY, or a generic studio headshot.', 2),
+      boolF('concrete_reason',  'A concrete reason now',                  'A new book, a new role, a rebrand, the speaking circuit — a trigger, not "someday".', 3, 10),
+      boolF('active_presence',  'An active public presence',              'Speaking, publishing, posting — they show up online and in rooms.',                    2, 20),
+      boolF('invests_in_brand', 'Invests in their brand',                 'A real personal site or prior paid creative — they spend on being seen.',              2, 30),
+      boolF('story_fits',       "A story that doesn't fit a backdrop",    'Their narrative needs a real location — the Sharp Sighted right-fit buyer.',           2, 40),
+      boolF('budget_signal',    'Budget signal',                          'Their role or business suggests the means for a $900–$1,700+ session.',                1, 50),
+    ],
+    thresholds: thresholds(8, 6, 10),
+    links: [BOOKING_LINK],
+    scripts: [
+      {
+        stage_key: 'first_touch', label: 'First touch', channel: 'email',
+        step_order: 10, followup_after_days: 3,
+        subject: '{{first_name}} — a portrait that actually looks like you',
+        body: `Hi {{first_name}},
+
+{{intro}}
+
+I make story portraits for founders and creators whose work is personal — sessions that happen where you actually are, not against a studio backdrop. A workshop, a rooftop, a stable at dawn. Wherever the real version of you shows up.
+
+If your current photos feel like a stand-in for someone you're not anymore, that's exactly the gap I close.
+
+A connection call is the place to start — no commitment: {{booking_link}}
+
+Stay Sharp. Stay Seen. Stay Human.
+{{rep_name}} · Sharp Sighted Photos`,
+      },
+      {
+        stage_key: 'followup_1', label: 'Follow-up 1', channel: 'email',
+        step_order: 20, followup_after_days: 4,
+        subject: 'Re: your portraits',
+        body: `Hi {{first_name}},
+
+Circling back. {{intro}}
+
+The way it works: an hour of discovery first — your location, your timing, your story — then we shoot on your stage. You get hand-edited images and framed prints, delivered in person, not dropped at a door.
+
+Want to talk it through? {{booking_link}}
+
+Stay Sharp. Stay Seen. Stay Human.
+{{rep_name}} · Sharp Sighted Photos`,
+      },
+      {
+        stage_key: 'followup_2', label: 'Follow-up 2', channel: 'email',
+        step_order: 30, followup_after_days: 5,
+        subject: 'Re: your portraits',
+        body: `Hi {{first_name}},
+
+Last note for now. {{intro}}
+
+The portrait that follows you for the next five years should look like you — not a pleasant compromise. When you're ready for that, I'd love to make it.
+
+Whenever the timing fits: {{booking_link}}
+
+Stay Sharp. Stay Seen. Stay Human.
+{{rep_name}} · Sharp Sighted Photos`,
+      },
+      {
+        stage_key: 'final', label: 'Final touch', channel: 'email',
+        step_order: 40, followup_after_days: 0,
+        subject: 'Closing the loop, {{first_name}}',
+        body: `Hi {{first_name}},
+
+I'll stop here — but I wanted to close the loop properly. {{intro}}
+
+If the timing ever turns, the connection call is always open: {{booking_link}}
+
+Stay Sharp. Stay Seen. Stay Human.
+{{rep_name}} · Sharp Sighted Photos`,
+      },
+    ],
+  },
+
+  // ─── The Saga ─────────────────────────────────────────────────────
+  {
+    workflow_key: 'saga', name: 'The Saga', branch: 'portraits',
+    contact_noun: 'Contact', org_noun: null, accent: '#a0462a', sort_order: 40,
+    factors: [
+      gate('milestone_reason', 'A milestone or legacy reason',    'An anniversary, an exit, a legacy year — a reason this chapter deserves more than a session.', 1),
+      gate('budget_capacity',  'Budget capacity for $8k+',        'The means and the mindset for a two-day, $8,000+ engagement.', 2),
+      boolF('merged_life_work',     'Life and work have merged',          'A founder whose identity and what they have built are inseparable.',     3, 10),
+      boolF('existing_relationship','An existing relationship or referral','A past Story client or a strong referral — the Saga rarely sells cold.', 3, 20),
+      boolF('story_scale',          'A story big enough',                 'Too vast for a single binding — a real arc, multiple chapters.',         2, 30),
+      boolF('decision_authority',   'Decides on their own',               'No committee — they can say yes to a premium engagement themselves.',    1, 40),
+      boolF('timing_window',        'A timing window',                    'The milestone has a date — there is a reason to move now.',              1, 50),
+    ],
+    thresholds: thresholds(8, 6, 5),
+    links: [BOOKING_LINK],
+    scripts: [
+      {
+        stage_key: 'first_touch', label: 'Opening', channel: 'email',
+        step_order: 10, followup_after_days: 5,
+        subject: '{{first_name}} — something bigger than a session',
+        body: `Hi {{first_name}},
+
+{{intro}}
+
+There's a kind of project I take on rarely — a two-day engagement called the Saga. It's for the moment a person's life and work have fully merged: a milestone year, a legacy worth documenting properly. Not a photo session — a complete visual and film record, built to last as an object.
+
+Given where you are right now, I think it's worth a conversation. No pitch — just a talk about whether this is the chapter for it.
+
+If you're open to it: {{booking_link}}
+
+Stay Sharp. Stay Seen. Stay Human.
+{{rep_name}} · Sharp Sighted`,
+      },
+      {
+        stage_key: 'followup_1', label: 'Follow-up', channel: 'email',
+        step_order: 20, followup_after_days: 7,
+        subject: 'Re: the Saga',
+        body: `Hi {{first_name}},
+
+Following up gently. {{intro}}
+
+The Saga isn't something to rush into — it's a real investment of two days and real money, and it should land on a milestone, not a whim. That's exactly why I'd rather we just talk first.
+
+The door's here when you want it: {{booking_link}}
+
+Stay Sharp. Stay Seen. Stay Human.
+{{rep_name}} · Sharp Sighted`,
+      },
+      {
+        stage_key: 'final', label: 'Final touch', channel: 'email',
+        step_order: 30, followup_after_days: 0,
+        subject: 'Closing the loop, {{first_name}}',
+        body: `Hi {{first_name}},
+
+I'll leave it here for now. {{intro}}
+
+A Saga keeps. When the milestone comes into view, I'd be honored to document it — reach out any time: {{booking_link}}
+
+Stay Sharp. Stay Seen. Stay Human.
+{{rep_name}} · Sharp Sighted`,
+      },
+    ],
+  },
+
+  // ─── The 10% Rule ─────────────────────────────────────────────────
+  // Contribution, not sales — the gate is the §7.1/§7.2 fit check, the
+  // factors are fit-and-priority signals, and there is no quote.
+  {
+    workflow_key: 'ten_percent', name: 'The 10% Rule', branch: null,
+    contact_noun: 'Contact', org_noun: 'Organization', accent: '#10b981', sort_order: 50,
+    factors: [
+      gate('on_cause_list',  'On the supported-cause list (§7.1)', 'The cause fits a category Dean actively supports — see CLAUDE.md §7.1.', 1),
+      gate('non_polarizing', 'Non-polarizing (§7.2)',              'Not a politically polarizing issue — the 10% engine is contribution, not activism.', 2),
+      boolF('clear_need',          'A clear, concrete need',         'A specific thing photography or film can give them — not vague.',          3, 10),
+      boolF('story_worth_telling', 'A story worth telling',          'Documenting this would move people and reflect the brand\'s heart.',        3, 20),
+      boolF('capacity_to_deliver', 'Capacity to deliver it well',    'It fits the 10% time and resources available right now — capacity is finite.', 2, 30),
+      boolF('lasting_artifact',    'Becomes a lasting artifact',     'The work becomes an heirloom-grade object, not just files.',                2, 40),
+    ],
+    thresholds: thresholds(8, 6, 3),
+    links: [],
+    scripts: [
+      {
+        stage_key: 'first_touch', label: 'The offer', channel: 'email',
+        step_order: 10, followup_after_days: 5,
+        subject: 'An offer for {{organization}}',
+        body: `Hi {{first_name}},
+
+{{intro}}
+
+I run a photography and film studio in North Texas, and a standing part of how it works is the 10% Rule — I give a tenth of my time and craft to causes I believe in. The same work I'd charge for, done for free, for the right people and the right missions.
+
+What {{organization}} does is one of those. If there's a story here that photographs or film could carry — for the people you serve, or for the work itself — I'd like to offer that, at no cost.
+
+Could we talk about what would actually help?
+
+Stay Sharp. Stay Seen. Stay Human.
+{{rep_name}} · Sharp Sighted`,
+      },
+      {
+        stage_key: 'followup_1', label: 'Follow-up', channel: 'email',
+        step_order: 20, followup_after_days: 0,
+        subject: 'Re: an offer for {{organization}}',
+        body: `Hi {{first_name}},
+
+Just circling back once. {{intro}}
+
+The offer stands with no strings — contributed photography or film for {{organization}}, on your timeline. If it's useful, I'd love to help; if the timing isn't right, no need to reply.
+
+Stay Sharp. Stay Seen. Stay Human.
+{{rep_name}} · Sharp Sighted`,
+      },
+    ],
   },
 ];
 
@@ -358,7 +651,7 @@ const globalsMap = Object.fromEntries(GLOBALS.map((g) => [g.key, g.value]));
   console.log(`  Target  : ${maskUrl(connectionString)}`);
   console.log(`  Mode    : ${dryRun ? 'DRY-RUN' : reset ? 'RESET + SEED' : 'UPSERT'}`);
   console.log(`  Counts  : ${GLOBALS.length} globals · ${PACKAGES.length} packages · ${ADDONS.length} addons · ${CORPORATE_PRICING.length} corporate params`);
-  console.log(`            ${RANK_FACTORS.length} rank factors · ${RANK_CONFIG.length} thresholds · ${CONTACT_SCRIPTS.length} contact scripts\n`);
+  console.log(`            ${WORKFLOWS.length} workflows · CRM scoring, scripts, and handoff links\n`);
 
   try {
     await client.connect();
@@ -399,40 +692,68 @@ const globalsMap = Object.fromEntries(GLOBALS.map((g) => [g.key, g.value]));
     }
     console.log(`  ✓ ${CORPORATE_PRICING.length} corporate pricing params upserted.`);
 
-    // ─── CRM config: rank factors, thresholds, contact scripts ──────
-    for (const f of RANK_FACTORS) {
+    // ─── CRM config: workflows + per-workflow factors/scripts/links ──
+    let factorCount = 0;
+    let scriptCount = 0;
+    let linkCount = 0;
+    for (const w of WORKFLOWS) {
       await client.query(
-        `INSERT INTO rank_factors (key, label, help_text, kind, weight, max_input, sort_order)
+        `INSERT INTO workflows
+           (workflow_key, name, branch, contact_noun, org_noun, accent, sort_order)
          VALUES ($1,$2,$3,$4,$5,$6,$7)
-         ON CONFLICT (key) DO UPDATE SET
-           label=EXCLUDED.label, help_text=EXCLUDED.help_text, kind=EXCLUDED.kind,
-           weight=EXCLUDED.weight, max_input=EXCLUDED.max_input, sort_order=EXCLUDED.sort_order;`,
-        [f.key, f.label, f.help_text, f.kind, f.weight, f.max_input, f.sort_order],
+         ON CONFLICT (workflow_key) DO UPDATE SET
+           name=EXCLUDED.name, branch=EXCLUDED.branch, contact_noun=EXCLUDED.contact_noun,
+           org_noun=EXCLUDED.org_noun, accent=EXCLUDED.accent, sort_order=EXCLUDED.sort_order;`,
+        [w.workflow_key, w.name, w.branch, w.contact_noun, w.org_noun, w.accent, w.sort_order],
       );
-    }
-    for (const r of RANK_CONFIG) {
-      await client.query(
-        `INSERT INTO rank_config (key, label, value, notes)
-         VALUES ($1,$2,$3,$4)
-         ON CONFLICT (key) DO UPDATE SET
-           label=EXCLUDED.label, value=EXCLUDED.value, notes=EXCLUDED.notes;`,
-        [r.key, r.label, r.value, r.notes],
-      );
-    }
-    for (const s of CONTACT_SCRIPTS) {
-      await client.query(
-        `INSERT INTO contact_scripts
-           (stage_key, label, channel, step_order, followup_after_days, subject, body)
-         VALUES ($1,$2,$3,$4,$5,$6,$7)
-         ON CONFLICT (stage_key) DO UPDATE SET
-           label=EXCLUDED.label, channel=EXCLUDED.channel, step_order=EXCLUDED.step_order,
-           followup_after_days=EXCLUDED.followup_after_days,
-           subject=EXCLUDED.subject, body=EXCLUDED.body;`,
-        [s.stage_key, s.label, s.channel, s.step_order, s.followup_after_days, s.subject, s.body],
-      );
+      for (const f of w.factors) {
+        await client.query(
+          `INSERT INTO rank_factors
+             (workflow_key, key, label, help_text, kind, weight, max_input, is_gate, sort_order)
+           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
+           ON CONFLICT (workflow_key, key) DO UPDATE SET
+             label=EXCLUDED.label, help_text=EXCLUDED.help_text, kind=EXCLUDED.kind,
+             weight=EXCLUDED.weight, max_input=EXCLUDED.max_input, is_gate=EXCLUDED.is_gate,
+             sort_order=EXCLUDED.sort_order;`,
+          [w.workflow_key, f.key, f.label, f.help_text, f.kind, f.weight, f.max_input, f.is_gate, f.sort_order],
+        );
+        factorCount++;
+      }
+      for (const r of w.thresholds) {
+        await client.query(
+          `INSERT INTO rank_config (workflow_key, key, label, value, notes)
+           VALUES ($1,$2,$3,$4,$5)
+           ON CONFLICT (workflow_key, key) DO UPDATE SET
+             label=EXCLUDED.label, value=EXCLUDED.value, notes=EXCLUDED.notes;`,
+          [w.workflow_key, r.key, r.label, r.value, r.notes],
+        );
+      }
+      for (const s of w.scripts) {
+        await client.query(
+          `INSERT INTO contact_scripts
+             (workflow_key, stage_key, label, channel, step_order, followup_after_days, subject, body)
+           VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
+           ON CONFLICT (workflow_key, stage_key) DO UPDATE SET
+             label=EXCLUDED.label, channel=EXCLUDED.channel, step_order=EXCLUDED.step_order,
+             followup_after_days=EXCLUDED.followup_after_days,
+             subject=EXCLUDED.subject, body=EXCLUDED.body;`,
+          [w.workflow_key, s.stage_key, s.label, s.channel, s.step_order, s.followup_after_days, s.subject, s.body],
+        );
+        scriptCount++;
+      }
+      for (const l of w.links) {
+        await client.query(
+          `INSERT INTO handoff_links (workflow_key, link_key, label, url, sort_order)
+           VALUES ($1,$2,$3,$4,$5)
+           ON CONFLICT (workflow_key, link_key) DO UPDATE SET
+             label=EXCLUDED.label, url=EXCLUDED.url, sort_order=EXCLUDED.sort_order;`,
+          [w.workflow_key, l.link_key, l.label, l.url, l.sort_order],
+        );
+        linkCount++;
+      }
     }
     console.log(
-      `  ✓ ${RANK_FACTORS.length} rank factors · ${RANK_CONFIG.length} thresholds · ${CONTACT_SCRIPTS.length} contact scripts upserted.`,
+      `  ✓ ${WORKFLOWS.length} workflows · ${factorCount} factors · ${scriptCount} scripts · ${linkCount} links upserted.`,
     );
 
     // ─── packages + cost lines ──────────────────────────────────────
@@ -543,12 +864,15 @@ function printPriceReport() {
   console.log('  set the real numbers on the /corporate config page.\n');
 
   // ─── CRM config preview ─────────────────────────────────────────────
-  const rc = (k) => RANK_CONFIG.find((r) => r.key === k)?.value;
-  const totalWeight = RANK_FACTORS.reduce((s, f) => s + f.weight, 0);
-  console.log('  CRM CONFIG — research scoring + contact scripts\n');
-  console.log(`    Rank factors    : ${RANK_FACTORS.length}  (weights sum to ${totalWeight})`);
-  console.log(`    Rank thresholds : qualified ≥ ${rc('qualified_min')} · borderline ≥ ${rc('borderline_min')} · target ${rc('qualified_target_count')}`);
-  console.log(`    Contact scripts : ${CONTACT_SCRIPTS.map((s) => s.stage_key).join(' → ')}`);
+  console.log('  CRM CONFIG — five workflows\n');
+  for (const w of WORKFLOWS) {
+    const gates = w.factors.filter((f) => f.is_gate).length;
+    const scoring = w.factors.filter((f) => !f.is_gate);
+    const sum = scoring.reduce((s, f) => s + f.weight, 0);
+    console.log(
+      `    ${pad(w.name, 22)} ${gates} gates · ${scoring.length} factors (Σ${sum}) · ${w.scripts.length} scripts · ${w.links.length} links`,
+    );
+  }
   console.log('');
 }
 

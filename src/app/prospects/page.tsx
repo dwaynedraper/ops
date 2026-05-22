@@ -1,52 +1,59 @@
-import Link from 'next/link';
 import { redirect } from 'next/navigation';
 import { auth } from '@/auth';
-import { sql, sqlOne } from '@/lib/db';
+import { sql } from '@/lib/db';
 import { Sidebar } from '@/components/Sidebar';
 import { Footer } from '@/components/Footer';
 import {
-  classifyBand,
   DEFAULT_BANDS,
   type RankFactor,
   type RankBands,
+  type RankFactorKind,
   type ProspectStage,
   type ProspectListItem,
 } from '@/lib/prospects';
-import { ResearchClient } from './ResearchClient';
+import { ResearchClient, type ResearchWorkflow } from './ResearchClient';
 
 /**
- * Research route — the pipeline's entry point.
+ * Research route — the pipeline's entry point, now multi-workflow.
  *
- * Server component: gates on the session, loads the editable scoring
- * config (rank_factors + rank_config) and the rep's prospect list, then
- * hands the config to the interactive client. proxy.ts already blocks
- * anonymous access; the redirect here is belt-and-braces.
- *
- * Visibility is owner-scoped (D-019): a partner sees their own prospects,
- * a super_admin sees everyone's. The qualified-count toward the contact
- * target is always the signed-in rep's own.
+ * Server component: loads every active workflow with its scoring config,
+ * and the rep's prospect list. The interactive client carries the
+ * workflow picker. Owner-scoped (D-019): a rep researches their own
+ * prospects; the qualified counts are per workflow.
  */
 export const dynamic = 'force-dynamic';
 
 export const metadata = { title: 'Research' };
 
+interface WorkflowRow {
+  workflow_key: string;
+  name: string;
+  branch: 'portraits' | 'realestate' | 'corporate' | null;
+  contact_noun: string;
+  org_noun: string | null;
+  accent: string;
+}
 interface FactorRow {
+  workflow_key: string;
   key: string;
   label: string;
   help_text: string | null;
-  kind: 'bool' | 'number';
+  kind: RankFactorKind;
   weight: string;
   max_input: string | null;
+  is_gate: boolean;
   sort_order: number;
 }
 interface ConfigRow {
+  workflow_key: string;
   key: string;
   value: string;
 }
 interface ProspectRow {
   id: string;
-  agent_name: string;
-  agency: string | null;
+  workflow_key: string;
+  contact_name: string;
+  org_name: string | null;
   market_area: string | null;
   rank_score: string;
   stage: ProspectStage;
@@ -54,6 +61,7 @@ interface ProspectRow {
 }
 
 const DATE_FMT = new Intl.DateTimeFormat('en-US', { month: 'short', day: 'numeric' });
+const QUALIFIED_STAGES = ['qualified', 'contacting', 'responded', 'signed', 'client'];
 
 export default async function ProspectsPage() {
   const session = await auth();
@@ -61,62 +69,91 @@ export default async function ProspectsPage() {
   if (!user) redirect('/signin?callbackUrl=/prospects');
 
   const role = user.role ?? 'partner';
-  const isAdmin = role === 'super_admin';
 
-  const [factorRows, configRows, prospectRows, qualifiedRow] = await Promise.all([
-    sql<FactorRow>`
-      SELECT key, label, help_text, kind, weight, max_input, sort_order
-      FROM rank_factors
-      WHERE active = true
-      ORDER BY sort_order, label`,
-    sql<ConfigRow>`SELECT key, value FROM rank_config`,
-    isAdmin
-      ? sql<ProspectRow>`
-          SELECT id, agent_name, agency, market_area, rank_score, stage, created_at
-          FROM prospects
-          ORDER BY created_at DESC
-          LIMIT 50`
-      : sql<ProspectRow>`
-          SELECT id, agent_name, agency, market_area, rank_score, stage, created_at
-          FROM prospects
-          WHERE owner_id = ${user.id}
-          ORDER BY created_at DESC
-          LIMIT 50`,
-    sqlOne<{ n: number }>`
-      SELECT COUNT(*)::int AS n
-      FROM prospects
-      WHERE owner_id = ${user.id}
-        AND stage IN ('qualified', 'contacting', 'responded', 'signed', 'client')`,
-  ]);
+  const [workflowRows, factorRows, configRows, prospectRows, qualifiedRows] =
+    await Promise.all([
+      sql<WorkflowRow>`
+        SELECT workflow_key, name, branch, contact_noun, org_noun, accent
+        FROM workflows
+        WHERE active = true
+        ORDER BY sort_order, name`,
+      sql<FactorRow>`
+        SELECT workflow_key, key, label, help_text, kind, weight, max_input,
+               is_gate, sort_order
+        FROM rank_factors
+        WHERE active = true
+        ORDER BY workflow_key, sort_order, label`,
+      sql<ConfigRow>`SELECT workflow_key, key, value FROM rank_config`,
+      sql<ProspectRow>`
+        SELECT id, workflow_key, contact_name, org_name, market_area,
+               rank_score, stage, created_at
+        FROM prospects
+        WHERE owner_id = ${user.id}
+        ORDER BY created_at DESC
+        LIMIT 100`,
+      sql<{ workflow_key: string; n: number }>`
+        SELECT workflow_key, COUNT(*)::int AS n
+        FROM prospects
+        WHERE owner_id = ${user.id} AND stage = ANY(${QUALIFIED_STAGES})
+        GROUP BY workflow_key`,
+    ]);
 
-  const factors: RankFactor[] = factorRows.map((r) => ({
-    key: r.key,
-    label: r.label,
-    helpText: r.help_text,
-    kind: r.kind,
-    weight: Number(r.weight),
-    maxInput: r.max_input === null ? null : Number(r.max_input),
-    sortOrder: r.sort_order,
+  // Group factors + thresholds by workflow.
+  const factorsByWf = new Map<string, RankFactor[]>();
+  for (const r of factorRows) {
+    const list = factorsByWf.get(r.workflow_key) ?? [];
+    list.push({
+      key: r.key,
+      label: r.label,
+      helpText: r.help_text,
+      kind: r.kind,
+      weight: Number(r.weight),
+      maxInput: r.max_input === null ? null : Number(r.max_input),
+      isGate: r.is_gate,
+      sortOrder: r.sort_order,
+    });
+    factorsByWf.set(r.workflow_key, list);
+  }
+
+  const cfgByWf = new Map<string, Map<string, number>>();
+  for (const r of configRows) {
+    const m = cfgByWf.get(r.workflow_key) ?? new Map<string, number>();
+    m.set(r.key, Number(r.value));
+    cfgByWf.set(r.workflow_key, m);
+  }
+
+  const qualifiedByWf = new Map(qualifiedRows.map((r) => [r.workflow_key, r.n]));
+
+  const workflows: ResearchWorkflow[] = workflowRows.map((w) => {
+    const cfg = cfgByWf.get(w.workflow_key);
+    const bands: RankBands = {
+      qualifiedMin: cfg?.get('qualified_min') ?? DEFAULT_BANDS.qualifiedMin,
+      borderlineMin: cfg?.get('borderline_min') ?? DEFAULT_BANDS.borderlineMin,
+      targetCount: cfg?.get('qualified_target_count') ?? DEFAULT_BANDS.targetCount,
+    };
+    return {
+      key: w.workflow_key,
+      name: w.name,
+      branch: w.branch,
+      contactNoun: w.contact_noun,
+      orgNoun: w.org_noun,
+      accent: w.accent,
+      factors: factorsByWf.get(w.workflow_key) ?? [],
+      bands,
+      qualifiedCount: qualifiedByWf.get(w.workflow_key) ?? 0,
+    };
+  });
+
+  const prospects: ProspectListItem[] = prospectRows.map((p) => ({
+    id: p.id,
+    workflowKey: p.workflow_key,
+    contactName: p.contact_name,
+    orgName: p.org_name,
+    marketArea: p.market_area,
+    rankScore: Number(p.rank_score),
+    stage: p.stage,
+    createdAt: DATE_FMT.format(new Date(p.created_at)),
   }));
-
-  const cfg = new Map(configRows.map((r) => [r.key, Number(r.value)]));
-  const bands: RankBands = {
-    qualifiedMin: cfg.get('qualified_min') ?? DEFAULT_BANDS.qualifiedMin,
-    borderlineMin: cfg.get('borderline_min') ?? DEFAULT_BANDS.borderlineMin,
-    targetCount: cfg.get('qualified_target_count') ?? DEFAULT_BANDS.targetCount,
-  };
-
-  const prospects: ProspectListItem[] = prospectRows.map((r) => ({
-    id: r.id,
-    agentName: r.agent_name,
-    agency: r.agency,
-    marketArea: r.market_area,
-    rankScore: Number(r.rank_score),
-    stage: r.stage,
-    createdAt: DATE_FMT.format(new Date(r.created_at)),
-  }));
-
-  const qualifiedCount = qualifiedRow?.n ?? 0;
 
   return (
     <div className="app-shell">
@@ -137,184 +174,20 @@ export default async function ProspectsPage() {
                 marginBottom: '0.5rem',
               }}
             >
-              Find the <em style={{ color: 'var(--accent)' }}>right</em> agents.
+              Find the <em style={{ color: 'var(--accent)' }}>right</em> prospects.
             </h1>
-            <p style={{ color: 'var(--text-mid)', marginBottom: '1.75rem', maxWidth: '56ch' }}>
-              Two gates decide if an agent is even a prospect: a listing worth shooting
-              and a visible photo need. Clear both, then score them. Eight and up is
-              qualified — work those first.
+            <p style={{ color: 'var(--text-mid)', marginBottom: '1.75rem', maxWidth: '58ch' }}>
+              Pick the workflow you&apos;re researching for. Each has its own entry
+              gate and its own scoring — clear the gates, score the fit, and the
+              strong ones move into the pipeline.
             </p>
 
-            <ResearchClient
-              factors={factors}
-              bands={bands}
-              qualifiedCount={qualifiedCount}
-            />
-
-            <ProspectListSection items={prospects} bands={bands} isAdmin={isAdmin} />
+            <ResearchClient workflows={workflows} prospects={prospects} />
           </div>
         </main>
 
         <Footer />
       </div>
     </div>
-  );
-}
-
-// ─── Prospect list (server-rendered; refreshes after each add) ──────────
-
-type StageTone = 'good' | 'warn' | 'accent' | 'cyan' | 'muted';
-
-const STAGE_META: Record<ProspectStage, { label: string; tone: StageTone }> = {
-  researching: { label: 'Researching', tone: 'muted' },
-  qualified: { label: 'Qualified', tone: 'good' },
-  contacting: { label: 'Contacting', tone: 'accent' },
-  responded: { label: 'Responded', tone: 'warn' },
-  signed: { label: 'Signed', tone: 'good' },
-  client: { label: 'Client', tone: 'cyan' },
-  passed: { label: 'Passed', tone: 'muted' },
-  dormant: { label: 'Dormant', tone: 'muted' },
-};
-
-const TONE_COLOR: Record<StageTone, string> = {
-  good: 'var(--good)',
-  warn: 'var(--warn)',
-  accent: 'var(--accent)',
-  cyan: 'var(--brand-cyan)',
-  muted: 'var(--text-faint)',
-};
-
-function ProspectListSection({
-  items,
-  bands,
-  isAdmin,
-}: {
-  items: ProspectListItem[];
-  bands: RankBands;
-  isAdmin: boolean;
-}) {
-  return (
-    <section style={{ marginTop: '2rem' }}>
-      <div
-        style={{
-          display: 'flex',
-          alignItems: 'baseline',
-          justifyContent: 'space-between',
-          gap: '1rem',
-          marginBottom: '0.85rem',
-        }}
-      >
-        <div className="eyebrow">{isAdmin ? 'All prospects' : 'Your prospects'}</div>
-        <span style={{ fontSize: '0.74rem', color: 'var(--text-faint)' }}>
-          {items.length > 0 ? `${items.length} most recent` : null}
-        </span>
-      </div>
-
-      {items.length === 0 ? (
-        <div className="surface-card">
-          <p style={{ fontSize: '0.86rem', color: 'var(--text-muted)' }}>
-            No prospects yet — research one above.
-          </p>
-        </div>
-      ) : (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '0.4rem' }}>
-          {items.map((p) => {
-            const stage = STAGE_META[p.stage];
-            const band = classifyBand(p.rankScore, bands);
-            const scoreColor =
-              band === 'qualified'
-                ? 'var(--good)'
-                : band === 'borderline'
-                  ? 'var(--warn)'
-                  : 'var(--text-faint)';
-            return (
-              <Link
-                key={p.id}
-                href={`/prospects/${p.id}`}
-                className="surface-tool"
-                style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '0.85rem',
-                  padding: '0.7rem 0.9rem',
-                  textDecoration: 'none',
-                  color: 'inherit',
-                }}
-              >
-                {/* Score */}
-                <div
-                  className="money"
-                  style={{
-                    fontSize: '1.15rem',
-                    color: scoreColor,
-                    minWidth: '2.4rem',
-                    textAlign: 'center',
-                    flexShrink: 0,
-                  }}
-                >
-                  {p.rankScore.toFixed(1)}
-                </div>
-
-                {/* Identity */}
-                <div style={{ flex: 1, minWidth: 0 }}>
-                  <div
-                    style={{
-                      fontSize: '0.88rem',
-                      fontWeight: 600,
-                      color: 'var(--text)',
-                      overflow: 'hidden',
-                      textOverflow: 'ellipsis',
-                      whiteSpace: 'nowrap',
-                    }}
-                  >
-                    {p.agentName}
-                  </div>
-                  <div
-                    style={{
-                      fontSize: '0.74rem',
-                      color: 'var(--text-muted)',
-                      overflow: 'hidden',
-                      textOverflow: 'ellipsis',
-                      whiteSpace: 'nowrap',
-                    }}
-                  >
-                    {[p.agency, p.marketArea].filter(Boolean).join(' · ') || 'No agency on file'}
-                  </div>
-                </div>
-
-                {/* Stage */}
-                <span
-                  style={{
-                    fontSize: '0.62rem',
-                    letterSpacing: '0.14em',
-                    textTransform: 'uppercase',
-                    fontWeight: 700,
-                    color: TONE_COLOR[stage.tone],
-                    border: `1px solid ${TONE_COLOR[stage.tone]}`,
-                    borderRadius: 'var(--radius-sm)',
-                    padding: '0.2rem 0.5rem',
-                    flexShrink: 0,
-                  }}
-                >
-                  {stage.label}
-                </span>
-
-                <span
-                  style={{
-                    fontSize: '0.72rem',
-                    color: 'var(--text-faint)',
-                    minWidth: '3.2rem',
-                    textAlign: 'right',
-                    flexShrink: 0,
-                  }}
-                >
-                  {p.createdAt}
-                </span>
-              </Link>
-            );
-          })}
-        </div>
-      )}
-    </section>
   );
 }

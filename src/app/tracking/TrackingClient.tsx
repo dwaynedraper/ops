@@ -1,29 +1,32 @@
 'use client';
 
 /**
- * The tracking board — interactive.
+ * The tracking board — interactive, multi-workflow.
  *
- * Left: every prospect in the contact cycle, most urgent first. Right:
- * the selected prospect's cycle — progress, history, and the script
- * composer. The composer fills {{placeholders}}, previews the message
- * live, and copies it; "Mark as sent" logs the touch and lets the app
- * advance the stage.
- *
- * Cycle math is imported from src/lib/tracking.ts so this view and the
- * server read the cycle identically.
+ * Left: every prospect in a contact cycle, across workflows, most urgent
+ * first, with a workflow filter. Right: the selected prospect's cycle,
+ * worked against its own workflow's scripts.
  */
 
-import { useMemo, useState } from 'react';
+import { useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import {
   extractPlaceholders,
   fillTemplate,
+  splitPlaceholders,
   type ContactScript,
+  type HandoffLink,
   type TrackingCard,
   type TrackingStatus,
 } from '@/lib/tracking';
 import { logContact, markResponded, closeOut } from './actions';
+
+export interface TrackingWorkflow {
+  key: string;
+  name: string;
+  accent: string;
+}
 
 const STATUS_META: Record<TrackingStatus, { label: string; color: string }> = {
   ready: { label: 'Ready', color: 'var(--accent)' },
@@ -33,32 +36,51 @@ const STATUS_META: Record<TrackingStatus, { label: string; color: string }> = {
   cycle_done: { label: 'No reply', color: 'var(--text-faint)' },
 };
 
-// Placeholders that carry a sensible default; the rest start blank.
+/** Placeholders that carry a default. The org token varies by workflow,
+ *  so all three org-ish keys are seeded from the same org name. */
 function seedValues(card: TrackingCard, repName: string): Record<string, string> {
-  const firstName = card.prospect.agentName.trim().split(/\s+/)[0] ?? '';
+  const firstName = card.prospect.contactName.trim().split(/\s+/)[0] ?? '';
+  const org = card.prospect.orgName ?? '';
   return {
     first_name: firstName,
-    agency: card.prospect.agency ?? '',
     rep_name: repName,
+    agency: org,
+    company: org,
+    organization: org,
   };
 }
 
 export function TrackingClient({
   cards,
-  scripts,
+  workflows,
+  scriptsByWorkflow,
+  linksByWorkflow,
   repName,
 }: {
   cards: TrackingCard[];
-  scripts: ContactScript[];
+  workflows: TrackingWorkflow[];
+  scriptsByWorkflow: Record<string, ContactScript[]>;
+  linksByWorkflow: Record<string, HandoffLink[]>;
   repName: string;
 }) {
-  const [selectedId, setSelectedId] = useState<string | null>(
-    cards[0]?.prospect.id ?? null,
-  );
-  // Bumped after any action so the detail panel remounts with fresh state.
+  const wfByKey = new Map(workflows.map((w) => [w.key, w]));
+
+  const [shown, setShown] = useState<Set<string>>(() => new Set(workflows.map((w) => w.key)));
+  const [selectedId, setSelectedId] = useState<string | null>(cards[0]?.prospect.id ?? null);
   const [nonce, setNonce] = useState(0);
 
-  const selected = cards.find((c) => c.prospect.id === selectedId) ?? cards[0] ?? null;
+  const visible = cards.filter((c) => shown.has(c.prospect.workflowKey));
+  const selected =
+    visible.find((c) => c.prospect.id === selectedId) ?? visible[0] ?? null;
+
+  function toggleWorkflow(key: string) {
+    setShown((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+  }
 
   if (cards.length === 0) {
     return (
@@ -71,86 +93,135 @@ export function TrackingClient({
   }
 
   return (
-    <div className="track-layout">
-      {/* ─── Board ──────────────────────────────────────────────────────── */}
-      <div className="track-list">
-        {cards.map((card) => {
-          const meta = STATUS_META[card.status];
-          const active = card.prospect.id === selected?.prospect.id;
+    <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+      {/* Workflow filter */}
+      <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
+        {workflows.map((w) => {
+          const on = shown.has(w.key);
           return (
             <button
-              key={card.prospect.id}
-              onClick={() => setSelectedId(card.prospect.id)}
+              key={w.key}
+              onClick={() => toggleWorkflow(w.key)}
               style={{
-                textAlign: 'left',
-                padding: '0.7rem 0.8rem',
+                padding: '0.35rem 0.7rem',
                 borderRadius: 'var(--radius-sm)',
-                border: `1px solid ${active ? 'var(--accent)' : 'var(--border)'}`,
-                background: active ? 'var(--accent-dim)' : 'var(--surface-tool-2)',
+                border: `1px solid ${on ? w.accent : 'var(--border)'}`,
+                background: on ? `${w.accent}22` : 'transparent',
+                color: on ? 'var(--text)' : 'var(--text-faint)',
+                fontSize: '0.74rem',
+                fontWeight: 600,
                 cursor: 'pointer',
-                display: 'flex',
-                flexDirection: 'column',
-                gap: '0.3rem',
-                transition: 'border-color 0.15s, background 0.15s',
+                textDecoration: on ? 'none' : 'line-through',
               }}
             >
-              <div
-                style={{
-                  display: 'flex',
-                  justifyContent: 'space-between',
-                  alignItems: 'baseline',
-                  gap: '0.5rem',
-                }}
-              >
-                <span
-                  style={{
-                    fontWeight: 600,
-                    fontSize: '0.86rem',
-                    color: 'var(--text)',
-                    overflow: 'hidden',
-                    textOverflow: 'ellipsis',
-                    whiteSpace: 'nowrap',
-                  }}
-                >
-                  {card.prospect.agentName}
-                </span>
-                <span
-                  className="money"
-                  style={{ fontSize: '0.8rem', color: 'var(--text-faint)', flexShrink: 0 }}
-                >
-                  {card.prospect.rankScore.toFixed(1)}
-                </span>
-              </div>
-              <span
-                style={{
-                  fontSize: '0.66rem',
-                  letterSpacing: '0.1em',
-                  textTransform: 'uppercase',
-                  fontWeight: 700,
-                  color: meta.color,
-                }}
-              >
-                {meta.label}
-                {card.status === 'waiting' && card.dueInDays !== null
-                  ? ` · ${card.dueInDays}d`
-                  : null}
-              </span>
+              {w.name}
             </button>
           );
         })}
       </div>
 
-      {/* ─── Detail ─────────────────────────────────────────────────────── */}
-      <div>
-        {selected && (
-          <DetailPanel
-            key={`${selected.prospect.id}:${nonce}`}
-            card={selected}
-            scripts={scripts}
-            repName={repName}
-            onActed={() => setNonce((n) => n + 1)}
-          />
-        )}
+      <div className="track-layout">
+        {/* ─── Board ──────────────────────────────────────────────────── */}
+        <div className="track-list">
+          {visible.length === 0 ? (
+            <div className="surface-card">
+              <p style={{ fontSize: '0.82rem', color: 'var(--text-muted)' }}>
+                No prospects match the filter.
+              </p>
+            </div>
+          ) : (
+            visible.map((card) => {
+              const meta = STATUS_META[card.status];
+              const active = card.prospect.id === selected?.prospect.id;
+              const wf = wfByKey.get(card.prospect.workflowKey);
+              return (
+                <button
+                  key={card.prospect.id}
+                  onClick={() => setSelectedId(card.prospect.id)}
+                  style={{
+                    textAlign: 'left',
+                    padding: '0.7rem 0.8rem',
+                    borderRadius: 'var(--radius-sm)',
+                    border: `1px solid ${active ? 'var(--accent)' : 'var(--border)'}`,
+                    background: active ? 'var(--accent-dim)' : 'var(--surface-tool-2)',
+                    cursor: 'pointer',
+                    display: 'flex',
+                    flexDirection: 'column',
+                    gap: '0.3rem',
+                  }}
+                >
+                  <div
+                    style={{
+                      display: 'flex',
+                      justifyContent: 'space-between',
+                      alignItems: 'baseline',
+                      gap: '0.5rem',
+                    }}
+                  >
+                    <span
+                      style={{
+                        fontWeight: 600,
+                        fontSize: '0.86rem',
+                        color: 'var(--text)',
+                        overflow: 'hidden',
+                        textOverflow: 'ellipsis',
+                        whiteSpace: 'nowrap',
+                      }}
+                    >
+                      {card.prospect.contactName}
+                    </span>
+                    <span
+                      className="money"
+                      style={{ fontSize: '0.8rem', color: 'var(--text-faint)', flexShrink: 0 }}
+                    >
+                      {card.prospect.rankScore.toFixed(1)}
+                    </span>
+                  </div>
+                  <span
+                    style={{
+                      fontSize: '0.66rem',
+                      letterSpacing: '0.08em',
+                      textTransform: 'uppercase',
+                      fontWeight: 700,
+                      color: meta.color,
+                    }}
+                  >
+                    <span
+                      aria-hidden
+                      style={{
+                        display: 'inline-block',
+                        width: 7,
+                        height: 7,
+                        borderRadius: '50%',
+                        background: wf?.accent ?? 'var(--text-faint)',
+                        marginRight: '0.4rem',
+                      }}
+                    />
+                    {meta.label}
+                    {card.status === 'waiting' && card.dueInDays !== null
+                      ? ` · ${card.dueInDays}d`
+                      : null}
+                  </span>
+                </button>
+              );
+            })
+          )}
+        </div>
+
+        {/* ─── Detail ─────────────────────────────────────────────────── */}
+        <div>
+          {selected && (
+            <DetailPanel
+              key={`${selected.prospect.id}:${nonce}`}
+              card={selected}
+              scripts={scriptsByWorkflow[selected.prospect.workflowKey] ?? []}
+              links={linksByWorkflow[selected.prospect.workflowKey] ?? []}
+              workflowName={wfByKey.get(selected.prospect.workflowKey)?.name ?? ''}
+              repName={repName}
+              onActed={() => setNonce((n) => n + 1)}
+            />
+          )}
+        </div>
       </div>
     </div>
   );
@@ -161,30 +232,36 @@ export function TrackingClient({
 function DetailPanel({
   card,
   scripts,
+  links,
+  workflowName,
   repName,
   onActed,
 }: {
   card: TrackingCard;
   scripts: ContactScript[];
+  links: HandoffLink[];
+  workflowName: string;
   repName: string;
   onActed: () => void;
 }) {
   const router = useRouter();
   const { prospect, contacts, status } = card;
 
-  const nextStep = useMemo(
-    () => scripts.find((s) => s.stageKey === card.nextStepKey) ?? null,
-    [scripts, card.nextStepKey],
+  const nextStep = scripts.find((s) => s.stageKey === card.nextStepKey) ?? null;
+  const placeholders = nextStep ? extractPlaceholders(nextStep.subject, nextStep.body) : [];
+
+  // Two kinds of placeholder: human ones the rep fills, config ones (a
+  // {{link_key}} matching a handoff link) that resolve to a live URL.
+  const { human: humanPlaceholders, config: configLinks } = splitPlaceholders(
+    placeholders,
+    links,
   );
 
-  const placeholders = useMemo(
-    () => (nextStep ? extractPlaceholders(nextStep.subject, nextStep.body) : []),
-    [nextStep],
-  );
-
-  const [values, setValues] = useState<Record<string, string>>(() =>
-    seedValues(card, repName),
-  );
+  const [values, setValues] = useState<Record<string, string>>(() => ({
+    ...seedValues(card, repName),
+    // Config placeholders are pre-resolved and never edited by the rep.
+    ...Object.fromEntries(links.map((l) => [l.linkKey, l.url])),
+  }));
   const [showComposer, setShowComposer] = useState(status === 'ready' || status === 'due');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -192,9 +269,9 @@ function DetailPanel({
 
   const filledSubject = nextStep?.subject ? fillTemplate(nextStep.subject, values) : '';
   const filledBody = nextStep ? fillTemplate(nextStep.body, values) : '';
-  const allFilled = placeholders.every((k) => (values[k] ?? '').trim() !== '');
+  // Only the human fields gate the send — config links are always resolved.
+  const allFilled = humanPlaceholders.every((k) => (values[k] ?? '').trim() !== '');
 
-  // The most recent touch still awaiting a reply — the reply action target.
   const latestOpen =
     contacts.length > 0 && !contacts[contacts.length - 1].responseReceived
       ? contacts[contacts.length - 1]
@@ -244,6 +321,9 @@ function DetailPanel({
           }}
         >
           <div style={{ minWidth: 0 }}>
+            <div className="eyebrow" style={{ marginBottom: '0.2rem' }}>
+              {workflowName}
+            </div>
             <h2
               style={{
                 fontFamily: 'var(--font-playfair), serif',
@@ -252,11 +332,11 @@ function DetailPanel({
                 margin: 0,
               }}
             >
-              {prospect.agentName}
+              {prospect.contactName}
             </h2>
             <p style={{ fontSize: '0.78rem', color: 'var(--text-muted)', marginTop: '0.2rem' }}>
-              {[prospect.agency, prospect.marketArea].filter(Boolean).join(' · ') ||
-                'No agency on file'}
+              {[prospect.orgName, prospect.marketArea].filter(Boolean).join(' · ') ||
+                'No organization on file'}
             </p>
             {(prospect.email || prospect.phone) && (
               <p style={{ fontSize: '0.74rem', color: 'var(--text-faint)', marginTop: '0.2rem' }}>
@@ -283,14 +363,7 @@ function DetailPanel({
         </div>
 
         {/* Cycle progress */}
-        <div
-          style={{
-            display: 'flex',
-            gap: '0.4rem',
-            flexWrap: 'wrap',
-            marginTop: '0.9rem',
-          }}
-        >
+        <div style={{ display: 'flex', gap: '0.4rem', flexWrap: 'wrap', marginTop: '0.9rem' }}>
           {orderedScripts.map((s) => {
             const done = doneKeys.has(s.stageKey);
             const current = s.stageKey === card.nextStepKey;
@@ -306,11 +379,7 @@ function DetailPanel({
                     current ? 'var(--accent)' : done ? 'var(--good)' : 'var(--border)'
                   }`,
                   background: current ? 'var(--accent-dim)' : 'transparent',
-                  color: done
-                    ? 'var(--good)'
-                    : current
-                      ? 'var(--text)'
-                      : 'var(--text-faint)',
+                  color: done ? 'var(--good)' : current ? 'var(--text)' : 'var(--text-faint)',
                 }}
               >
                 {done ? '✓ ' : ''}
@@ -372,7 +441,7 @@ function DetailPanel({
       {status === 'replied' ? (
         <div className="surface-tool">
           <p style={{ fontSize: '0.85rem', color: 'var(--text)' }}>
-            {prospect.agentName} replied. Take it from here on their client page —
+            {prospect.contactName} replied. Take it from here on their client page —
             quote the work and move toward signing.
           </p>
           <Link
@@ -386,7 +455,7 @@ function DetailPanel({
       ) : status === 'cycle_done' ? (
         <div className="surface-tool">
           <p style={{ fontSize: '0.85rem', color: 'var(--text)' }}>
-            The full cycle ran with no reply. Close it out — {prospect.agentName} moves
+            The full cycle ran with no reply. Close it out — {prospect.contactName} moves
             to dormant and leaves the board. You can always research them fresh later.
           </p>
           <button
@@ -428,10 +497,9 @@ function DetailPanel({
             </p>
           </div>
 
-          {/* Placeholder inputs */}
-          {placeholders.length > 0 && (
+          {humanPlaceholders.length > 0 && (
             <div style={{ display: 'flex', flexDirection: 'column', gap: '0.6rem' }}>
-              {placeholders.map((key) => (
+              {humanPlaceholders.map((key) => (
                 <label key={key} style={{ display: 'block' }}>
                   <span className="label">{key.replace(/_/g, ' ')}</span>
                   {key === 'intro' ? (
@@ -454,7 +522,26 @@ function DetailPanel({
             </div>
           )}
 
-          {/* Live preview */}
+          {/* Config placeholders — resolved automatically, not editable. */}
+          {configLinks.length > 0 && (
+            <div
+              style={{
+                display: 'flex',
+                flexDirection: 'column',
+                gap: '0.35rem',
+                fontSize: '0.72rem',
+                color: 'var(--text-faint)',
+              }}
+            >
+              {configLinks.map((link) => (
+                <span key={link.linkKey}>
+                  <span style={{ color: 'var(--good)', fontWeight: 700 }}>✓</span>{' '}
+                  {link.label} link filled in automatically.
+                </span>
+              ))}
+            </div>
+          )}
+
           <div
             style={{
               background: 'var(--surface-tool-2)',
@@ -550,13 +637,7 @@ function DetailPanel({
         </div>
       )}
 
-      <p
-        style={{
-          fontSize: '0.72rem',
-          color: 'var(--text-faint)',
-          textAlign: 'center',
-        }}
-      >
+      <p style={{ fontSize: '0.72rem', color: 'var(--text-faint)', textAlign: 'center' }}>
         Stay Sharp. Stay Seen. Stay Human.
       </p>
     </div>

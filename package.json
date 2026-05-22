@@ -10,6 +10,7 @@
     "lint:fix": "eslint --fix",
     "db:migrate": "node scripts/db-migrate.mjs",
     "db:migrate:fresh": "node scripts/db-migrate.mjs -- --fresh-catalog",
+    "db:migrate:fresh-crm": "node scripts/db-migrate.mjs -- --fresh-crm",
     "db:check": "node scripts/db-migrate.mjs -- --check",
     "db:seed": "node scripts/db-seed.mjs",
     "db:seed:dry": "node scripts/db-seed.mjs -- --dry-run",

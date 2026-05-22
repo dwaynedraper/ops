@@ -4,19 +4,24 @@ import { sql } from '@/lib/db';
 import { Sidebar } from '@/components/Sidebar';
 import { Footer } from '@/components/Footer';
 import type { ContactChannel } from '@/lib/tracking';
-import { ScriptsClient, type ScriptInit } from './ScriptsClient';
+import { ScriptsClient, type WorkflowScripts } from './ScriptsClient';
 
 /**
- * Contact-script editor — the outreach scripts (super-admin only).
- *
- * Loads every script (active and inactive) in cycle order and hands them
- * to the editor.
+ * Script + handoff-link editor — the outreach config, per workflow
+ * (super-admin only). Loads every workflow with its scripts (active and
+ * inactive) and its handoff links.
  */
 export const dynamic = 'force-dynamic';
 
 export const metadata = { title: 'Scripts' };
 
+interface WorkflowRow {
+  workflow_key: string;
+  name: string;
+  accent: string;
+}
 interface ScriptRow {
+  workflow_key: string;
   stage_key: string;
   label: string;
   channel: ContactChannel;
@@ -24,6 +29,12 @@ interface ScriptRow {
   subject: string | null;
   body: string;
   active: boolean;
+}
+interface LinkRow {
+  workflow_key: string;
+  link_key: string;
+  label: string;
+  url: string;
 }
 
 export default async function ScriptsPage() {
@@ -34,19 +45,52 @@ export default async function ScriptsPage() {
   const role = user.role ?? 'partner';
   if (role !== 'super_admin') redirect('/');
 
-  const rows = await sql<ScriptRow>`
-    SELECT stage_key, label, channel, followup_after_days, subject, body, active
-    FROM contact_scripts
-    ORDER BY step_order`;
+  const [workflowRows, scriptRows, linkRows] = await Promise.all([
+    sql<WorkflowRow>`
+      SELECT workflow_key, name, accent FROM workflows
+      WHERE active = true ORDER BY sort_order, name`,
+    sql<ScriptRow>`
+      SELECT workflow_key, stage_key, label, channel, followup_after_days,
+             subject, body, active
+      FROM contact_scripts
+      ORDER BY workflow_key, step_order`,
+    sql<LinkRow>`
+      SELECT workflow_key, link_key, label, url
+      FROM handoff_links
+      ORDER BY workflow_key, sort_order`,
+  ]);
 
-  const scripts: ScriptInit[] = rows.map((r) => ({
-    stageKey: r.stage_key,
-    label: r.label,
-    channel: r.channel,
-    followupAfterDays: r.followup_after_days,
-    subject: r.subject ?? '',
-    body: r.body,
-    active: r.active,
+  const scriptsByWf = new Map<string, ScriptRow[]>();
+  for (const r of scriptRows) {
+    const list = scriptsByWf.get(r.workflow_key) ?? [];
+    list.push(r);
+    scriptsByWf.set(r.workflow_key, list);
+  }
+  const linksByWf = new Map<string, LinkRow[]>();
+  for (const r of linkRows) {
+    const list = linksByWf.get(r.workflow_key) ?? [];
+    list.push(r);
+    linksByWf.set(r.workflow_key, list);
+  }
+
+  const workflows: WorkflowScripts[] = workflowRows.map((w) => ({
+    key: w.workflow_key,
+    name: w.name,
+    accent: w.accent,
+    scripts: (scriptsByWf.get(w.workflow_key) ?? []).map((r) => ({
+      stageKey: r.stage_key,
+      label: r.label,
+      channel: r.channel,
+      followupAfterDays: r.followup_after_days,
+      subject: r.subject ?? '',
+      body: r.body,
+      active: r.active,
+    })),
+    links: (linksByWf.get(w.workflow_key) ?? []).map((r) => ({
+      linkKey: r.link_key,
+      label: r.label,
+      url: r.url,
+    })),
   }));
 
   return (
@@ -71,13 +115,13 @@ export default async function ScriptsPage() {
               The <em style={{ color: 'var(--accent)' }}>outreach</em> cycle.
             </h1>
             <p style={{ color: 'var(--text-mid)', marginBottom: '1.75rem', maxWidth: '60ch' }}>
-              The scripts reps copy on the tracking page, in cycle order. Each
-              follow-up interval sets when the next touch comes due — set it to 0
-              to end the cycle. Use <code>{'{{placeholder}}'}</code> slots for the
-              parts a rep fills in. Nothing changes until you publish.
+              Pick a workflow, then edit its scripts and handoff links. A script
+              pulls a handoff link in with <code>{'{{link_key}}'}</code> — change the
+              link here and every script that uses it updates. Nothing changes until
+              you publish.
             </p>
 
-            <ScriptsClient scripts={scripts} />
+            <ScriptsClient workflows={workflows} />
           </div>
         </main>
 

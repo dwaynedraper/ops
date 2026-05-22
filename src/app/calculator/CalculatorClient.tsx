@@ -48,6 +48,7 @@ export function CalculatorClient({
   prospectId,
   initialClient,
   onSaved,
+  defaultBranch,
 }: {
   catalog: Catalog;
   role: 'super_admin' | 'partner';
@@ -57,6 +58,8 @@ export function CalculatorClient({
   initialClient?: QuoteClientInfo;
   /** Called after a quote saves — lets an embedding page refresh. */
   onSaved?: () => void;
+  /** Branch to open on — the embedding workflow's branch. */
+  defaultBranch?: Branch;
 }) {
   const pkgsFor = useMemo(
     () => (b: Branch) => catalog.packages.filter((p) => p.branch === b),
@@ -72,8 +75,10 @@ export function CalculatorClient({
     return list.length ? list : ['portraits'];
   }, [catalog]);
 
-  const [branch, setBranch] = useState<Branch>(branches[0]);
-  const [packageId, setPackageId] = useState<string>(() => pkgsFor(branches[0])[0]?.id ?? '');
+  const initialBranch =
+    defaultBranch && branches.includes(defaultBranch) ? defaultBranch : branches[0];
+  const [branch, setBranch] = useState<Branch>(initialBranch);
+  const [packageId, setPackageId] = useState<string>(() => pkgsFor(initialBranch)[0]?.id ?? '');
   const [addonQty, setAddonQty] = useState<Record<string, number>>({});
 
   // Corporate inputs

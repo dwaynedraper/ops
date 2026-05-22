@@ -14,6 +14,62 @@ lives in `README.md`. This file is the time-ordered receipt.
 
 ### Planned next
 - Send-to-client flow (email the quote PDF) + final polish
+- Phase D recommended additions: daily follow-up digest, duplicate
+  check on Research, cross-sell linked prospects, mobile pass,
+  `/today` + `/team` dead-nav cleanup (PHASE-D-PLAN §9)
+
+---
+
+## 2026-05-21 — Phase D complete · the multi-workflow pipeline
+
+The single real-estate pipeline becomes five tuned workflows — Real
+Estate Media, Corporate Headshots, Story Portraits, The Saga, and The
+10% Rule — each with its own entry gate, scoring factors, contact
+scripts, handoff links, and vocabulary, all on the shared Research →
+Tracking → Client → Dashboard machinery. Full plan in `PHASE-D-PLAN.md`;
+decision D-022.
+
+### Added
+- `workflows` table — the spine: `workflow_key`, display `name`,
+  `branch` (for the client-page calculator default), `contact_noun` /
+  `org_noun` vocabulary, `accent`, `active`, `sort_order`.
+- `handoff_links` table — per-workflow Sprout / booking links keyed by
+  `(workflow_key, link_key)`, referenced from scripts by placeholder.
+- `/clients` — the Client List: workflow group-toggle chips, stage
+  filter, name/org search; owner-scoped (a rep sees their own,
+  super_admin sees all). New "Clients" sidebar item.
+- The 10% Rule workflow — contribution, not sales: the §7.1/§7.2 fit
+  check is the gate, factors are fit-and-priority signals, and the
+  client page suppresses the quote calculator (no dollar figure).
+- `splitPlaceholders` in `src/lib/tracking.ts` — splits a script's
+  `{{tokens}}` into *human* placeholders (the rep fills) and *config*
+  placeholders (a `{{link_key}}` that resolves automatically from
+  `handoff_links`). Unit-tested.
+
+### Changed
+- `rank_factors`, `rank_config`, `contact_scripts`, and `prospects` are
+  all scoped by `workflow_key`. The hard-coded entry-gate booleans
+  (`has_target_listing`, `has_photo_need`) are retired for an `is_gate`
+  flag on `rank_factors` — a gate is now any per-workflow yes/no factor.
+- Prospect identity generalized: `agent_name` → `contact_name`,
+  `agency` → `org_name`; the UI labels them per the workflow's nouns.
+- Research, Rank Factors, and Scripts editors gained a workflow picker;
+  publishes are scoped by `workflow_key`. The Scripts editor also edits
+  that workflow's handoff links.
+- Tracking and the Dashboard are multi-workflow — a workflow badge and
+  filter per prospect, each contact cycle computed against its own
+  workflow's scripts, pipeline + target counts grouped by workflow.
+- The contact composer resolves config placeholders automatically: a
+  `{{booking_link}}` carries the live URL with no input shown — change
+  a link once in the Scripts editor and every script using it is
+  current (no Sprout webhook — D-5, links only).
+- `db:migrate:fresh-crm` drops and recreates the CRM tables; the seed
+  loads all five workflows with default factors, scripts, and links.
+
+### Verified
+- `tsc --noEmit` and `eslint` clean across `src`. `splitPlaceholders` /
+  `fillTemplate` resolution checked against compiled output (vitest
+  can't run in the sandbox — arm64 native-binding mismatch).
 
 ---
 

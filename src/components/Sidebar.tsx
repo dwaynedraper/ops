@@ -19,6 +19,7 @@ const NAV: NavLink[] = [
   { href: '/calculator', label: 'Calculator' },
   { href: '/prospects', label: 'Research' },
   { href: '/tracking', label: 'Tracking' },
+  { href: '/clients', label: 'Clients' },
   { href: '/today', label: 'Today' },
 ];
 

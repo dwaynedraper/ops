@@ -3,11 +3,11 @@
 /**
  * The client page — a prospect's mini-CRM, interactive.
  *
- * Header + lifecycle stage actions, an editable details card, the pinned
- * facts + notes timeline, an embedded pricing calculator whose quotes link
- * back to this prospect, and the quote history. Every mutation runs through
- * a server action and then router.refresh() so the server-rendered data
- * re-reads.
+ * Header + lifecycle stage actions, an editable details card (labelled by
+ * the workflow's vocabulary), the pinned facts + notes timeline, an
+ * embedded calculator whose quotes link back to this prospect, and the
+ * quote history. The 10% workflow has no quote — the calculator is
+ * suppressed there. Every mutation runs a server action then refreshes.
  */
 
 import { useMemo, useState } from 'react';
@@ -16,22 +16,26 @@ import { useRouter } from 'next/navigation';
 import { CalculatorClient } from '@/app/calculator/CalculatorClient';
 import { fmtMoney } from '@/lib/pricing';
 import { STAGE_LABEL, type ProspectStage, type ScoreBand } from '@/lib/prospects';
-import type { Catalog, QuoteClientInfo } from '@/lib/catalog';
+import type { Catalog, QuoteClientInfo, Branch } from '@/lib/catalog';
 import { updateProspectDetails, addNote, setNotePinned, advanceStage } from './actions';
 
 // ─── DTOs (page.tsx builds these) ─────────────────────────────────────
 
 export interface ProspectDetail {
   id: string;
-  agentName: string;
-  agency: string | null;
+  workflowKey: string;
+  workflowName: string;
+  workflowAccent: string;
+  contactNoun: string;
+  orgNoun: string | null;
+  branch: Branch | null;
+  contactName: string;
+  orgName: string | null;
   email: string | null;
   phone: string | null;
   websiteUrl: string | null;
   socialUrl: string | null;
   marketArea: string | null;
-  hasTargetListing: boolean;
-  hasPhotoNeed: boolean;
   rankScore: number;
   band: ScoreBand;
   stage: ProspectStage;
@@ -92,7 +96,7 @@ function stageActionLabel(stage: ProspectStage): string {
     case 'client':
       return 'Mark as active client';
     case 'passed':
-      return 'Pass on this agent';
+      return 'Pass on this prospect';
     case 'dormant':
       return 'Mark dormant';
     default:
@@ -123,14 +127,14 @@ export function ClientPageView({
 
   const initialClient = useMemo<QuoteClientInfo>(
     () => ({
-      name: prospect.agentName,
+      name: prospect.contactName,
       email: prospect.email ?? '',
       phone: prospect.phone ?? '',
       project: '',
       targetDate: '',
       notes: '',
     }),
-    [prospect.agentName, prospect.email, prospect.phone],
+    [prospect.contactName, prospect.email, prospect.phone],
   );
 
   async function onStage(next: ProspectStage) {
@@ -147,15 +151,17 @@ export function ClientPageView({
 
   const pinned = notes.filter((n) => n.pinned);
   const timeline = notes.filter((n) => !n.pinned);
+  const subtitle =
+    [prospect.orgName, prospect.marketArea].filter(Boolean).join(' · ') || 'No details yet';
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
       <Link
-        href="/prospects"
+        href="/clients"
         className="btn-ghost"
         style={{ alignSelf: 'flex-start', padding: '0.2rem 0' }}
       >
-        ← Research
+        ← Clients
       </Link>
 
       {/* ─── Header ──────────────────────────────────────────────────── */}
@@ -170,8 +176,11 @@ export function ClientPageView({
           }}
         >
           <div style={{ minWidth: 0 }}>
-            <div className="eyebrow" style={{ marginBottom: '0.35rem' }}>
-              Client record
+            <div
+              className="eyebrow"
+              style={{ marginBottom: '0.35rem', color: prospect.workflowAccent }}
+            >
+              {prospect.workflowName}
             </div>
             <h1
               style={{
@@ -182,11 +191,10 @@ export function ClientPageView({
                 margin: 0,
               }}
             >
-              {prospect.agentName}
+              {prospect.contactName}
             </h1>
             <p style={{ fontSize: '0.82rem', color: 'var(--text-mid)', marginTop: '0.25rem' }}>
-              {[prospect.agency, prospect.marketArea].filter(Boolean).join(' · ') ||
-                'No agency on file'}
+              {subtitle}
             </p>
             <p style={{ fontSize: '0.74rem', color: 'var(--text-faint)', marginTop: '0.2rem' }}>
               Researched {prospect.createdAtLabel}
@@ -260,95 +268,108 @@ export function ClientPageView({
       <NotesSection prospectId={prospect.id} pinned={pinned} timeline={timeline} />
 
       {/* ─── Quotes ──────────────────────────────────────────────────── */}
-      <div>
-        <div className="eyebrow" style={{ marginBottom: '0.85rem' }}>
-          Quotes
-        </div>
-
-        {quotes.length > 0 ? (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.4rem', marginBottom: '1.25rem' }}>
-            {quotes.map((q) => (
-              <Link
-                key={q.id}
-                href={`/quotes/${q.id}`}
-                className="surface-tool"
-                style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '0.85rem',
-                  padding: '0.7rem 0.9rem',
-                  textDecoration: 'none',
-                  color: 'inherit',
-                }}
-              >
-                <span
-                  className="money"
-                  style={{ fontSize: '0.82rem', color: 'var(--text-faint)', flexShrink: 0 }}
-                >
-                  #{q.quoteNumber}
-                </span>
-                <span
-                  style={{
-                    flex: 1,
-                    minWidth: 0,
-                    fontSize: '0.84rem',
-                    color: 'var(--text)',
-                    overflow: 'hidden',
-                    textOverflow: 'ellipsis',
-                    whiteSpace: 'nowrap',
-                  }}
-                >
-                  {q.packageLabel}
-                </span>
-                <span
-                  style={{
-                    fontSize: '0.62rem',
-                    letterSpacing: '0.1em',
-                    textTransform: 'uppercase',
-                    fontWeight: 700,
-                    color: QUOTE_STATUS_COLOR[q.status] ?? 'var(--text-faint)',
-                    flexShrink: 0,
-                  }}
-                >
-                  {q.status}
-                </span>
-                <span
-                  className="money"
-                  style={{ fontSize: '0.9rem', color: 'var(--text)', flexShrink: 0 }}
-                >
-                  {fmtMoney(q.totalPrice)}
-                </span>
-                <span
-                  style={{
-                    fontSize: '0.72rem',
-                    color: 'var(--text-faint)',
-                    flexShrink: 0,
-                    minWidth: '5.5rem',
-                    textAlign: 'right',
-                  }}
-                >
-                  {q.createdAtLabel}
-                </span>
-              </Link>
-            ))}
+      {prospect.branch === null ? (
+        <div className="surface-tool">
+          <div className="eyebrow" style={{ marginBottom: '0.4rem' }}>
+            Contributed work
           </div>
-        ) : (
-          <p style={{ fontSize: '0.84rem', color: 'var(--text-muted)', marginBottom: '1.25rem' }}>
-            No quotes yet — build one below.
+          <p style={{ fontSize: '0.84rem', color: 'var(--text-muted)' }}>
+            The {prospect.workflowName} workflow is pro-bono — there&apos;s no quote
+            to build here.
           </p>
-        )}
-
-        <div className="eyebrow" style={{ marginBottom: '0.85rem' }}>
-          Build a quote
         </div>
-        <CalculatorClient
-          catalog={catalog}
-          role={role}
-          prospectId={prospect.id}
-          initialClient={initialClient}
-          onSaved={() => router.refresh()}
-        />
-      </div>
+      ) : (
+        <div>
+          <div className="eyebrow" style={{ marginBottom: '0.85rem' }}>
+            Quotes
+          </div>
+
+          {quotes.length > 0 ? (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.4rem', marginBottom: '1.25rem' }}>
+              {quotes.map((q) => (
+                <Link
+                  key={q.id}
+                  href={`/quotes/${q.id}`}
+                  className="surface-tool"
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '0.85rem',
+                    padding: '0.7rem 0.9rem',
+                    textDecoration: 'none',
+                    color: 'inherit',
+                  }}
+                >
+                  <span
+                    className="money"
+                    style={{ fontSize: '0.82rem', color: 'var(--text-faint)', flexShrink: 0 }}
+                  >
+                    #{q.quoteNumber}
+                  </span>
+                  <span
+                    style={{
+                      flex: 1,
+                      minWidth: 0,
+                      fontSize: '0.84rem',
+                      color: 'var(--text)',
+                      overflow: 'hidden',
+                      textOverflow: 'ellipsis',
+                      whiteSpace: 'nowrap',
+                    }}
+                  >
+                    {q.packageLabel}
+                  </span>
+                  <span
+                    style={{
+                      fontSize: '0.62rem',
+                      letterSpacing: '0.1em',
+                      textTransform: 'uppercase',
+                      fontWeight: 700,
+                      color: QUOTE_STATUS_COLOR[q.status] ?? 'var(--text-faint)',
+                      flexShrink: 0,
+                    }}
+                  >
+                    {q.status}
+                  </span>
+                  <span
+                    className="money"
+                    style={{ fontSize: '0.9rem', color: 'var(--text)', flexShrink: 0 }}
+                  >
+                    {fmtMoney(q.totalPrice)}
+                  </span>
+                  <span
+                    style={{
+                      fontSize: '0.72rem',
+                      color: 'var(--text-faint)',
+                      flexShrink: 0,
+                      minWidth: '5.5rem',
+                      textAlign: 'right',
+                    }}
+                  >
+                    {q.createdAtLabel}
+                  </span>
+                </Link>
+              ))}
+            </div>
+          ) : (
+            <p style={{ fontSize: '0.84rem', color: 'var(--text-muted)', marginBottom: '1.25rem' }}>
+              No quotes yet — build one below.
+            </p>
+          )}
+
+          <div className="eyebrow" style={{ marginBottom: '0.85rem' }}>
+            Build a quote
+          </div>
+          <CalculatorClient
+            catalog={catalog}
+            role={role}
+            prospectId={prospect.id}
+            initialClient={initialClient}
+            defaultBranch={prospect.branch}
+            onSaved={() => router.refresh()}
+          />
+        </div>
+      )}
 
       <p style={{ fontSize: '0.72rem', color: 'var(--text-faint)', textAlign: 'center' }}>
         Stay Sharp. Stay Seen. Stay Human.
@@ -360,8 +381,8 @@ export function ClientPageView({
 // ─── Details editor ───────────────────────────────────────────────────
 
 interface DetailsForm {
-  agentName: string;
-  agency: string;
+  contactName: string;
+  orgName: string;
   email: string;
   phone: string;
   websiteUrl: string;
@@ -373,8 +394,8 @@ function DetailsEditor({ prospect }: { prospect: ProspectDetail }) {
   const router = useRouter();
   const initial = useMemo<DetailsForm>(
     () => ({
-      agentName: prospect.agentName,
-      agency: prospect.agency ?? '',
+      contactName: prospect.contactName,
+      orgName: prospect.orgName ?? '',
       email: prospect.email ?? '',
       phone: prospect.phone ?? '',
       websiteUrl: prospect.websiteUrl ?? '',
@@ -421,20 +442,22 @@ function DetailsEditor({ prospect }: { prospect: ProspectDetail }) {
           gap: '0.75rem',
         }}
       >
-        <DField label="Agent name">
+        <DField label={`${prospect.contactNoun} name`}>
           <input
             className="input"
-            value={form.agentName}
-            onChange={(e) => patch({ agentName: e.target.value })}
+            value={form.contactName}
+            onChange={(e) => patch({ contactName: e.target.value })}
           />
         </DField>
-        <DField label="Agency">
-          <input
-            className="input"
-            value={form.agency}
-            onChange={(e) => patch({ agency: e.target.value })}
-          />
-        </DField>
+        {prospect.orgNoun && (
+          <DField label={prospect.orgNoun}>
+            <input
+              className="input"
+              value={form.orgName}
+              onChange={(e) => patch({ orgName: e.target.value })}
+            />
+          </DField>
+        )}
         <DField label="Market area">
           <input
             className="input"

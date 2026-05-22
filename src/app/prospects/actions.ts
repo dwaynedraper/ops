@@ -3,13 +3,13 @@
 /**
  * Research page server action.
  *
- * `createProspect` persists a researched agent. The client sends the
- * rep's answers; the server re-fetches the rank factors and recomputes
- * the 0–10 score itself — a tampered or stale client can't write a bogus
- * rank, the same discipline the calculator's saveQuote uses for prices.
+ * `createProspect` persists a researched prospect into one workflow. The
+ * client sends the rep's answers and the chosen workflow; the server
+ * re-fetches that workflow's rank factors and recomputes the 0–10 score
+ * itself — a tampered or stale client can't write a bogus rank.
  *
- * The entry gate (a current target listing AND a visible photo need) is
- * enforced here too: fail it and nothing is written (D-017).
+ * The entry gate is the workflow's gate factors: every one must answer
+ * true or nothing is written (D-017 / D-022).
  */
 
 import { revalidatePath } from 'next/cache';
@@ -19,6 +19,7 @@ import {
   scoreProspect,
   classifyBand,
   stageForBand,
+  gatesPassed,
   DEFAULT_BANDS,
   type RankFactor,
   type RankBands,
@@ -34,6 +35,7 @@ interface FactorRow {
   kind: 'bool' | 'number';
   weight: string;
   max_input: string | null;
+  is_gate: boolean;
   sort_order: number;
 }
 interface ConfigRow {
@@ -41,7 +43,6 @@ interface ConfigRow {
   value: string;
 }
 
-/** Trim a free-text field; empty becomes NULL so the column stays clean. */
 function orNull(s: string): string | null {
   const t = s.trim();
   return t.length > 0 ? t : null;
@@ -54,26 +55,22 @@ export async function createProspect(
   const userId = session?.user?.id;
   if (!userId) return { ok: false, error: 'Your session has expired — sign in again.' };
 
-  const agentName = input.agentName.trim();
-  if (!agentName) return { ok: false, error: 'Give the agent a name first.' };
+  const contactName = input.contactName.trim();
+  if (!contactName) return { ok: false, error: 'Give the prospect a name first.' };
 
-  // Entry gate — both must be true to enter the pipeline (D-017).
-  if (!input.hasTargetListing || !input.hasPhotoNeed) {
-    return {
-      ok: false,
-      error:
-        "This agent doesn't clear the entry gate yet — it needs both a current target listing and a visible photo need.",
-    };
-  }
+  const workflow = await sqlOne<{ name: string }>`
+    SELECT name FROM workflows WHERE workflow_key = ${input.workflowKey} AND active = true`;
+  if (!workflow) return { ok: false, error: 'That workflow is no longer available.' };
 
-  // Re-fetch the scoring config and recompute the score server-side.
+  // Re-fetch this workflow's scoring config and recompute server-side.
   const [factorRows, configRows] = await Promise.all([
     sql<FactorRow>`
-      SELECT key, label, help_text, kind, weight, max_input, sort_order
+      SELECT key, label, help_text, kind, weight, max_input, is_gate, sort_order
       FROM rank_factors
-      WHERE active = true
+      WHERE workflow_key = ${input.workflowKey} AND active = true
       ORDER BY sort_order, label`,
-    sql<ConfigRow>`SELECT key, value FROM rank_config`,
+    sql<ConfigRow>`
+      SELECT key, value FROM rank_config WHERE workflow_key = ${input.workflowKey}`,
   ]);
 
   const factors: RankFactor[] = factorRows.map((r) => ({
@@ -83,10 +80,11 @@ export async function createProspect(
     kind: r.kind,
     weight: Number(r.weight),
     maxInput: r.max_input === null ? null : Number(r.max_input),
+    isGate: r.is_gate,
     sortOrder: r.sort_order,
   }));
 
-  // Keep only answers for factors that actually exist; coerce by kind.
+  // Keep only answers for factors that exist; coerce by kind.
   const clean: RankInputs = {};
   for (const f of factors) {
     const raw = input.rankInputs[f.key];
@@ -98,6 +96,15 @@ export async function createProspect(
     }
   }
 
+  // Entry gate — every gate factor must be true (D-017 / D-022).
+  if (!gatesPassed(factors, clean)) {
+    return {
+      ok: false,
+      error:
+        "This prospect doesn't clear the entry gate yet — every gate question has to be a yes.",
+    };
+  }
+
   const cfg = new Map(configRows.map((r) => [r.key, Number(r.value)]));
   const bands: RankBands = {
     qualifiedMin: cfg.get('qualified_min') ?? DEFAULT_BANDS.qualifiedMin,
@@ -105,27 +112,26 @@ export async function createProspect(
     targetCount: cfg.get('qualified_target_count') ?? DEFAULT_BANDS.targetCount,
   };
 
-  const { score } = scoreProspect(factors, clean);
+  const scoringFactors = factors.filter((f) => !f.isGate);
+  const { score } = scoreProspect(scoringFactors, clean);
   const band = classifyBand(score, bands);
   const stage = stageForBand(band);
 
   try {
     const row = await sqlOne<{ id: string }>`
       INSERT INTO prospects
-        (owner_id, agent_name, agency, email, phone, website_url, social_url,
-         market_area, has_target_listing, has_photo_need, rank_inputs,
-         rank_score, stage)
+        (workflow_key, owner_id, contact_name, org_name, email, phone,
+         website_url, social_url, market_area, rank_inputs, rank_score, stage)
       VALUES
-        (${userId}, ${agentName}, ${orNull(input.agency)}, ${orNull(input.email)},
-         ${orNull(input.phone)}, ${orNull(input.websiteUrl)}, ${orNull(input.socialUrl)},
-         ${orNull(input.marketArea)}, ${input.hasTargetListing}, ${input.hasPhotoNeed},
+        (${input.workflowKey}, ${userId}, ${contactName}, ${orNull(input.orgName)},
+         ${orNull(input.email)}, ${orNull(input.phone)}, ${orNull(input.websiteUrl)},
+         ${orNull(input.socialUrl)}, ${orNull(input.marketArea)},
          ${JSON.stringify(clean)}, ${score}, ${stage})
       RETURNING id`;
-
     if (!row) return { ok: false, error: 'Could not save the prospect.' };
 
     revalidatePath('/prospects');
-    return { ok: true, id: row.id, agentName, score, band, stage };
+    return { ok: true, id: row.id, contactName, score, band, stage };
   } catch (err) {
     return {
       ok: false,
