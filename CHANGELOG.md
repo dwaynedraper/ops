@@ -13,9 +13,33 @@ lives in `README.md`. This file is the time-ordered receipt.
 ## [Unreleased]
 
 ### Planned next
-- Phase C — the rank-factor and script editors, draft-until-Publish
-  (the pricing editors — Rates, Corporate, worksheet — shipped 2026-05-21)
 - Quote PDF export + polish
+
+---
+
+## 2026-05-21 — Phase C complete · rank-factor + script editors
+
+The last two super-admin editors ship — Phase C is done. Every pricing
+and CRM config surface (rates, package worksheets, the corporate
+formula, rank factors, contact scripts) is now editable inside ops,
+draft-until-Publish. Editing via the seed script or SQL is retired as
+the routine path.
+
+### Added
+- `/rank-factors` — the research scoring config: edit each rank factor
+  (label, help, kind, weight, full-credit value, active), add factors,
+  and set the qualified / borderline / target thresholds. Live
+  active-weight readout. RankFactorsClient + actions.
+- `/scripts` — the contact-script editor: edit each script (label,
+  channel, follow-up interval, subject, body, active), add scripts,
+  with detected `{{placeholders}}` surfaced per script. List order is
+  cycle order. ScriptsClient + actions.
+- Both upsert by key / stage_key — retiring a factor or script uses its
+  `active` flag, never a delete, so a key referenced in saved data is
+  never orphaned. Sidebar gains Rank Factors + Scripts.
+
+### Verified
+- `tsc --noEmit` and `eslint` clean across `src`.
 
 ---
 

@@ -28,6 +28,8 @@ const NAV_ADMIN: NavLink[] = [
   { href: '/rates', label: 'Rates & Globals', gated: 'super_admin' },
   { href: '/packages', label: 'Packages', gated: 'super_admin' },
   { href: '/corporate', label: 'Corporate', gated: 'super_admin' },
+  { href: '/rank-factors', label: 'Rank Factors', gated: 'super_admin' },
+  { href: '/scripts', label: 'Scripts', gated: 'super_admin' },
   { href: '/team', label: 'Team', gated: 'super_admin' },
 ];
 
