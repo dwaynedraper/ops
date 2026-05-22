@@ -19,6 +19,24 @@ lives in `README.md`. This file is the time-ordered receipt.
 
 ---
 
+## 2026-05-21 — Catalog seed · portrait deliverable counts corrected
+
+### Fixed
+- `scripts/db-seed.mjs` — the Verse / Story / Saga package descriptions
+  carried the wrong hand-edited photo counts (10 / 25 / ~50). Corrected
+  to the approved deliverable spec: **8 / 16 / 35**. Re-run
+  `npm run db:seed` to push the corrected descriptions to the database.
+
+### Note
+- The same counts were wrong across the marketing collateral in
+  `/projects/sharp/Guides` (wall card, print pricing, the Verse and
+  Story master sheets, the 90-day plan, the sales brief) and were
+  corrected there too — those files live outside the ops repo. The
+  pricing master spreadsheet still shows 10 for the Verse; owner to
+  correct. PDF exports of the Guides collateral need re-rendering.
+
+---
+
 ## 2026-05-21 — Phase B complete · Research, Tracking, Client, Dashboard
 
 The CRM pipeline is now a working surface end to end: research and score

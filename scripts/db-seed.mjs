@@ -110,7 +110,7 @@ const h = (category, amount) => ({ kind: 'hard', category, amount });
 const PACKAGES = [
   {
     slug: 'the-verse', name: 'The Verse', branch: 'portraits',
-    description: '2-hour session · 1 location · 1 wardrobe · 10 hand-edited images · 5 framed letter prints · 7-day delivery.',
+    description: '2-hour session · 1 location · 1 wardrobe · 8 hand-edited images · 5 framed letter prints · 7-day delivery.',
     default_margin: 0.30, sort_order: 10,
     lines: [
       t('Shooting', 2, 'lp'),
@@ -123,7 +123,7 @@ const PACKAGES = [
   },
   {
     slug: 'the-story', name: 'The Story', branch: 'portraits',
-    description: '6 hours · unlimited locations + wardrobe · 25 hand-edited images · 6 framed letters + 1 framed 13×19 · 14-day delivery.',
+    description: '6 hours · unlimited locations + wardrobe · 16 hand-edited images · 6 framed letters + 1 framed 13×19 · 14-day delivery.',
     default_margin: 0.30, sort_order: 20,
     lines: [
       t('Discovery / Consultation', 1, 'lp'),
@@ -141,7 +141,7 @@ const PACKAGES = [
   },
   {
     slug: 'the-saga', name: 'The Saga', branch: 'portraits',
-    description: '2 days · with team · creative direction · ~50 hand-edited finals + documentary video · 2 museum prints + Heirloom Book · Fine Art Collection · 45-day delivery.',
+    description: '2 days · with team · creative direction · 35 hand-edited finals + documentary video · 2 museum prints + Heirloom Book · Fine Art Collection · 45-day delivery.',
     default_margin: 0.30, sort_order: 30,
     lines: [
       t('Discovery / Consultation', 1, 'lp_saga'),
