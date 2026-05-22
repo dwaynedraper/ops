@@ -14,12 +14,57 @@ lives in `README.md`. This file is the time-ordered receipt.
 
 ### Planned next
 - Send-to-client flow (email the quote PDF) + final polish
-- Optional emailed version of the `/today` digest (opt-in per rep)
 - Phase D recommended additions still open: duplicate check on
   Research, cross-sell linked prospects, mobile pass (PHASE-D-PLAN §9)
-- Supervisor report: a stage-event log would let `/team` count true
-  stage transitions (e.g. research → tracking) rather than the
-  first-touch proxy it uses today
+
+### Setup needed for this release
+- Run `npm run db:migrate` — adds `rep_invites`, `prospect_stage_events`
+  (+ its trigger), and the `ops_profiles.status` / `digest_email`
+  columns. The old `ops_profiles.active` boolean is migrated across.
+- Set a `CRON_SECRET` env var in Vercel so the digest cron route
+  (`/api/cron/digest`) only runs for the scheduled job.
+
+---
+
+## 2026-05-22 — Invite-only rep management, stage events, digest email
+
+Reps now onboard through an invite-and-approve flow, every stage change
+is logged, and the morning digest can land in a rep's inbox.
+
+### Added
+- Invite-only onboarding. `rep_invites` table; `/team` is now the rep
+  roster — invite a rep (name, email, role), and they're emailed a
+  branded invite. No more editing `ALLOWED_EMAILS` by hand.
+- A four-state access lifecycle on `ops_profiles.status` — invited,
+  active, suspended, disabled. A rep is never deleted; off-boarding
+  sets `disabled` and every prospect, contact, and quote stays
+  attributable. The roster activates, suspends, and disables.
+- `/awaiting` — the gate page a signed-in but non-active rep sees
+  (awaiting activation / suspended / disabled), with a sign-out.
+- `prospect_stage_events` — an append-only log of every lifecycle stage
+  change, written by a database trigger so nothing can be missed.
+- `/api/cron/digest` + a Vercel cron entry — emails the `/today` brief
+  each morning to reps who opted in. The opt-in toggle lives on `/today`
+  (`ops_profiles.digest_email`, off by default).
+- `src/lib/`: `rep-access.ts` (the sign-in gate), `mailer.ts` (Resend
+  wrapper), `invite-email.ts`, `digest.ts` (shared digest computation),
+  `digest-email.ts`.
+
+### Changed
+- `auth.ts` — sign-in is invite-driven (`canSignIn`); first sign-in
+  against an invite creates an `invited` profile; the session now
+  carries `status`.
+- `proxy.ts` — a non-active session is bounced to `/awaiting`;
+  `/api/cron` is public (it gates on `CRON_SECRET`).
+- `/team` split in two: the roster at `/team`, the supervisor report at
+  `/team/activity`.
+- The supervisor report's old first-touch proxy is replaced by a real
+  metric — **Advanced**, a count of forward stage transitions from
+  `prospect_stage_events` (research → tracking → signed).
+- `email-allowlist.ts` trimmed to just the bootstrap admin.
+
+### Verified
+- `tsc --noEmit` and `eslint` clean across `src`.
 
 ---
 

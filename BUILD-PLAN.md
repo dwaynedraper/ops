@@ -445,9 +445,17 @@ due, cycles to close), the `/team` supervisor report (per-rep windowed
 activity + pipeline snapshot, super_admin only), and the dead-nav
 cleanup — `/today` and `/team` were nav stubs and now resolve. The §12
 parked task is also done: the quote PDF now renders in the brand faces
-(Playfair Display + Montserrat). Still open from §9: duplicate-check on
-Research, cross-sell linked prospects, mobile pass; and an optional
-emailed version of the `/today` digest.
+(Playfair Display + Montserrat).
+
+**Rep management + activity logging (2026-05-22).** Onboarding moved off
+the `ALLOWED_EMAILS` env var to an invite-and-approve flow: `rep_invites`
++ a four-state `ops_profiles.status` lifecycle (invited → active →
+suspended → disabled; reps are never deleted). `/team` is the roster;
+the supervisor report moved to `/team/activity`. A `prospect_stage_events`
+log (database trigger) now records every stage change, so the report
+counts real transitions. The `/today` digest can be emailed each
+morning via a Vercel cron + Resend (per-rep opt-in). Still open from §9:
+duplicate-check on Research, cross-sell linked prospects, mobile pass.
 
 ---
 

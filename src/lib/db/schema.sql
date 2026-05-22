@@ -87,21 +87,56 @@ CREATE TABLE IF NOT EXISTS verification_token (
 
 -- ─── ops_profiles ──────────────────────────────────────────────────
 -- One row per real user. Carries role, display name, and access state.
--- Inserted by the auth signIn callback the first time someone signs in
--- (provided their email is on the ALLOWED_EMAILS list — see auth.ts).
+-- Created by the auth createUser event the first time an invited rep
+-- signs in (see auth.ts + rep_invites below).
+--
+-- `status` is the access lifecycle:
+--   invited   — signed in against an invite, awaiting activation. The
+--               rep can authenticate but is gated out of the app until
+--               an admin activates them (I-9 / paperwork pause).
+--   active    — cleared to work.
+--   suspended — access paused, reversible. The record is kept.
+--   disabled  — off-boarded. Access ends; the record is kept forever.
+-- A rep is NEVER deleted — prospects, contacts, and quotes must stay
+-- attributable for pay and dispute records.
+--
+-- `digest_email` is the per-rep opt-in for the morning /today digest.
 CREATE TABLE IF NOT EXISTS ops_profiles (
   user_id      UUID PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
   role         TEXT NOT NULL DEFAULT 'partner'
                   CHECK (role IN ('super_admin', 'partner')),
   display_name TEXT,
-  active       BOOLEAN NOT NULL DEFAULT TRUE,
+  status       TEXT NOT NULL DEFAULT 'active'
+                  CHECK (status IN ('invited', 'active', 'suspended', 'disabled')),
+  digest_email BOOLEAN NOT NULL DEFAULT FALSE,
   invited_by   UUID REFERENCES users(id) ON DELETE SET NULL,
   created_at   TIMESTAMPTZ NOT NULL DEFAULT now(),
   last_seen_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
 CREATE INDEX IF NOT EXISTS ops_profiles_role_idx ON ops_profiles(role);
-CREATE INDEX IF NOT EXISTS ops_profiles_active_idx ON ops_profiles(active);
+-- ops_profiles_status_idx is created after the status-column migration
+-- near the foot of this file — on an existing database the column does
+-- not exist yet at this point.
+
+-- ─── rep_invites ───────────────────────────────────────────────────
+-- The invite roster — the front of the invite-only onboarding flow. An
+-- admin adds a row here; that email may then request a sign-in link. On
+-- first sign-in the createUser event reads the matching invite, creates
+-- the ops_profile (status 'invited', role from here), and stamps
+-- accepted_at. The row is kept after acceptance as the invite record.
+CREATE TABLE IF NOT EXISTS rep_invites (
+  id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  email       TEXT NOT NULL UNIQUE,          -- normalized lowercase
+  name        TEXT,
+  role        TEXT NOT NULL DEFAULT 'partner'
+                CHECK (role IN ('super_admin', 'partner')),
+  invited_by  UUID REFERENCES users(id) ON DELETE SET NULL,
+  created_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
+  accepted_at TIMESTAMPTZ
+);
+
+CREATE INDEX IF NOT EXISTS rep_invites_email_idx ON rep_invites(email);
 
 -- ─── pricing_globals ───────────────────────────────────────────────
 -- The Globals sheet from the master spreadsheet — hourly rates and
@@ -546,6 +581,43 @@ CREATE TABLE IF NOT EXISTS prospect_notes (
 CREATE INDEX IF NOT EXISTS prospect_notes_prospect_idx
   ON prospect_notes(prospect_id, pinned DESC, created_at DESC);
 
+-- ─── prospect_stage_events ─────────────────────────────────────────
+-- An append-only log of every lifecycle stage change. Written by the
+-- trigger below — never by application code — so no stage move can be
+-- missed. The supervisor report (/team/activity) reads this to count
+-- real transitions (e.g. research → tracking) over a window; without
+-- it, only the current stage is knowable. `from_stage` is NULL for the
+-- creation event. `actor_id` is reserved for future use — the trigger
+-- has no actor; the report attributes by the prospect's owner.
+CREATE TABLE IF NOT EXISTS prospect_stage_events (
+  id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  prospect_id UUID NOT NULL REFERENCES prospects(id) ON DELETE CASCADE,
+  from_stage  TEXT,
+  to_stage    TEXT NOT NULL,
+  actor_id    UUID REFERENCES users(id) ON DELETE SET NULL,
+  created_at  TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS prospect_stage_events_prospect_idx
+  ON prospect_stage_events(prospect_id, created_at);
+CREATE INDEX IF NOT EXISTS prospect_stage_events_created_idx
+  ON prospect_stage_events(created_at);
+
+-- The logger: one row on prospect creation, one on every stage change.
+CREATE OR REPLACE FUNCTION trg_log_prospect_stage_event()
+RETURNS TRIGGER AS $$
+BEGIN
+  IF (TG_OP = 'INSERT') THEN
+    INSERT INTO prospect_stage_events (prospect_id, from_stage, to_stage)
+      VALUES (NEW.id, NULL, NEW.stage);
+  ELSIF (TG_OP = 'UPDATE' AND NEW.stage IS DISTINCT FROM OLD.stage) THEN
+    INSERT INTO prospect_stage_events (prospect_id, from_stage, to_stage)
+      VALUES (NEW.id, OLD.stage, NEW.stage);
+  END IF;
+  RETURN NULL;
+END;
+$$ LANGUAGE plpgsql;
+
 -- ────────────────────────────────────────────────────────────────────
 -- updated_at trigger — single function, reused by every table that has
 -- an updated_at column. Cleaner than defining one trigger per table.
@@ -583,6 +655,11 @@ BEGIN
   IF NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgname = 'prospects_updated_at') THEN
     CREATE TRIGGER prospects_updated_at BEFORE UPDATE ON prospects
       FOR EACH ROW EXECUTE FUNCTION trg_set_updated_at();
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgname = 'prospects_stage_event') THEN
+    CREATE TRIGGER prospects_stage_event
+      AFTER INSERT OR UPDATE OF stage ON prospects
+      FOR EACH ROW EXECUTE FUNCTION trg_log_prospect_stage_event();
   END IF;
   IF NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgname = 'rank_factors_updated_at') THEN
     CREATE TRIGGER rank_factors_updated_at BEFORE UPDATE ON rank_factors
@@ -628,3 +705,45 @@ BEGIN
       CHECK (role IN ('super_admin', 'partner'));
   END IF;
 END $$;
+
+-- ────────────────────────────────────────────────────────────────────
+-- ops_profiles access state: the old `active` boolean becomes the
+-- four-state `status` lifecycle (invited / active / suspended /
+-- disabled), and the per-rep `digest_email` opt-in is added. Idempotent
+-- — a no-op on a fresh database (the CREATE above already has both),
+-- a one-time migration on an existing one. Runs on every db:migrate.
+-- ────────────────────────────────────────────────────────────────────
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM information_schema.columns
+    WHERE table_name = 'ops_profiles' AND column_name = 'status'
+  ) THEN
+    ALTER TABLE ops_profiles ADD COLUMN status TEXT NOT NULL DEFAULT 'active'
+      CHECK (status IN ('invited', 'active', 'suspended', 'disabled'));
+    -- Carry the old boolean across: active rows stay active, the rest
+    -- become disabled (kept, but with access ended).
+    IF EXISTS (
+      SELECT 1 FROM information_schema.columns
+      WHERE table_name = 'ops_profiles' AND column_name = 'active'
+    ) THEN
+      UPDATE ops_profiles
+        SET status = CASE WHEN active THEN 'active' ELSE 'disabled' END;
+      ALTER TABLE ops_profiles DROP COLUMN active;
+    END IF;
+  END IF;
+
+  IF NOT EXISTS (
+    SELECT 1 FROM information_schema.columns
+    WHERE table_name = 'ops_profiles' AND column_name = 'digest_email'
+  ) THEN
+    ALTER TABLE ops_profiles
+      ADD COLUMN digest_email BOOLEAN NOT NULL DEFAULT FALSE;
+  END IF;
+
+  DROP INDEX IF EXISTS ops_profiles_active_idx;
+END $$;
+
+-- Safe now — `status` exists whether the table was freshly created or
+-- migrated by the block above.
+CREATE INDEX IF NOT EXISTS ops_profiles_status_idx ON ops_profiles(status);

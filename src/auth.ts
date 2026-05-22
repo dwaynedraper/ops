@@ -2,7 +2,8 @@ import NextAuth, { type DefaultSession } from 'next-auth';
 import PostgresAdapter from '@auth/pg-adapter';
 import Resend from 'next-auth/providers/resend';
 import { getPool, sqlOne } from '@/lib/db';
-import { isAllowedEmail, isBootstrapAdminEmail } from '@/lib/email-allowlist';
+import { isBootstrapAdminEmail } from '@/lib/email-allowlist';
+import { canSignIn, type RepStatus } from '@/lib/rep-access';
 import { magicLinkHtml, magicLinkText } from '@/lib/magic-link-email';
 
 /**
@@ -13,13 +14,15 @@ import { magicLinkHtml, magicLinkText } from '@/lib/magic-link-email';
  * Sessions: database-backed (required by the Email provider — the
  *           magic-link verification needs server-side state).
  *
- * Access control is enforced in two places:
- *   1. signIn callback     — rejects emails not on ALLOWED_EMAILS.
- *   2. proxy.ts middleware — gates every non-public route.
+ * Access control is invite-only (see src/lib/rep-access.ts):
+ *   1. signIn callback     — rejects any email without an invite or an
+ *                            active/invited profile.
+ *   2. proxy.ts middleware — gates every non-public route, and bounces
+ *                            a non-active session to /awaiting.
  *
  * Session enrichment runs in the `session` callback: we look up the
- * user's ops_profile and attach role + displayName so server components
- * and the sidebar can branch on role without re-querying.
+ * user's ops_profile and attach role, displayName, and status so server
+ * components, the sidebar, and the proxy can branch without re-querying.
  */
 
 // ─── Type augmentation ─────────────────────────────────────────────────
@@ -29,6 +32,7 @@ declare module 'next-auth' {
       id: string;
       role: 'super_admin' | 'partner';
       displayName: string | null;
+      status: RepStatus;
     } & DefaultSession['user'];
   }
 }
@@ -83,52 +87,87 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
 
   callbacks: {
     /**
-     * Reject sign-in attempts from emails not on the allowlist. Returning
-     * a string redirects with that as the error message; false redirects
-     * to /signin/error with a generic message.
+     * Reject sign-in attempts from emails without an invite or a live
+     * profile (see canSignIn). Returning a string redirects with that as
+     * the error; suspended and disabled reps land here too.
      */
     async signIn({ user }) {
-      if (!isAllowedEmail(user.email)) {
+      if (!(await canSignIn(user.email))) {
         return '/signin/error?error=AccessDenied';
       }
       return true;
     },
 
     /**
-     * Attach role + displayName from ops_profiles to the session. Run
-     * on every session lookup; cheap because ops_profiles is small and
-     * indexed on user_id (its primary key).
+     * Attach role, displayName, and status from ops_profiles to the
+     * session. Runs on every session lookup; cheap because ops_profiles
+     * is small and indexed on user_id (its primary key). A missing
+     * profile defaults to status 'invited' — gated, never silently in.
      */
     async session({ session, user }) {
-      const profile = await sqlOne<{ role: 'super_admin' | 'partner'; display_name: string | null }>`
-        SELECT role, display_name FROM ops_profiles WHERE user_id = ${user.id}
+      const profile = await sqlOne<{
+        role: 'super_admin' | 'partner';
+        display_name: string | null;
+        status: RepStatus;
+      }>`
+        SELECT role, display_name, status FROM ops_profiles WHERE user_id = ${user.id}
       `;
       session.user.id = user.id;
       session.user.role = profile?.role ?? 'partner';
       session.user.displayName = profile?.display_name ?? null;
+      session.user.status = profile?.status ?? 'invited';
       return session;
     },
   },
 
   events: {
     /**
-     * On first sign-in, create the ops_profile row. The bootstrap email
-     * (first entry in ALLOWED_EMAILS) gets role='super_admin'; everyone
-     * else starts as 'partner'.
+     * On first sign-in, create the ops_profile row.
      *
-     * Auth.js fires this exactly once per user — on the row insert that
-     * the adapter does at first sign-in. Subsequent sign-ins fire signIn
-     * but not createUser.
+     * The bootstrap admin (first entry in ALLOWED_EMAILS) is created
+     * super_admin / active. Every other rep arrives through an invite:
+     * role comes from the invite, status starts at 'invited' (gated out
+     * of the app until an admin activates them), and the invite is
+     * stamped accepted.
+     *
+     * Auth.js fires this exactly once per user — on the row insert the
+     * adapter does at first sign-in.
      */
     async createUser({ user }) {
-      const role = isBootstrapAdminEmail(user.email) ? 'super_admin' : 'partner';
-      const displayName = user.name ?? null;
-      await getPool().query(
-        `INSERT INTO ops_profiles (user_id, role, display_name)
-         VALUES ($1, $2, $3)
+      const pool = getPool();
+      const email = (user.email ?? '').trim().toLowerCase();
+
+      if (isBootstrapAdminEmail(email)) {
+        await pool.query(
+          `INSERT INTO ops_profiles (user_id, role, display_name, status)
+           VALUES ($1, 'super_admin', $2, 'active')
+           ON CONFLICT (user_id) DO NOTHING`,
+          [user.id, user.name ?? null],
+        );
+        return;
+      }
+
+      const invite = await pool.query<{
+        role: 'super_admin' | 'partner';
+        name: string | null;
+        invited_by: string | null;
+      }>(`SELECT role, name, invited_by FROM rep_invites WHERE email = $1`, [email]);
+      const inv = invite.rows[0];
+
+      await pool.query(
+        `INSERT INTO ops_profiles (user_id, role, display_name, status, invited_by)
+         VALUES ($1, $2, $3, 'invited', $4)
          ON CONFLICT (user_id) DO NOTHING`,
-        [user.id, role, displayName],
+        [user.id, inv?.role ?? 'partner', user.name ?? inv?.name ?? null, inv?.invited_by ?? null],
       );
+
+      if (inv) {
+        await pool.query(
+          `UPDATE rep_invites SET accepted_at = now()
+           WHERE email = $1 AND accepted_at IS NULL`,
+          [email],
+        );
+      }
     },
 
     /**

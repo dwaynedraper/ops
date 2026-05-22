@@ -75,6 +75,7 @@ const CATALOG_TABLES = [
 // schema, so the Phase D multi-workflow restructure lands cleanly. Auth
 // and catalog tables are untouched.
 const CRM_TABLES = [
+  'prospect_stage_events',
   'prospect_notes',
   'prospect_contacts',
   'prospects',
