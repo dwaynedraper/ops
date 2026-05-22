@@ -5,7 +5,7 @@
 > dated history. README.md is the local-dev quickstart; this is the
 > full operating reference.
 
-**Last updated:** 2026-05-21 · Week 1 complete · Phases A, B, and C complete · quote PDF export + polish remain.
+**Last updated:** 2026-05-21 · Week 1 complete · Phases A, B, C and the quote PDF export complete · send-to-client + final polish remain.
 
 ---
 
@@ -416,7 +416,9 @@ component (beforeunload + in-app nav interception + the
 Stay/Reset/Publish modal). Every pricing and CRM config surface is now
 editable in ops; seed/SQL editing is retired as the routine path.
 
-Then quote PDF export and polish.
+Quote PDF export ✓ (complete 2026-05-21) — the `/quotes/[id]` detail
+page plus an on-demand `@react-pdf/renderer` route. Send-to-client
+(emailing the PDF) and final polish remain.
 
 ---
 

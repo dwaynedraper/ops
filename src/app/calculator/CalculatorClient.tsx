@@ -13,6 +13,7 @@
  */
 
 import { useMemo, useState } from 'react';
+import Link from 'next/link';
 import { fmtMoney, singleExecPrice, computeTeamDay } from '@/lib/pricing';
 import type { Catalog, CatalogAddon, Branch, QuoteSelection, QuoteClientInfo, SaveQuoteResult } from '@/lib/catalog';
 import { saveQuote } from './actions';
@@ -437,11 +438,22 @@ export function CalculatorClient({
                 fontSize: '0.82rem',
               }}
             >
-              <strong style={{ color: 'var(--text)' }}>Quote #{result.quoteNumber} saved</strong> as a
-              draft. The quote library is coming next — for now it&apos;s safely recorded.
-              <button onClick={newQuote} className="btn-ghost" style={{ marginTop: '0.5rem', padding: '0.3rem 0' }}>
-                Start a new quote
-              </button>
+              <strong style={{ color: 'var(--text)' }}>Quote #{result.quoteNumber} saved.</strong>{' '}
+              Review it and create the client PDF.
+              <div style={{ display: 'flex', gap: '0.85rem', marginTop: '0.5rem', flexWrap: 'wrap' }}>
+                {result.id ? (
+                  <Link
+                    href={`/quotes/${result.id}`}
+                    className="btn-ghost"
+                    style={{ padding: '0.3rem 0' }}
+                  >
+                    Open quote →
+                  </Link>
+                ) : null}
+                <button onClick={newQuote} className="btn-ghost" style={{ padding: '0.3rem 0' }}>
+                  Start a new quote
+                </button>
+              </div>
             </div>
           ) : (
             <>

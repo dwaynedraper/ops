@@ -268,14 +268,17 @@ export function ClientPageView({
         {quotes.length > 0 ? (
           <div style={{ display: 'flex', flexDirection: 'column', gap: '0.4rem', marginBottom: '1.25rem' }}>
             {quotes.map((q) => (
-              <div
+              <Link
                 key={q.id}
+                href={`/quotes/${q.id}`}
                 className="surface-tool"
                 style={{
                   display: 'flex',
                   alignItems: 'center',
                   gap: '0.85rem',
                   padding: '0.7rem 0.9rem',
+                  textDecoration: 'none',
+                  color: 'inherit',
                 }}
               >
                 <span
@@ -326,7 +329,7 @@ export function ClientPageView({
                 >
                   {q.createdAtLabel}
                 </span>
-              </div>
+              </Link>
             ))}
           </div>
         ) : (

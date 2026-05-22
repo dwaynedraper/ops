@@ -13,7 +13,42 @@ lives in `README.md`. This file is the time-ordered receipt.
 ## [Unreleased]
 
 ### Planned next
-- Quote PDF export + polish
+- Send-to-client flow (email the quote PDF) + final polish
+
+---
+
+## 2026-05-21 — Quote PDF export + the quote detail page
+
+A saved quote can now be reviewed and turned into a client-facing PDF.
+
+### Added
+- `/quotes/[id]` — the quote detail page: client info, line items,
+  total, status, and the audit timeline, laid out for a final review
+  before the PDF is made. super_admin also sees cost basis + margin.
+  Read-only.
+- `GET /quotes/[id]/pdf` — renders the quote to a PDF on demand with
+  `@react-pdf/renderer` (no storage — built fresh per request) and
+  streams it as a download. The detail page's “Create the PDF” button
+  is the manual trigger.
+- `src/components/QuotePdf.tsx` — the PDF document: a brand-styled
+  proposal, prices only (never costs or margins), tagline footer.
+- `src/lib/quotes.ts` — `loadQuoteForUser`, the owner / super_admin
+  access-checked read path shared by the page and the PDF route.
+
+### Changed
+- The calculator's save confirmation now links to the new quote's
+  detail page; the client page's quote-history rows link there too.
+- The dead `/quotes` sidebar item is removed — quotes are reached from
+  the calculator and the client page (no standalone quote list in v1).
+
+### Notes
+- The PDF uses `@react-pdf`'s built-in Helvetica / Times faces. The
+  brand faces (Playfair, Montserrat) need font files registered — a
+  parity gap flagged in BUILD-PLAN §8; a clean swap point is left in
+  `QuotePdf.tsx`.
+
+### Verified
+- `tsc --noEmit` and `eslint` clean across `src`.
 
 ---
 
