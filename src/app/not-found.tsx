@@ -24,8 +24,8 @@ export default function NotFound() {
           <em style={{ color: 'var(--accent)' }}>Nothing</em> on this surface.
         </h1>
         <p style={{ color: 'var(--text-mid)', marginBottom: '1.5rem' }}>
-          The page you're looking for doesn't exist in ops. Try the dashboard,
-          or head back to the public studio.
+          The page you&apos;re looking for doesn&apos;t exist in ops. Try the
+          dashboard, or head back to the public studio.
         </p>
         <Link href="/" className="btn-primary">Dashboard</Link>
       </div>

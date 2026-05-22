@@ -5,7 +5,7 @@
 > dated history. README.md is the local-dev quickstart; this is the
 > full operating reference.
 
-**Last updated:** 2026-05-19 · Week 1 complete · Week 2 in progress (Day 10 — pricing worksheet data layer done; admin UI next).
+**Last updated:** 2026-05-21 · Week 1 complete · Phase A (calculator) and Phase B (Research, Tracking, Client, Dashboard) complete · Phase C (super-admin editors) next.
 
 ---
 
@@ -398,14 +398,16 @@ formula; live total; "Save quote" persists to `quotes` / `quote_lines`
 / `quote_events`. Server recomputes every number from a sent
 *selection* — client prices are never trusted.
 
-**Phase B — CRM pipeline.** Additive migration (`prospects`,
-`rank_factors`, `contact_scripts`, `prospect_contacts`,
+**Phase B — CRM pipeline** ✓ (complete 2026-05-21). Additive migration
+(`prospects`, `rank_factors`, `contact_scripts`, `prospect_contacts`,
 `prospect_notes`; `prospect_id` on `quotes`) + seed of default rank
-factors and scripts. Then the pages: Research (entry gate + live 0–10
-scoring), Tracking (contact cycle, script fill, copy-paste output),
-Client page (mini CRM — details, inline calculator, pinned facts +
-notes timeline, signed-by, quote history), Dashboard (follow-ups due,
-pipeline counts, 10-qualified banner). Owner-scoped visibility.
+factors and scripts — then the four pages, all shipped: Research (entry
+gate + live 0–10 scoring), Tracking (contact cycle, script fill,
+copy-paste output), Client page (mini CRM — details, embedded
+calculator, pinned facts + notes timeline, signed-by, quote history),
+Dashboard (follow-ups due, pipeline counts, qualified banner).
+Owner-scoped visibility throughout. The full sales motion runs end to
+end. See D-021 and the 2026-05-21 CHANGELOG entry.
 
 **Phase C — Super-admin editors.** Pricing worksheet / Rates /
 Corporate **plus** the rank-factor and script editors — all
@@ -969,6 +971,20 @@ email-reminder task can be added later without changing the data model.
 
 **Rationale.** The dashboard already runs a query on every load; folding
 the follow-up logic into it is simpler and has no moving parts to break.
+
+### D-021 · Client page embeds the calculator; quotes link to a prospect (2026-05-21)
+
+**Decision.** The client page's "inline calculator" is the real
+`/calculator` module embedded, not a link-out. `saveQuote` gained an
+optional `prospectId`; a quote built on a client page writes
+`quotes.prospect_id` and surfaces in that prospect's quote history.
+`CalculatorClient` gained optional `prospectId` / `initialClient` /
+`onSaved` props — all backward-compatible, so the standalone
+`/calculator` is unchanged.
+
+**Rationale.** One pricing implementation, one source of truth. A
+link-out would need the same plumbing anyway; embedding keeps the rep on
+the record they're working and the quote attaches itself.
 
 ---
 

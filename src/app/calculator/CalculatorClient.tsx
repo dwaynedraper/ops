@@ -23,6 +23,15 @@ const BRANCH_LABEL: Record<Branch, string> = {
   corporate: 'Corporate',
 };
 
+const EMPTY_CLIENT: QuoteClientInfo = {
+  name: '',
+  email: '',
+  phone: '',
+  project: '',
+  targetDate: '',
+  notes: '',
+};
+
 interface SummaryLine {
   label: string;
   detail?: string;
@@ -35,9 +44,18 @@ interface SummaryLine {
 export function CalculatorClient({
   catalog,
   role,
+  prospectId,
+  initialClient,
+  onSaved,
 }: {
   catalog: Catalog;
   role: 'super_admin' | 'partner';
+  /** When set, saved quotes link to this prospect (client-page embed). */
+  prospectId?: string;
+  /** Pre-fills the client-info card (e.g. from a prospect record). */
+  initialClient?: QuoteClientInfo;
+  /** Called after a quote saves — lets an embedding page refresh. */
+  onSaved?: () => void;
 }) {
   const pkgsFor = useMemo(
     () => (b: Branch) => catalog.packages.filter((p) => p.branch === b),
@@ -64,14 +82,9 @@ export function CalculatorClient({
   const [featuredCount, setFeaturedCount] = useState(0);
   const [promo, setPromo] = useState(false);
 
-  const [client, setClient] = useState<QuoteClientInfo>({
-    name: '',
-    email: '',
-    phone: '',
-    project: '',
-    targetDate: '',
-    notes: '',
-  });
+  const [client, setClient] = useState<QuoteClientInfo>(
+    () => initialClient ?? EMPTY_CLIENT,
+  );
 
   const [saving, setSaving] = useState(false);
   const [result, setResult] = useState<SaveQuoteResult | null>(null);
@@ -188,7 +201,9 @@ export function CalculatorClient({
     setSaving(true);
     setResult(null);
     try {
-      setResult(await saveQuote(selection, client));
+      const res = await saveQuote(selection, client, prospectId ?? null);
+      setResult(res);
+      if (res.ok) onSaved?.();
     } catch (err) {
       setResult({ ok: false, error: err instanceof Error ? err.message : 'Could not save the quote.' });
     } finally {
@@ -197,7 +212,7 @@ export function CalculatorClient({
   }
 
   function newQuote() {
-    setClient({ name: '', email: '', phone: '', project: '', targetDate: '', notes: '' });
+    setClient(initialClient ?? EMPTY_CLIENT);
     setAddonQty({});
     setStandardCount(0);
     setFeaturedCount(0);

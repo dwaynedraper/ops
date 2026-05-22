@@ -13,10 +13,96 @@ lives in `README.md`. This file is the time-ordered receipt.
 ## [Unreleased]
 
 ### Planned next
-- Phase B — CRM migration + seed; Research, Tracking, Client, Dashboard pages
-- Phase C — super-admin editors (pricing worksheet, rank factors, scripts),
-  all draft-until-Publish
+- Phase C — super-admin editors (pricing worksheet, rates, corporate,
+  rank factors, scripts), all draft-until-Publish
 - Quote PDF export + polish
+
+---
+
+## 2026-05-21 — Phase B complete · Research, Tracking, Client, Dashboard
+
+The CRM pipeline is now a working surface end to end: research and score
+an agent, work the contact cycle, land on their client page to quote and
+sign, and see the day's work on the dashboard. Phase B is done.
+
+### Added
+- `src/lib/prospects.ts` — prospect scoring core: a 0–10 rank from the
+  editable `rank_factors` (bool + number factors), band classification,
+  lifecycle-stage labels, and the manual stage-transition map. Pure —
+  shared by client and server.
+- `src/lib/tracking.ts` — contact-cycle core: `{{placeholder}}` parsing
+  and fill, next-script resolution, and the ready / due / waiting /
+  replied / cycle_done status from contact history + `followup_after_days`.
+  Pure.
+- `src/lib/prospect-access.ts` — `loadOwnedProspect`, the shared owner /
+  super_admin access check used by every prospect-mutating action (D-019).
+- **Research** (`/prospects`) — agent entry, the two-gate entry check,
+  live 0–10 scoring from config, owner-scoped prospect list. Server
+  route + `createProspect` action + client component.
+- **Tracking** (`/tracking`) — the contact-cycle board sorted by urgency;
+  per-prospect script composer (placeholder fill, live preview, copy),
+  contact history, and app-driven stage moves (`logContact`,
+  `markResponded`, `closeOut`). New sidebar item.
+- **Client page** (`/prospects/[id]`) — a prospect's mini-CRM: editable
+  details, pinned facts + notes timeline, the embedded calculator, quote
+  history, and stage actions (`advanceStage`, `signed_by` stamping).
+- **Dashboard** (`/`) — rebuilt from the placeholder: follow-ups due
+  (computed on read from the contact cycle), the qualified banner, and
+  pipeline counts by stage. Owner-scoped.
+
+### Changed
+- `saveQuote` takes an optional `prospectId`; `CalculatorClient` takes
+  optional `prospectId` / `initialClient` / `onSaved` props so it can be
+  embedded on the client page. Backward-compatible — the standalone
+  `/calculator` is unchanged. See D-021.
+- The Research page is named "Research" consistently — sidebar, page
+  header, and every cross-reference (previously a mix of "Prospects"
+  and "Research").
+- `tracking/actions.ts` refactored onto the shared `loadOwnedProspect`.
+
+### Fixed
+- `providers.tsx` — theme provider rewritten on `useSyncExternalStore`
+  instead of `useState` + a setState-in-effect, clearing the
+  `react-hooks/set-state-in-effect` lint error. `not-found.tsx` —
+  unescaped apostrophes escaped.
+- `globals.css` — `.app-shell-main` now uses `overflow-x: clip` rather
+  than `hidden`, which had silently disabled `position: sticky` for the
+  Research and Calculator side panels and the Tracking board.
+
+### Decided
+- D-021 — the client page embeds the real calculator; quotes link to a
+  prospect via `quotes.prospect_id`.
+
+### Verified
+- `tsc --noEmit` and `eslint` clean across `src`; `next build` clean.
+
+---
+
+## 2026-05-21 — Phase B · CRM data layer
+
+Schema and seed for the sales pipeline. Additive — every CREATE is
+`IF NOT EXISTS` and the new tables sit alongside the existing catalog,
+so `npm run db:migrate` stacks them onto the seeded database with
+nothing destructive.
+
+### Added
+- `src/lib/db/schema.sql` LAYER 3 — CRM tables: `prospects` (one row
+  per agent, lifecycle stage, JSONB rank inputs + cached score, owner
+  and signed-by), `rank_factors` + `rank_config` (editable scoring and
+  thresholds), `contact_scripts` (editable outreach templates per
+  contact stage), `prospect_contacts` (the outreach log, snapshotting
+  each sent message), `prospect_notes` (pinned facts + timestamped
+  timeline). `quotes` gains a nullable `prospect_id`. `updated_at`
+  triggers added for the four mutable new tables.
+- `scripts/db-seed.mjs` — seeds 6 rank factors (default weights sum to
+  10), 3 rank thresholds (qualified ≥ 8, borderline ≥ 6, target 10),
+  and 4 contact scripts (first touch → two follow-ups → final) in Sharp
+  Sighted Media voice. Idempotent upserts; counts and a CRM block added
+  to the seed report.
+
+### To run
+- `npm run db:migrate` then `npm run db:seed` — creates the CRM tables
+  and loads the default config. Existing pricing data is untouched.
 
 ---
 

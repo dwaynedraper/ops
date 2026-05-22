@@ -96,6 +96,11 @@
   --nav-bg:         rgba(12, 12, 11, 0.92);
   --brand-cyan:     #38bdf8;
 
+  /* Semantic status — live cues on tools (score bands, validation) */
+  --good:           #10b981;
+  --warn:           #f59e0b;
+  --bad:            #ef4444;
+
   /* Shape + spacing tokens — denser than /studio */
   --radius-sm:      4px;
   --radius:         8px;
@@ -134,6 +139,11 @@
 
   --nav-bg:         rgba(250, 245, 236, 0.92);
   --brand-cyan:     #38bdf8;
+
+  /* Semantic status — deepened a touch for contrast on cream */
+  --good:           #0f9d6e;
+  --warn:           #d97706;
+  --bad:            #dc2626;
 }
 
 /* ─── Base styles ─────────────────────────────────────────────────────── */
@@ -353,7 +363,11 @@ h1, h2, h3, h4, h5, h6 {
 .app-shell-main {
   background: var(--bg);
   padding: 1.5rem;
-  overflow-x: hidden;
+  /* `clip` contains stray horizontal overflow WITHOUT becoming a scroll
+     container — unlike `hidden`, which silently disables `position: sticky`
+     for every descendant (the research/calculator side panels, the
+     tracking board). */
+  overflow-x: clip;
 }
 
 @media (min-width: 1024px) {
@@ -377,6 +391,54 @@ h1, h2, h3, h4, h5, h6 {
 .calc-summary {
   position: sticky;
   top: 1.5rem;
+}
+
+/* ─── Research layout — form + sticky live score ──────────────────────── */
+.research-layout {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 1.25rem;
+}
+
+@media (min-width: 900px) {
+  .research-layout {
+    grid-template-columns: minmax(0, 1fr) 320px;
+    align-items: start;
+  }
+}
+
+.research-score {
+  position: sticky;
+  top: 1.5rem;
+}
+
+/* ─── Tracking layout — prospect board + cycle detail ─────────────────── */
+.track-layout {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 1.25rem;
+}
+
+@media (min-width: 900px) {
+  .track-layout {
+    grid-template-columns: 280px minmax(0, 1fr);
+    align-items: start;
+  }
+}
+
+.track-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+
+@media (min-width: 900px) {
+  .track-list {
+    position: sticky;
+    top: 1.5rem;
+    max-height: calc(100vh - 3rem);
+    overflow-y: auto;
+  }
 }
 
 /* ─── Container for centered narrow content (auth, marketing) ─────────── */

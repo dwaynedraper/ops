@@ -1,7 +1,11 @@
 #!/usr/bin/env node
 /* eslint-disable no-console */
 /**
- * Sharp Sighted Ops — pricing worksheet seed.
+ * Sharp Sighted Ops — catalog + config seed.
+ *
+ * Seeds the pricing catalog (globals, packages, cost lines, addons,
+ * corporate formula) and the CRM config (rank factors, rank thresholds,
+ * contact scripts). All upserts are idempotent.
  *
  *   npm run db:seed                # upsert globals, packages, cost lines, addons
  *   npm run db:seed -- --dry-run   # print the computed prices, write nothing
@@ -246,6 +250,96 @@ const CORPORATE_PRICING = [
   { key: 'volume_tier2_discount',        label: 'Volume tier 2 — discount',        value: 0.15, unit: 'ratio',          notes: '15% off the per-person rate at 30+.',                     sort_order: 100 },
 ];
 
+// ═══════════════════════════════════════════════════════════════════════
+// CRM CONFIG — research scoring + contact scripts (Phase B · D-017/D-018)
+// Seeded so the CRM works before its super-admin editors exist. Editable
+// later on the rank-factor and script editor pages.
+// ═══════════════════════════════════════════════════════════════════════
+
+// Rank factors — default weights sum to 10, so a maxed-out agent scores
+// a clean 10. A bool factor earns `weight` when true; the number factor
+// earns weight × min(value, max_input) / max_input.
+const RANK_FACTORS = [
+  { key: 'annual_volume',       label: 'Listings per year ($500K–$2M)',  help_text: 'Homes the agent closes annually in the target price band.',              kind: 'number', weight: 3, max_input: 24,   sort_order: 10 },
+  { key: 'active_social',       label: 'Active on social (last 30 days)', help_text: 'Posts regularly — a sign they value visibility and will value media.',   kind: 'bool',   weight: 2, max_input: null, sort_order: 20 },
+  { key: 'weak_current_photos', label: 'Current listing photos are weak', help_text: 'A visible quality gap on their live listings — the clearest opportunity.', kind: 'bool',   weight: 2, max_input: null, sort_order: 30 },
+  { key: 'pro_website',         label: 'Has a real personal website',     help_text: 'A proper site on their own domain — they invest in their brand.',         kind: 'bool',   weight: 1, max_input: null, sort_order: 40 },
+  { key: 'branded_email',       label: 'Uses a branded email',            help_text: 'Email on their own domain, not a free gmail/yahoo address.',              kind: 'bool',   weight: 1, max_input: null, sort_order: 50 },
+  { key: 'uses_video',          label: 'Already uses video in listings',  help_text: 'Comfortable with video — an easier sell for reels and walkthroughs.',     kind: 'bool',   weight: 1, max_input: null, sort_order: 60 },
+];
+
+// Rank thresholds — bands the research page reads (≤5 = don't message).
+const RANK_CONFIG = [
+  { key: 'qualified_min',          label: 'Qualified — minimum score',  value: 8,  notes: 'Score at/above this is a highly-qualified candidate.' },
+  { key: 'borderline_min',         label: 'Borderline — minimum score', value: 6,  notes: 'At/above this is a judgment call; below it, do not message.' },
+  { key: 'qualified_target_count', label: 'Qualified target count',     value: 10, notes: 'Once a rep has this many qualified prospects, prompt the contact cycle.' },
+];
+
+// Contact scripts — one per contact-cycle stage. {{placeholders}} are
+// filled on the tracking page; {{intro}} is the rep's personalized line.
+// Sharp Sighted Media voice — Dean edits these on the script editor later.
+const CONTACT_SCRIPTS = [
+  {
+    stage_key: 'first_touch', label: 'First touch', channel: 'email',
+    step_order: 10, followup_after_days: 3,
+    subject: '{{first_name}} — a quick note on your {{agency}} listings',
+    body: `Hi {{first_name}},
+
+{{intro}}
+
+I shoot real estate media in the 121 corridor — stills, aerial, floor plan, twilight, and a vertical reel, all delivered within 24 hours. One shoot, five deliverables, MLS-ready.
+
+If you have a listing coming up, I'd love to show you what that looks like on one of yours.
+
+Stay Sharp. Stay Seen. Stay Human.
+{{rep_name}} · Sharp Sighted Media
+sharpsighted.media`,
+  },
+  {
+    stage_key: 'followup_1', label: 'Follow-up 1', channel: 'email',
+    step_order: 20, followup_after_days: 4,
+    subject: 'Re: your {{agency}} listings',
+    body: `Hi {{first_name}},
+
+Circling back — no pressure either way. {{intro}}
+
+The Essentials package is $400 a property: stills, aerial, floor plan, twilight, and a vertical reel, turned around in 24 hours. For agents working the $500K–$2M range, it tends to pay for itself on the first listing.
+
+Worth a look at one of yours?
+
+Stay Sharp. Stay Seen. Stay Human.
+{{rep_name}} · Sharp Sighted Media`,
+  },
+  {
+    stage_key: 'followup_2', label: 'Follow-up 2', channel: 'email',
+    step_order: 30, followup_after_days: 5,
+    subject: 'Re: your {{agency}} listings',
+    body: `Hi {{first_name}},
+
+Last note from me for now. {{intro}}
+
+If marketing is a competitive advantage for you and not just a line item, I'd like to earn one listing and let the work speak for itself. 24-hour turnaround, every time.
+
+Reach out whenever the timing is right.
+
+Stay Sharp. Stay Seen. Stay Human.
+{{rep_name}} · Sharp Sighted Media`,
+  },
+  {
+    stage_key: 'final', label: 'Final touch', channel: 'email',
+    step_order: 40, followup_after_days: 0,
+    subject: 'Closing the loop, {{first_name}}',
+    body: `Hi {{first_name}},
+
+I won't keep landing in your inbox — but I wanted to close the loop properly. {{intro}}
+
+If real estate media ever moves up your list, sharpsighted.media has examples and pricing, and my line is always open.
+
+Stay Sharp. Stay Seen. Stay Human.
+{{rep_name}} · Sharp Sighted Media`,
+  },
+];
+
 // ─── DB ───────────────────────────────────────────────────────────────
 const connectionString = process.env.DATABASE_URL;
 if (!connectionString) {
@@ -263,7 +357,8 @@ const globalsMap = Object.fromEntries(GLOBALS.map((g) => [g.key, g.value]));
   console.log('\n  Sharp Sighted Ops · pricing worksheet seed\n');
   console.log(`  Target  : ${maskUrl(connectionString)}`);
   console.log(`  Mode    : ${dryRun ? 'DRY-RUN' : reset ? 'RESET + SEED' : 'UPSERT'}`);
-  console.log(`  Counts  : ${GLOBALS.length} globals · ${PACKAGES.length} packages · ${ADDONS.length} addons · ${CORPORATE_PRICING.length} corporate params\n`);
+  console.log(`  Counts  : ${GLOBALS.length} globals · ${PACKAGES.length} packages · ${ADDONS.length} addons · ${CORPORATE_PRICING.length} corporate params`);
+  console.log(`            ${RANK_FACTORS.length} rank factors · ${RANK_CONFIG.length} thresholds · ${CONTACT_SCRIPTS.length} contact scripts\n`);
 
   try {
     await client.connect();
@@ -303,6 +398,42 @@ const globalsMap = Object.fromEntries(GLOBALS.map((g) => [g.key, g.value]));
       );
     }
     console.log(`  ✓ ${CORPORATE_PRICING.length} corporate pricing params upserted.`);
+
+    // ─── CRM config: rank factors, thresholds, contact scripts ──────
+    for (const f of RANK_FACTORS) {
+      await client.query(
+        `INSERT INTO rank_factors (key, label, help_text, kind, weight, max_input, sort_order)
+         VALUES ($1,$2,$3,$4,$5,$6,$7)
+         ON CONFLICT (key) DO UPDATE SET
+           label=EXCLUDED.label, help_text=EXCLUDED.help_text, kind=EXCLUDED.kind,
+           weight=EXCLUDED.weight, max_input=EXCLUDED.max_input, sort_order=EXCLUDED.sort_order;`,
+        [f.key, f.label, f.help_text, f.kind, f.weight, f.max_input, f.sort_order],
+      );
+    }
+    for (const r of RANK_CONFIG) {
+      await client.query(
+        `INSERT INTO rank_config (key, label, value, notes)
+         VALUES ($1,$2,$3,$4)
+         ON CONFLICT (key) DO UPDATE SET
+           label=EXCLUDED.label, value=EXCLUDED.value, notes=EXCLUDED.notes;`,
+        [r.key, r.label, r.value, r.notes],
+      );
+    }
+    for (const s of CONTACT_SCRIPTS) {
+      await client.query(
+        `INSERT INTO contact_scripts
+           (stage_key, label, channel, step_order, followup_after_days, subject, body)
+         VALUES ($1,$2,$3,$4,$5,$6,$7)
+         ON CONFLICT (stage_key) DO UPDATE SET
+           label=EXCLUDED.label, channel=EXCLUDED.channel, step_order=EXCLUDED.step_order,
+           followup_after_days=EXCLUDED.followup_after_days,
+           subject=EXCLUDED.subject, body=EXCLUDED.body;`,
+        [s.stage_key, s.label, s.channel, s.step_order, s.followup_after_days, s.subject, s.body],
+      );
+    }
+    console.log(
+      `  ✓ ${RANK_FACTORS.length} rank factors · ${RANK_CONFIG.length} thresholds · ${CONTACT_SCRIPTS.length} contact scripts upserted.`,
+    );
 
     // ─── packages + cost lines ──────────────────────────────────────
     const pkgIdBySlug = new Map();
@@ -410,6 +541,15 @@ function printPriceReport() {
   console.log('');
   console.log('  Team Day per-person rates ($80 / $300) are placeholders —');
   console.log('  set the real numbers on the /corporate config page.\n');
+
+  // ─── CRM config preview ─────────────────────────────────────────────
+  const rc = (k) => RANK_CONFIG.find((r) => r.key === k)?.value;
+  const totalWeight = RANK_FACTORS.reduce((s, f) => s + f.weight, 0);
+  console.log('  CRM CONFIG — research scoring + contact scripts\n');
+  console.log(`    Rank factors    : ${RANK_FACTORS.length}  (weights sum to ${totalWeight})`);
+  console.log(`    Rank thresholds : qualified ≥ ${rc('qualified_min')} · borderline ≥ ${rc('borderline_min')} · target ${rc('qualified_target_count')}`);
+  console.log(`    Contact scripts : ${CONTACT_SCRIPTS.map((s) => s.stage_key).join(' → ')}`);
+  console.log('');
 }
 
 function pad(s, w) { s = String(s); return s.length >= w ? s : s + ' '.repeat(w - s.length); }

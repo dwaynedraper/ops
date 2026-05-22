@@ -330,6 +330,171 @@ CREATE TABLE IF NOT EXISTS quote_events (
 
 CREATE INDEX IF NOT EXISTS quote_events_quote_id_idx ON quote_events(quote_id, created_at DESC);
 
+-- ════════════════════════════════════════════════════════════════════
+-- LAYER 3 — CRM / sales pipeline (Phase B)
+--
+-- Ops runs the whole sales motion: research real estate agents, score
+-- them, work the qualified ones through a contact cycle, sign them, and
+-- keep a light client record. See decisions D-015 through D-020.
+--
+-- A `prospect` is ONE row that moves through lifecycle stages — the
+-- research page and the client page are the same record at different
+-- stages. Reps see only the prospects they own; a super_admin sees all.
+-- ════════════════════════════════════════════════════════════════════
+
+-- ─── rank_factors ──────────────────────────────────────────────────
+-- Editable scoring config for the research page (D-017). Each factor
+-- contributes points toward a prospect's 0-10 rank:
+--   bool   factor → `weight` if the answer is true, else 0
+--   number factor → weight × min(value, max_input) / max_input
+-- The rank is raw points ÷ Σ weights × 10. Super-admin editable.
+CREATE TABLE IF NOT EXISTS rank_factors (
+  key         TEXT PRIMARY KEY,
+  label       TEXT NOT NULL,
+  help_text   TEXT,
+  kind        TEXT NOT NULL CHECK (kind IN ('bool', 'number')),
+  weight      NUMERIC(6,2) NOT NULL DEFAULT 1,
+  -- number factors only: the input value that earns full weight
+  max_input   NUMERIC(12,2),
+  sort_order  INTEGER NOT NULL DEFAULT 100,
+  active      BOOLEAN NOT NULL DEFAULT TRUE,
+  updated_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
+  CHECK (
+    (kind = 'number' AND max_input IS NOT NULL AND max_input > 0)
+    OR (kind = 'bool' AND max_input IS NULL)
+  )
+);
+
+CREATE INDEX IF NOT EXISTS rank_factors_active_idx ON rank_factors(active, sort_order);
+
+-- ─── rank_config ───────────────────────────────────────────────────
+-- Rank thresholds, as editable key/value rows (D-017):
+--   qualified_min          — score at/above this is "qualified"
+--   borderline_min         — score at/above this is "borderline";
+--                            below it the research page says "don't message"
+--   qualified_target_count — once a rep has this many qualified
+--                            prospects, prompt them to start contacting
+CREATE TABLE IF NOT EXISTS rank_config (
+  key         TEXT PRIMARY KEY,
+  label       TEXT NOT NULL,
+  value       NUMERIC(10,2) NOT NULL,
+  notes       TEXT,
+  updated_at  TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+-- ─── contact_scripts ───────────────────────────────────────────────
+-- Editable outreach templates (D-018), one per contact-cycle stage.
+-- The tracking page parses {{placeholder}} slots from the subject/body,
+-- renders an input per slot, and produces a copy-paste message. A step
+-- is "due for follow-up" `followup_after_days` after it was sent with
+-- no response (0 = no follow-up — the cycle ends there).
+CREATE TABLE IF NOT EXISTS contact_scripts (
+  id                  UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  stage_key           TEXT NOT NULL UNIQUE,
+  label               TEXT NOT NULL,
+  channel             TEXT NOT NULL DEFAULT 'email'
+                        CHECK (channel IN ('email', 'dm', 'call')),
+  step_order          INTEGER NOT NULL DEFAULT 100,
+  followup_after_days INTEGER NOT NULL DEFAULT 3,
+  subject             TEXT,
+  body                TEXT NOT NULL,
+  active              BOOLEAN NOT NULL DEFAULT TRUE,
+  created_at          TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at          TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS contact_scripts_order_idx ON contact_scripts(active, step_order);
+
+-- ─── prospects ─────────────────────────────────────────────────────
+-- One row per researched agent — the same record from first research
+-- through signed client. `owner_id` is the rep who researched it;
+-- `signed_by_id` is who closed it (set when stage reaches 'signed').
+-- `rank_inputs` holds the per-factor answers as JSONB keyed by
+-- rank_factors.key, so adding or retuning a factor never orphans a row;
+-- `rank_score` caches the computed 0-10 rank.
+CREATE TABLE IF NOT EXISTS prospects (
+  id                  UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  owner_id            UUID NOT NULL REFERENCES users(id) ON DELETE RESTRICT,
+  signed_by_id        UUID REFERENCES users(id) ON DELETE SET NULL,
+
+  -- Identity
+  agent_name          TEXT NOT NULL,
+  agency              TEXT,
+  email               TEXT,
+  phone               TEXT,
+  website_url         TEXT,
+  social_url          TEXT,
+  market_area         TEXT,
+
+  -- Entry gate — both must be true to enter the pipeline (D-017)
+  has_target_listing  BOOLEAN NOT NULL DEFAULT TRUE,
+  has_photo_need      BOOLEAN NOT NULL DEFAULT TRUE,
+
+  -- Scoring
+  rank_inputs         JSONB NOT NULL DEFAULT '{}'::jsonb,
+  rank_score          NUMERIC(4,1) NOT NULL DEFAULT 0,
+
+  -- Lifecycle
+  stage               TEXT NOT NULL DEFAULT 'researching'
+                        CHECK (stage IN (
+                          'researching', 'qualified', 'contacting',
+                          'responded', 'signed', 'client',
+                          'passed', 'dormant'
+                        )),
+
+  created_at          TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at          TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS prospects_owner_idx ON prospects(owner_id);
+CREATE INDEX IF NOT EXISTS prospects_stage_idx ON prospects(stage);
+
+-- A quote can attach to a prospect (the client-page inline calculator).
+-- Added by ALTER because `quotes` is defined in Layer 2, above prospects.
+ALTER TABLE quotes
+  ADD COLUMN IF NOT EXISTS prospect_id UUID REFERENCES prospects(id) ON DELETE SET NULL;
+
+CREATE INDEX IF NOT EXISTS quotes_prospect_id_idx ON quotes(prospect_id);
+
+-- ─── prospect_contacts ─────────────────────────────────────────────
+-- The outreach log — one row per touch sent. `filled_body` snapshots the
+-- message that actually went out, so editing the script template later
+-- can't rewrite history. The follow-up engine reads the latest row per
+-- prospect (D-020).
+CREATE TABLE IF NOT EXISTS prospect_contacts (
+  id                UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  prospect_id       UUID NOT NULL REFERENCES prospects(id) ON DELETE CASCADE,
+  created_by        UUID REFERENCES users(id) ON DELETE SET NULL,
+  step_key          TEXT NOT NULL,
+  channel           TEXT NOT NULL DEFAULT 'email',
+  script_id         UUID REFERENCES contact_scripts(id) ON DELETE SET NULL,
+  filled_subject    TEXT,
+  filled_body       TEXT,
+  sent_at           TIMESTAMPTZ NOT NULL DEFAULT now(),
+  response_received BOOLEAN NOT NULL DEFAULT FALSE,
+  responded_at      TIMESTAMPTZ,
+  created_at        TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS prospect_contacts_prospect_idx
+  ON prospect_contacts(prospect_id, sent_at DESC);
+
+-- ─── prospect_notes ────────────────────────────────────────────────
+-- The CRM notes timeline. `pinned` rows are the evergreen facts (a
+-- favorite whiskey, a daughter's birthday) and sort to the top of the
+-- client page; the rest is a timestamped log.
+CREATE TABLE IF NOT EXISTS prospect_notes (
+  id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  prospect_id UUID NOT NULL REFERENCES prospects(id) ON DELETE CASCADE,
+  author_id   UUID REFERENCES users(id) ON DELETE SET NULL,
+  body        TEXT NOT NULL,
+  pinned      BOOLEAN NOT NULL DEFAULT FALSE,
+  created_at  TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS prospect_notes_prospect_idx
+  ON prospect_notes(prospect_id, pinned DESC, created_at DESC);
+
 -- ────────────────────────────────────────────────────────────────────
 -- updated_at trigger — single function, reused by every table that has
 -- an updated_at column. Cleaner than defining one trigger per table.
@@ -362,6 +527,22 @@ BEGIN
   END IF;
   IF NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgname = 'corporate_pricing_updated_at') THEN
     CREATE TRIGGER corporate_pricing_updated_at BEFORE UPDATE ON corporate_pricing
+      FOR EACH ROW EXECUTE FUNCTION trg_set_updated_at();
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgname = 'prospects_updated_at') THEN
+    CREATE TRIGGER prospects_updated_at BEFORE UPDATE ON prospects
+      FOR EACH ROW EXECUTE FUNCTION trg_set_updated_at();
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgname = 'rank_factors_updated_at') THEN
+    CREATE TRIGGER rank_factors_updated_at BEFORE UPDATE ON rank_factors
+      FOR EACH ROW EXECUTE FUNCTION trg_set_updated_at();
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgname = 'rank_config_updated_at') THEN
+    CREATE TRIGGER rank_config_updated_at BEFORE UPDATE ON rank_config
+      FOR EACH ROW EXECUTE FUNCTION trg_set_updated_at();
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgname = 'contact_scripts_updated_at') THEN
+    CREATE TRIGGER contact_scripts_updated_at BEFORE UPDATE ON contact_scripts
       FOR EACH ROW EXECUTE FUNCTION trg_set_updated_at();
   END IF;
 END $$;
