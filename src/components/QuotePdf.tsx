@@ -6,15 +6,47 @@
  * never by a client component. Partner-facing: prices only, never costs
  * or margins.
  *
- * Type note: the brand faces (Playfair Display + Montserrat) aren't
- * registered here — @react-pdf needs font files, and the build plan (§8)
- * flagged this parity gap. v1 uses the built-in Helvetica / Times faces;
- * swap in real fonts via Font.register when the .ttf files are placed.
+ * The brand faces are registered from `src/fonts` (.ttf files committed
+ * to the repo): Playfair Display for display/serif, Montserrat for body.
+ * The /quotes/[id]/pdf route is in `outputFileTracingIncludes` so the
+ * font files ship with the serverless bundle.
  */
 
-import { Document, Page, View, Text, StyleSheet } from '@react-pdf/renderer';
+import path from 'node:path';
+import { Document, Page, View, Text, StyleSheet, Font } from '@react-pdf/renderer';
 import { fmtMoney } from '@/lib/pricing';
 import type { QuoteRecord, QuoteLineRecord } from '@/lib/quotes';
+
+// ─── Brand fonts ───────────────────────────────────────────────────────
+// Registered once at module load. `process.cwd()` is the project root
+// when the PDF route runs; the .ttf files live in src/fonts.
+const fontPath = (file: string): string =>
+  path.join(process.cwd(), 'src', 'fonts', file);
+
+Font.register({
+  family: 'Montserrat',
+  fonts: [
+    { src: fontPath('Montserrat_400Regular.ttf'), fontWeight: 400 },
+    { src: fontPath('Montserrat_700Bold.ttf'), fontWeight: 700 },
+  ],
+});
+Font.register({
+  family: 'Playfair Display',
+  fonts: [
+    { src: fontPath('PlayfairDisplay_400Regular.ttf'), fontWeight: 400 },
+    {
+      src: fontPath('PlayfairDisplay_400Regular_Italic.ttf'),
+      fontWeight: 400,
+      fontStyle: 'italic',
+    },
+  ],
+});
+
+// Playfair Display is a high-contrast face — no hyphenation mid-word.
+Font.registerHyphenationCallback((word) => [word]);
+
+const SANS = 'Montserrat';
+const SERIF = 'Playfair Display';
 
 const COLOR = {
   ink: '#1a1917',
@@ -30,17 +62,17 @@ const styles = StyleSheet.create({
     paddingTop: 54,
     paddingBottom: 76,
     paddingHorizontal: 54,
-    fontFamily: 'Helvetica',
+    fontFamily: SANS,
     fontSize: 10,
     color: COLOR.ink,
     lineHeight: 1.5,
   },
-  eyebrow: { fontFamily: 'Helvetica-Bold', fontSize: 8, letterSpacing: 2, color: COLOR.cyan },
-  title: { fontFamily: 'Times-Italic', fontSize: 30, marginTop: 6 },
+  eyebrow: { fontFamily: SANS, fontWeight: 700, fontSize: 8, letterSpacing: 2, color: COLOR.cyan },
+  title: { fontFamily: SERIF, fontStyle: 'italic', fontSize: 30, marginTop: 6 },
   rule: { borderBottomWidth: 1, borderBottomColor: COLOR.rule, marginTop: 18, marginBottom: 18 },
   metaRow: { flexDirection: 'row', justifyContent: 'space-between' },
   metaBlock: { maxWidth: '58%' },
-  label: { fontFamily: 'Helvetica-Bold', fontSize: 7.5, letterSpacing: 1.5, color: COLOR.faint, marginBottom: 3 },
+  label: { fontFamily: SANS, fontWeight: 700, fontSize: 7.5, letterSpacing: 1.5, color: COLOR.faint, marginBottom: 3 },
   value: { fontSize: 11 },
   sub: { fontSize: 9.5, color: COLOR.mid, marginTop: 2 },
   tableHead: {
@@ -50,7 +82,7 @@ const styles = StyleSheet.create({
     paddingBottom: 5,
     marginTop: 26,
   },
-  th: { fontFamily: 'Helvetica-Bold', fontSize: 7.5, letterSpacing: 1, color: COLOR.mid },
+  th: { fontFamily: SANS, fontWeight: 700, fontSize: 7.5, letterSpacing: 1, color: COLOR.mid },
   row: {
     flexDirection: 'row',
     borderBottomWidth: 1,
@@ -64,13 +96,14 @@ const styles = StyleSheet.create({
   lineDetail: { fontSize: 8.5, color: COLOR.mid, marginTop: 2 },
   totalRow: { flexDirection: 'row', justifyContent: 'flex-end', alignItems: 'baseline', marginTop: 18 },
   totalLabel: {
-    fontFamily: 'Helvetica-Bold',
+    fontFamily: SANS,
+    fontWeight: 700,
     fontSize: 9,
     letterSpacing: 1.5,
     color: COLOR.mid,
     marginRight: 14,
   },
-  totalValue: { fontFamily: 'Times-Italic', fontSize: 24, color: COLOR.rust },
+  totalValue: { fontFamily: SERIF, fontStyle: 'italic', fontSize: 24, color: COLOR.rust },
   notes: { marginTop: 22 },
   notesBody: { fontSize: 9.5, color: COLOR.mid },
   footer: {
@@ -82,7 +115,7 @@ const styles = StyleSheet.create({
     borderTopColor: COLOR.rule,
     paddingTop: 10,
   },
-  tagline: { fontFamily: 'Times-Italic', fontSize: 10, color: COLOR.cyan, textAlign: 'center' },
+  tagline: { fontFamily: SERIF, fontStyle: 'italic', fontSize: 10, color: COLOR.cyan, textAlign: 'center' },
   contact: { fontSize: 7.5, color: COLOR.faint, textAlign: 'center', marginTop: 4 },
 });
 

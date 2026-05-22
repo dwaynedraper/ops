@@ -437,9 +437,17 @@ five-workflow schema and seed (D1), the adaptive Research page (D2),
 the per-workflow Rank Factor and Script/Links editors (D3), the new
 `/clients` Client List (D4), multi-workflow Tracking + Dashboard (D5),
 and config-backed handoff-link placeholders resolved in the contact
-composer (D6). The build is green again. Recommended additions from
-PHASE-D-PLAN §9 (daily follow-up digest, duplicate check, cross-sell
-links, mobile pass, dead-nav cleanup) remain on the table.
+composer (D6). The build is green again.
+
+**Post-D follow-ups (2026-05-22).** Three PHASE-D-PLAN §9 items shipped:
+the `/today` morning digest (per-rep brief — replies waiting, follow-ups
+due, cycles to close), the `/team` supervisor report (per-rep windowed
+activity + pipeline snapshot, super_admin only), and the dead-nav
+cleanup — `/today` and `/team` were nav stubs and now resolve. The §12
+parked task is also done: the quote PDF now renders in the brand faces
+(Playfair Display + Montserrat). Still open from §9: duplicate-check on
+Research, cross-sell linked prospects, mobile pass; and an optional
+emailed version of the `/today` digest.
 
 ---
 

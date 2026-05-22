@@ -14,9 +14,54 @@ lives in `README.md`. This file is the time-ordered receipt.
 
 ### Planned next
 - Send-to-client flow (email the quote PDF) + final polish
-- Phase D recommended additions: daily follow-up digest, duplicate
-  check on Research, cross-sell linked prospects, mobile pass,
-  `/today` + `/team` dead-nav cleanup (PHASE-D-PLAN §9)
+- Optional emailed version of the `/today` digest (opt-in per rep)
+- Phase D recommended additions still open: duplicate check on
+  Research, cross-sell linked prospects, mobile pass (PHASE-D-PLAN §9)
+- Supervisor report: a stage-event log would let `/team` count true
+  stage transitions (e.g. research → tracking) rather than the
+  first-touch proxy it uses today
+
+---
+
+## 2026-05-22 — Morning digest, supervisor report, brand fonts in the PDF
+
+Three follow-ups after Phase D: the two dead nav items become real
+pages, and the quote PDF finally renders in the brand typefaces.
+
+### Added
+- `/today` — the morning digest, per rep. A scannable brief built on
+  the contact-cycle machinery: replies waiting on you, follow-ups due,
+  cycles ready to close, and an ambient line for what's still
+  mid-window. Owner-scoped. Replaces the dead `/today` nav stub.
+- `/team` — the supervisor report, super_admin only. One card per rep:
+  windowed activity (prospects added, started contacting, touches
+  logged, replies earned, notes written) over a 7 / 14 / 30-day window,
+  plus a current pipeline snapshot. Each card leads with a plain-English
+  sentence. Replaces the dead `/team` nav stub.
+- `src/fonts/` — Playfair Display + Montserrat `.ttf` files (SIL Open
+  Font License), committed to the repo.
+- `splitPlaceholders` tests in `tracking.test.ts` (carried from D6).
+
+### Changed
+- `QuotePdf.tsx` registers the brand faces via `Font.register` —
+  Playfair Display (display/serif, incl. italic) and Montserrat
+  (body, 400/700). The built-in Helvetica / Times fallback is retired;
+  the PDF now matches the web properties. Closes the parity gap flagged
+  in BUILD-PLAN §8 / PHASE-D-PLAN §12.
+- `next.config.ts` — `outputFileTracingIncludes` forces `src/fonts`
+  into the `/quotes/[id]/pdf` route's serverless bundle (Next's tracer
+  can't follow the runtime `process.cwd()` font path).
+
+### Notes
+- The `/team` "started contacting" metric uses each prospect's first
+  logged touch as the research → tracking signal — the schema has no
+  stage-transition log. A small `prospect_stage_events` table would
+  make literal transition counts possible; noted for later.
+- Windowed metrics rest on real timestamps (`created_at`, `sent_at`,
+  `responded_at`); the pipeline snapshot is current, not windowed.
+
+### Verified
+- `tsc --noEmit` and `eslint` clean across `src`.
 
 ---
 
