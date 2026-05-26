@@ -15,6 +15,7 @@
 import { revalidatePath } from 'next/cache';
 import { auth } from '@/auth';
 import { sql, sqlOne } from '@/lib/db';
+import { actionError } from '@/lib/action-error';
 import {
   scoreProspect,
   classifyBand,
@@ -135,7 +136,7 @@ export async function createProspect(
   } catch (err) {
     return {
       ok: false,
-      error: err instanceof Error ? err.message : 'Could not save the prospect.',
+      error: actionError(err, 'Could not save the prospect.'),
     };
   }
 }

@@ -26,6 +26,60 @@ lives in `README.md`. This file is the time-ordered receipt.
 
 ---
 
+## 2026-05-22 — Pre-launch audit + fixes
+
+A full pre-launch review of the app — every route, server action, the
+auth layer, the schema, and the PDF/email/cron code. Findings and the
+go/no-go verdict are written up in `LAUNCH-AUDIT.md`. This entry covers
+the audit itself plus the fix batch that followed.
+
+### Added
+- **20-second undo on every prospect lifecycle move.** A new generic
+  `UndoProvider` (`src/components/UndoProvider.tsx`, mounted in the root
+  layout) defers a server action behind a 20-second window with a
+  live-countdown toast; pressing Undo discards it and nothing ever runs.
+  Wired into Tracking (log contact, mark replied, close out) and the
+  client-page stage advances. `runWithUndo` is generic — future call
+  sites, including send-to-client, can opt in.
+
+### Fixed
+- **M1 — digest cron fails closed.** `/api/cron/digest` returns 503 when
+  `CRON_SECRET` is unset rather than running unauthenticated.
+- **M2 — quote PDF / detail page no longer 500s on a malformed id.**
+  `loadQuoteForUser` validates the id as a UUID (new `isUuid` in
+  `db.ts`) and returns a clean 404; same guard added to `/prospects/[id]`.
+- **M3 — quote-PDF header rule** now renders behind the title, so the
+  italic-Q descender is no longer crossed by the grey divider line.
+- **S1 — prospect tab-title leak.** `generateMetadata` on
+  `/prospects/[id]` is owner-scoped — a contact's name no longer shows
+  in the browser tab for a rep who doesn't own the prospect.
+- **S2 — dashboard** redirects logged-out users to `/signin` instead of
+  rendering a blank shell.
+- **S3 — Tracking** no longer silently swaps in a different prospect
+  when the selected one leaves the board; it shows an explicit prompt.
+- **S4 — client-page** action handlers are wrapped so a thrown error
+  can't freeze the buttons.
+- **S5 — digest cron** returns a non-2xx when any send fails, so a
+  partially-failed run surfaces in Vercel Cron.
+- **P1 — server actions** no longer return raw Postgres text to the
+  client; the real error is logged server-side and a plain-English
+  message is returned (`src/lib/action-error.ts`).
+- **P2 — unsaved-changes guard.** The prospect details form and the
+  notes draft warn before a tab close / reload with unsaved edits
+  (`src/components/useUnsavedGuard.ts`).
+- **P3 — proxy** public-path matching tightened to a segment boundary —
+  `/signin-anything` is no longer treated as public.
+
+### Not changed (deliberate — see LAUNCH-AUDIT.md)
+- **P4** (database TLS `rejectUnauthorized: false`) — an infra decision;
+  hardening it needs the Neon CA cert, not a blind code change.
+- **P5** (stage-event actor attribution) — a no-op until prospect
+  reassignment exists; revisit then.
+- **P6** (array-index React keys; zero-headshot Team Day) — cosmetic;
+  left as-is.
+
+---
+
 ## 2026-05-22 — Invite-only rep management, stage events, digest email
 
 Reps now onboard through an invite-and-approve flow, every stage change

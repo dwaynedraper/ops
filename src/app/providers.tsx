@@ -1,6 +1,7 @@
 'use client';
 
 import { useSyncExternalStore, type ReactNode } from 'react';
+import { UndoProvider } from '@/components/UndoProvider';
 
 type Theme = 'dark' | 'light';
 
@@ -61,12 +62,11 @@ function setTheme(next: Theme): void {
 }
 
 /**
- * Provider slot. The theme store is module-level, so this is a passthrough
- * today — it stays as the mount point for any future client-side providers
- * without forcing a layout.tsx change.
+ * Provider slot. The theme store is module-level, so the only wrapper here
+ * is the UndoProvider — it owns the app-wide "soft commit" undo toasts.
  */
 export function Providers({ children }: { children: ReactNode }) {
-  return <>{children}</>;
+  return <UndoProvider>{children}</UndoProvider>;
 }
 
 export interface ThemeCtx {

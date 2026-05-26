@@ -8,6 +8,7 @@
 import { revalidatePath } from 'next/cache';
 import { auth } from '@/auth';
 import { sql } from '@/lib/db';
+import { actionError } from '@/lib/action-error';
 
 export interface ActionResult {
   ok: boolean;
@@ -29,7 +30,7 @@ export async function setDigestOptIn(enabled: boolean): Promise<ActionResult> {
   } catch (err) {
     return {
       ok: false,
-      error: err instanceof Error ? err.message : 'Could not save your preference.',
+      error: actionError(err, 'Could not save your preference.'),
     };
   }
 }

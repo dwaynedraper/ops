@@ -14,6 +14,7 @@
 import { revalidatePath } from 'next/cache';
 import { auth } from '@/auth';
 import { sql, sqlOne } from '@/lib/db';
+import { actionError } from '@/lib/action-error';
 import { sendEmail } from '@/lib/mailer';
 import { inviteEmailHtml, inviteEmailText } from '@/lib/invite-email';
 import type { RepStatus } from '@/lib/rep-access';
@@ -112,7 +113,7 @@ export async function inviteRep(input: {
   } catch (err) {
     return {
       ok: false,
-      error: err instanceof Error ? err.message : 'Could not save the invite.',
+      error: actionError(err, 'Could not save the invite.'),
     };
   }
 
@@ -155,7 +156,7 @@ export async function cancelInvite(input: { inviteId: string }): Promise<ActionR
   } catch (err) {
     return {
       ok: false,
-      error: err instanceof Error ? err.message : 'Could not cancel the invite.',
+      error: actionError(err, 'Could not cancel the invite.'),
     };
   }
 }
@@ -186,7 +187,7 @@ export async function setRepStatus(input: {
   } catch (err) {
     return {
       ok: false,
-      error: err instanceof Error ? err.message : 'Could not update the rep.',
+      error: actionError(err, 'Could not update the rep.'),
     };
   }
 }
@@ -215,7 +216,7 @@ export async function setRepRole(input: {
   } catch (err) {
     return {
       ok: false,
-      error: err instanceof Error ? err.message : 'Could not update the role.',
+      error: actionError(err, 'Could not update the role.'),
     };
   }
 }

@@ -11,6 +11,7 @@
 import { revalidatePath } from 'next/cache';
 import { auth } from '@/auth';
 import { sql } from '@/lib/db';
+import { actionError } from '@/lib/action-error';
 
 export interface RatesResult {
   ok: boolean;
@@ -40,7 +41,7 @@ export async function publishGlobals(
   } catch (err) {
     return {
       ok: false,
-      error: err instanceof Error ? err.message : 'Could not publish the rates.',
+      error: actionError(err, 'Could not publish the rates.'),
     };
   }
 }

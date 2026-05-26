@@ -12,6 +12,7 @@
 
 import { revalidatePath } from 'next/cache';
 import { sql } from '@/lib/db';
+import { actionError } from '@/lib/action-error';
 import { loadOwnedProspect } from '@/lib/prospect-access';
 import { STAGE_NEXT, type ProspectStage } from '@/lib/prospects';
 
@@ -60,7 +61,7 @@ export async function updateProspectDetails(input: {
   } catch (err) {
     return {
       ok: false,
-      error: err instanceof Error ? err.message : 'Could not save the details.',
+      error: actionError(err, 'Could not save the details.'),
     };
   }
 }
@@ -87,7 +88,7 @@ export async function addNote(input: {
   } catch (err) {
     return {
       ok: false,
-      error: err instanceof Error ? err.message : 'Could not add the note.',
+      error: actionError(err, 'Could not add the note.'),
     };
   }
 }
@@ -111,7 +112,7 @@ export async function setNotePinned(input: {
   } catch (err) {
     return {
       ok: false,
-      error: err instanceof Error ? err.message : 'Could not update the note.',
+      error: actionError(err, 'Could not update the note.'),
     };
   }
 }
@@ -148,7 +149,7 @@ export async function advanceStage(input: {
   } catch (err) {
     return {
       ok: false,
-      error: err instanceof Error ? err.message : 'Could not update the stage.',
+      error: actionError(err, 'Could not update the stage.'),
     };
   }
 }

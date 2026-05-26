@@ -69,7 +69,19 @@ const styles = StyleSheet.create({
   },
   eyebrow: { fontFamily: SANS, fontWeight: 700, fontSize: 8, letterSpacing: 2, color: COLOR.cyan },
   title: { fontFamily: SERIF, fontStyle: 'italic', fontSize: 30, marginTop: 6 },
-  rule: { borderBottomWidth: 1, borderBottomColor: COLOR.rule, marginTop: 18, marginBottom: 18 },
+  // The header rule is drawn as an absolutely-positioned element rendered
+  // *before* the title, so the title's italic-Q descender paints on top of
+  // the line instead of being crossed by it (@react-pdf paints in tree
+  // order). paddingBottom reserves the 18pt gap the rule used to sit in.
+  header: { position: 'relative', paddingBottom: 18, marginBottom: 18 },
+  headerRule: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    bottom: 0,
+    borderBottomWidth: 1,
+    borderBottomColor: COLOR.rule,
+  },
   metaRow: { flexDirection: 'row', justifyContent: 'space-between' },
   metaBlock: { maxWidth: '58%' },
   label: { fontFamily: SANS, fontWeight: 700, fontSize: 7.5, letterSpacing: 1.5, color: COLOR.faint, marginBottom: 3 },
@@ -129,10 +141,12 @@ export function QuotePdf({
   return (
     <Document title={`Sharp Sighted Quote ${quote.quoteNumber}`} author="Sharp Sighted Studio">
       <Page size="LETTER" style={styles.page}>
-        <Text style={styles.eyebrow}>SHARP SIGHTED  ·  QUOTE</Text>
-        <Text style={styles.title}>Quote No. {quote.quoteNumber}</Text>
-
-        <View style={styles.rule} />
+        <View style={styles.header}>
+          {/* Rendered first → painted behind the title text. */}
+          <View style={styles.headerRule} />
+          <Text style={styles.eyebrow}>SHARP SIGHTED  ·  QUOTE</Text>
+          <Text style={styles.title}>Quote No. {quote.quoteNumber}</Text>
+        </View>
 
         <View style={styles.metaRow}>
           <View style={styles.metaBlock}>

@@ -32,7 +32,10 @@ const PUBLIC_PREFIXES = [
 ];
 
 function isPublic(pathname: string): boolean {
-  return PUBLIC_PREFIXES.some((p) => pathname === p || pathname.startsWith(p + '/') || pathname.startsWith(p));
+  // Exact match, or a sub-path under the prefix. We deliberately do NOT
+  // do a bare startsWith(prefix) — that would make '/signin-anything'
+  // public too. Match on a segment boundary only.
+  return PUBLIC_PREFIXES.some((p) => pathname === p || pathname.startsWith(p + '/'));
 }
 
 export default auth((req: NextRequest & { auth: unknown }) => {

@@ -1,4 +1,5 @@
 import Link from 'next/link';
+import { redirect } from 'next/navigation';
 import { auth } from '@/auth';
 import { sql } from '@/lib/db';
 import { Sidebar } from '@/components/Sidebar';
@@ -98,16 +99,10 @@ export default async function Dashboard() {
     .toString()
     .split(/[\s@]/)[0];
 
+  // Logged-out users get redirected, consistent with every other page.
+  // proxy.ts normally catches this first; this is the defense-in-depth.
   if (!user) {
-    return (
-      <div className="app-shell">
-        <Sidebar role={role} />
-        <div style={{ display: 'flex', flexDirection: 'column', minWidth: 0 }}>
-          <main className="app-shell-main" style={{ flex: 1 }} />
-          <Footer />
-        </div>
-      </div>
-    );
+    redirect('/signin');
   }
 
   const [workflowRows, countRows, targetRows, scriptRows, cycleRows] = await Promise.all([

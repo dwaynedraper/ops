@@ -14,6 +14,7 @@
 import { revalidatePath } from 'next/cache';
 import { auth } from '@/auth';
 import { getPool, sql, sqlOne } from '@/lib/db';
+import { actionError } from '@/lib/action-error';
 import {
   priceFromCostLines,
   type CostLine,
@@ -88,7 +89,7 @@ export async function publishWorksheet(input: {
   } catch (err) {
     return {
       ok: false,
-      error: err instanceof Error ? err.message : 'Could not compute the price.',
+      error: actionError(err, 'Could not compute the price.'),
     };
   }
 
@@ -131,7 +132,7 @@ export async function publishWorksheet(input: {
     await dbc.query('ROLLBACK');
     return {
       ok: false,
-      error: err instanceof Error ? err.message : 'Could not publish the worksheet.',
+      error: actionError(err, 'Could not publish the worksheet.'),
     };
   } finally {
     dbc.release();

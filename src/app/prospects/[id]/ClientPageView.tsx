@@ -14,6 +14,8 @@ import { useMemo, useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { CalculatorClient } from '@/app/calculator/CalculatorClient';
+import { useUndo } from '@/components/UndoProvider';
+import { useUnsavedGuard } from '@/components/useUnsavedGuard';
 import { fmtMoney } from '@/lib/pricing';
 import { STAGE_LABEL, type ProspectStage, type ScoreBand } from '@/lib/prospects';
 import type { Catalog, QuoteClientInfo, Branch } from '@/lib/catalog';
@@ -122,6 +124,7 @@ export function ClientPageView({
   role: 'super_admin' | 'partner';
 }) {
   const router = useRouter();
+  const undo = useUndo();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -137,14 +140,18 @@ export function ClientPageView({
     [prospect.contactName, prospect.email, prospect.phone],
   );
 
+  // A stage move runs behind the 20-second undo window. The undo provider
+  // fires the action only if the rep doesn't undo, and refreshes the route
+  // itself on a successful commit.
   async function onStage(next: ProspectStage) {
     setBusy(true);
     setError(null);
-    const res = await advanceStage({ prospectId: prospect.id, nextStage: next });
-    if (res.ok) {
-      router.refresh();
-    } else {
-      setError(res.error ?? 'Could not update the stage.');
+    const result = await undo.runWithUndo({
+      label: `Moved to ${STAGE_LABEL[next]}`,
+      run: () => advanceStage({ prospectId: prospect.id, nextStage: next }),
+    });
+    if (result.outcome === 'failed') {
+      setError(result.error);
     }
     setBusy(false);
   }
@@ -411,6 +418,7 @@ function DetailsEditor({ prospect }: { prospect: ProspectDetail }) {
   const [saved, setSaved] = useState(false);
 
   const dirty = JSON.stringify(form) !== JSON.stringify(initial);
+  useUnsavedGuard(dirty);
 
   function patch(p: Partial<DetailsForm>) {
     setForm((f) => ({ ...f, ...p }));
@@ -420,14 +428,19 @@ function DetailsEditor({ prospect }: { prospect: ProspectDetail }) {
   async function onSave() {
     setBusy(true);
     setError(null);
-    const res = await updateProspectDetails({ prospectId: prospect.id, ...form });
-    if (res.ok) {
-      setSaved(true);
-      router.refresh();
-    } else {
-      setError(res.error ?? 'Could not save the details.');
+    try {
+      const res = await updateProspectDetails({ prospectId: prospect.id, ...form });
+      if (res.ok) {
+        setSaved(true);
+        router.refresh();
+      } else {
+        setError(res.error ?? 'Could not save the details.');
+      }
+    } catch {
+      setError('Could not save the details — check your connection and try again.');
+    } finally {
+      setBusy(false);
     }
-    setBusy(false);
   }
 
   return (
@@ -542,31 +555,44 @@ function NotesSection({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  // An untyped-but-unsent note draft counts as unsaved work.
+  useUnsavedGuard(body.trim().length > 0);
+
   async function onAdd() {
     if (!body.trim()) return;
     setBusy(true);
     setError(null);
-    const res = await addNote({ prospectId, body, pinned: pinNew });
-    if (res.ok) {
-      setBody('');
-      setPinNew(false);
-      router.refresh();
-    } else {
-      setError(res.error ?? 'Could not add the note.');
+    try {
+      const res = await addNote({ prospectId, body, pinned: pinNew });
+      if (res.ok) {
+        setBody('');
+        setPinNew(false);
+        router.refresh();
+      } else {
+        setError(res.error ?? 'Could not add the note.');
+      }
+    } catch {
+      setError('Could not add the note — check your connection and try again.');
+    } finally {
+      setBusy(false);
     }
-    setBusy(false);
   }
 
   async function onPinToggle(noteId: string, pinned: boolean) {
     setBusy(true);
     setError(null);
-    const res = await setNotePinned({ prospectId, noteId, pinned });
-    if (res.ok) {
-      router.refresh();
-    } else {
-      setError(res.error ?? 'Could not update the note.');
+    try {
+      const res = await setNotePinned({ prospectId, noteId, pinned });
+      if (res.ok) {
+        router.refresh();
+      } else {
+        setError(res.error ?? 'Could not update the note.');
+      }
+    } catch {
+      setError('Could not update the note — check your connection and try again.');
+    } finally {
+      setBusy(false);
     }
-    setBusy(false);
   }
 
   return (

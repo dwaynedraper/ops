@@ -10,7 +10,7 @@
 
 import { useState } from 'react';
 import Link from 'next/link';
-import { useRouter } from 'next/navigation';
+import { useUndo } from '@/components/UndoProvider';
 import {
   extractPlaceholders,
   fillTemplate,
@@ -70,8 +70,13 @@ export function TrackingClient({
   const [nonce, setNonce] = useState(0);
 
   const visible = cards.filter((c) => shown.has(c.prospect.workflowKey));
-  const selected =
-    visible.find((c) => c.prospect.id === selectedId) ?? visible[0] ?? null;
+  // No silent fallback: if the selection no longer resolves — the prospect
+  // was acted on and left the board, or its workflow was filtered out —
+  // show an explicit prompt rather than quietly swapping in a different
+  // prospect the rep might then act on by mistake.
+  const selected = selectedId
+    ? visible.find((c) => c.prospect.id === selectedId) ?? null
+    : null;
 
   function toggleWorkflow(key: string) {
     setShown((prev) => {
@@ -210,7 +215,7 @@ export function TrackingClient({
 
         {/* ─── Detail ─────────────────────────────────────────────────── */}
         <div>
-          {selected && (
+          {selected ? (
             <DetailPanel
               key={`${selected.prospect.id}:${nonce}`}
               card={selected}
@@ -220,6 +225,12 @@ export function TrackingClient({
               repName={repName}
               onActed={() => setNonce((n) => n + 1)}
             />
+          ) : (
+            <div className="surface-card">
+              <p style={{ fontSize: '0.84rem', color: 'var(--text-muted)' }}>
+                Select a prospect from the board to work their contact cycle.
+              </p>
+            </div>
           )}
         </div>
       </div>
@@ -244,7 +255,7 @@ function DetailPanel({
   repName: string;
   onActed: () => void;
 }) {
-  const router = useRouter();
+  const undo = useUndo();
   const { prospect, contacts, status } = card;
 
   const nextStep = scripts.find((s) => s.stageKey === card.nextStepKey) ?? null;
@@ -277,22 +288,22 @@ function DetailPanel({
       ? contacts[contacts.length - 1]
       : null;
 
-  async function run(action: () => Promise<{ ok: boolean; error?: string }>) {
+  // Lifecycle moves run behind the 20-second undo window: the action is
+  // handed to the undo provider and only fires if the rep doesn't undo it.
+  // The provider refreshes the route itself on a successful commit.
+  async function run(
+    label: string,
+    action: () => Promise<{ ok: boolean; error?: string }>,
+  ) {
     setBusy(true);
     setError(null);
-    try {
-      const res = await action();
-      if (res.ok) {
-        router.refresh();
-        onActed();
-      } else {
-        setError(res.error ?? 'Something went wrong.');
-        setBusy(false);
-      }
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Something went wrong.');
-      setBusy(false);
+    const result = await undo.runWithUndo({ label, run: action });
+    if (result.outcome === 'committed') {
+      onActed();
+    } else if (result.outcome === 'failed') {
+      setError(result.error);
     }
+    setBusy(false);
   }
 
   function copy(field: string, text: string) {
@@ -428,7 +439,9 @@ function DetailPanel({
               style={{ marginTop: '0.85rem' }}
               disabled={busy}
               onClick={() =>
-                run(() => markResponded({ prospectId: prospect.id, contactId: latestOpen.id }))
+                run('Marked as replied', () =>
+                  markResponded({ prospectId: prospect.id, contactId: latestOpen.id }),
+                )
               }
             >
               They replied
@@ -462,7 +475,7 @@ function DetailPanel({
             className="btn-primary"
             style={{ marginTop: '0.85rem', justifyContent: 'center' }}
             disabled={busy}
-            onClick={() => run(() => closeOut({ prospectId: prospect.id }))}
+            onClick={() => run('Closed out — no response', () => closeOut({ prospectId: prospect.id }))}
           >
             {busy ? 'Closing…' : 'Close out — no response'}
           </button>
@@ -622,7 +635,7 @@ function DetailPanel({
             style={{ justifyContent: 'center' }}
             disabled={busy || !allFilled}
             onClick={() =>
-              run(() =>
+              run('Logged contact', () =>
                 logContact({
                   prospectId: prospect.id,
                   stepKey: nextStep.stageKey,

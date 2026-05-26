@@ -11,7 +11,7 @@
  */
 
 import { auth } from '@/auth';
-import { sql, sqlOne } from '@/lib/db';
+import { sql, sqlOne, isUuid } from '@/lib/db';
 
 export interface QuoteLineRecord {
   kind: 'package' | 'addon' | 'custom';
@@ -97,6 +97,12 @@ const DATE_FMT = new Intl.DateTimeFormat('en-US', {
  * super_admin.
  */
 export async function loadQuoteForUser(id: string): Promise<LoadedQuote | null> {
+  // A malformed id (not a UUID — e.g. a hand-edited or stale URL) would
+  // make Postgres throw on the `WHERE q.id = ...` clause below, surfacing
+  // as an unhandled 500. Treat it as a clean not-found instead, so the
+  // PDF route and the quote detail page both render their 404.
+  if (!isUuid(id)) return null;
+
   const session = await auth();
   const userId = session?.user?.id;
   if (!userId) return null;

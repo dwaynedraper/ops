@@ -15,6 +15,7 @@
 import { revalidatePath } from 'next/cache';
 import { auth } from '@/auth';
 import { getPool } from '@/lib/db';
+import { actionError } from '@/lib/action-error';
 import type { RankFactorKind } from '@/lib/prospects';
 
 export interface RankFactorInput {
@@ -201,7 +202,7 @@ export async function publishRankConfig(input: {
     await dbc.query('ROLLBACK');
     return {
       ok: false,
-      error: err instanceof Error ? err.message : 'Could not publish the scoring config.',
+      error: actionError(err, 'Could not publish the scoring config.'),
     };
   } finally {
     dbc.release();

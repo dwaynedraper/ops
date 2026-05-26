@@ -5,7 +5,7 @@
 > dated history. README.md is the local-dev quickstart; this is the
 > full operating reference.
 
-**Last updated:** 2026-05-21 · Week 1 complete · Phases A, B, C and the quote PDF export complete · send-to-client + final polish remain.
+**Last updated:** 2026-05-22 · Week 1 complete · Phases A, B, C, D, the quote PDF export, and the pre-launch audit + fix batch complete · send-to-client remains. See `LAUNCH-AUDIT.md` for the launch-readiness review.
 
 ---
 

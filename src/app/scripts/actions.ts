@@ -16,6 +16,7 @@
 import { revalidatePath } from 'next/cache';
 import { auth } from '@/auth';
 import { getPool } from '@/lib/db';
+import { actionError } from '@/lib/action-error';
 import type { ContactChannel } from '@/lib/tracking';
 
 export interface ScriptInput {
@@ -170,7 +171,7 @@ export async function publishScripts(input: {
     await dbc.query('ROLLBACK');
     return {
       ok: false,
-      error: err instanceof Error ? err.message : 'Could not publish the scripts.',
+      error: actionError(err, 'Could not publish the scripts.'),
     };
   } finally {
     dbc.release();

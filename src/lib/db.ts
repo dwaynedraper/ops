@@ -84,3 +84,13 @@ export async function sqlOne<T extends QueryResultRow = QueryResultRow>(
   const rows = await sql<T>(strings, ...values);
   return rows[0] ?? null;
 }
+
+/**
+ * True when `s` is a canonical UUID. Use it to guard a value from a route
+ * param before it reaches a `WHERE id = $1` against a UUID column —
+ * Postgres throws on a malformed UUID, which would surface as an
+ * unhandled 500 instead of a clean not-found.
+ */
+export function isUuid(s: string): boolean {
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(s);
+}

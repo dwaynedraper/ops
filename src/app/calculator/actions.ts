@@ -13,6 +13,7 @@
 
 import { auth } from '@/auth';
 import { getPool } from '@/lib/db';
+import { actionError } from '@/lib/action-error';
 import { getCatalog, type QuoteSelection, type QuoteClientInfo, type SaveQuoteResult } from '@/lib/catalog';
 import { singleExecPrice, computeTeamDay } from '@/lib/pricing';
 
@@ -202,7 +203,7 @@ export async function saveQuote(
     return { ok: true, quoteNumber: quote.quote_number, id: quote.id };
   } catch (err) {
     await dbc.query('ROLLBACK');
-    return { ok: false, error: err instanceof Error ? err.message : 'Could not save the quote.' };
+    return { ok: false, error: actionError(err, 'Could not save the quote.') };
   } finally {
     dbc.release();
   }

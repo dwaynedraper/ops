@@ -1,6 +1,6 @@
 import { notFound, redirect } from 'next/navigation';
 import { auth } from '@/auth';
-import { sql, sqlOne } from '@/lib/db';
+import { sql, sqlOne, isUuid } from '@/lib/db';
 import { Sidebar } from '@/components/Sidebar';
 import { Footer } from '@/components/Footer';
 import { getCatalog } from '@/lib/catalog';
@@ -81,9 +81,22 @@ export async function generateMetadata({
   params: Promise<{ id: string }>;
 }) {
   const { id } = await params;
-  const row = await sqlOne<{ contact_name: string }>`
-    SELECT contact_name FROM prospects WHERE id = ${id}`;
-  return { title: row?.contact_name ?? 'Prospect' };
+  if (!isUuid(id)) return { title: 'Prospect' };
+
+  // Owner-scoped, exactly like the page body below: a prospect's contact
+  // name must not surface — even in the browser tab title — for a rep who
+  // doesn't own it (visibility rule D-019).
+  const session = await auth();
+  const userId = session?.user?.id;
+  if (!userId) return { title: 'Prospect' };
+
+  const row = await sqlOne<{ contact_name: string; owner_id: string }>`
+    SELECT contact_name, owner_id FROM prospects WHERE id = ${id}`;
+  if (!row) return { title: 'Prospect' };
+
+  const isAdmin = session.user?.role === 'super_admin';
+  if (row.owner_id !== userId && !isAdmin) return { title: 'Prospect' };
+  return { title: row.contact_name };
 }
 
 export default async function ClientPage({
@@ -92,6 +105,8 @@ export default async function ClientPage({
   params: Promise<{ id: string }>;
 }) {
   const { id } = await params;
+  // A malformed id would make Postgres throw on the UUID column — 404 it.
+  if (!isUuid(id)) notFound();
 
   const session = await auth();
   const user = session?.user;

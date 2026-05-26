@@ -12,6 +12,7 @@
 
 import { revalidatePath } from 'next/cache';
 import { sql, sqlOne } from '@/lib/db';
+import { actionError } from '@/lib/action-error';
 import { loadOwnedProspect } from '@/lib/prospect-access';
 
 export interface ActionResult {
@@ -62,7 +63,7 @@ export async function logContact(input: {
   } catch (err) {
     return {
       ok: false,
-      error: err instanceof Error ? err.message : 'Could not log the contact.',
+      error: actionError(err, 'Could not log the contact.'),
     };
   }
 }
@@ -93,7 +94,7 @@ export async function markResponded(input: {
   } catch (err) {
     return {
       ok: false,
-      error: err instanceof Error ? err.message : 'Could not record the reply.',
+      error: actionError(err, 'Could not record the reply.'),
     };
   }
 }
@@ -116,7 +117,7 @@ export async function closeOut(input: { prospectId: string }): Promise<ActionRes
   } catch (err) {
     return {
       ok: false,
-      error: err instanceof Error ? err.message : 'Could not close out the prospect.',
+      error: actionError(err, 'Could not close out the prospect.'),
     };
   }
 }

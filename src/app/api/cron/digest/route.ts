@@ -33,13 +33,20 @@ interface RepRow {
 }
 
 export async function GET(req: NextRequest) {
+  // Fail closed: this route is public (no session), so the secret is its
+  // only gate. A missing CRON_SECRET disables the route entirely rather
+  // than leaving it open to anyone who finds the URL.
   const secret = process.env.CRON_SECRET;
-  if (secret) {
-    const header = req.headers.get('authorization');
-    const queryParam = req.nextUrl.searchParams.get('secret');
-    if (header !== `Bearer ${secret}` && queryParam !== secret) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-    }
+  if (!secret) {
+    return NextResponse.json(
+      { error: 'CRON_SECRET is not set — the digest route is disabled.' },
+      { status: 503 },
+    );
+  }
+  const header = req.headers.get('authorization');
+  const queryParam = req.nextUrl.searchParams.get('secret');
+  if (header !== `Bearer ${secret}` && queryParam !== secret) {
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
 
   if (!emailConfigured()) {
@@ -86,5 +93,11 @@ export async function GET(req: NextRequest) {
     }
   }
 
-  return NextResponse.json({ ok: true, reps: reps.length, sent, failures });
+  // Surface partial failures as a non-2xx so Vercel Cron flags the run —
+  // a 200 would let a half-failed digest pass silently.
+  const failed = failures.length > 0;
+  return NextResponse.json(
+    { ok: !failed, reps: reps.length, sent, failures },
+    { status: failed ? 500 : 200 },
+  );
 }
