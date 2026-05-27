@@ -5,7 +5,7 @@
 > dated history. README.md is the local-dev quickstart; this is the
 > full operating reference.
 
-**Last updated:** 2026-05-22 · Week 1 complete · Phases A, B, C, D, the quote PDF export, and the pre-launch audit + fix batch complete · send-to-client remains. See `LAUNCH-AUDIT.md` for the launch-readiness review.
+**Last updated:** 2026-05-26 · Phases A, B, C, D, the quote PDF export, and the pre-launch audit + fix batch complete · **Phase E (Sourcing + Qualify restructure) starting** — Wednesday launch deferred to ship it as a unit. Full detail in `SOURCING-PLAN.md`. See `LAUNCH-AUDIT.md` for the prior launch-readiness review.
 
 ---
 
@@ -446,6 +446,28 @@ activity + pipeline snapshot, super_admin only), and the dead-nav
 cleanup — `/today` and `/team` were nav stubs and now resolve. The §12
 parked task is also done: the quote PDF now renders in the brand faces
 (Playfair Display + Montserrat).
+
+### Phase E — Sourcing + Qualify restructure (2026-05-26)
+
+A new list-intake surface lands in front of the per-prospect page, and
+the per-prospect page is renamed to match what it actually is. The
+existing one-agent-at-a-time `/research` workflow becomes the deep-work
+**Qualify** page; a new spreadsheet-style **Sourcing** page sits in
+front of it for rapid intake from public sources like RealTrends. Each
+sourcing row IS a prospect from row one, with a manual three-state
+Qualify / Pass / Undecided toggle and a calculated advisory pre-score
+badge. Both surfaces are per-workflow, mirroring the existing
+architecture. Two adjacent gaps close at the same time: contextual help
+modals on Qualify (left-rail ToC, right pane, optional tabs) and a new
+`/tutorials` section with one workflow walkthrough per offering. The
+Wednesday launch slips so the whole batch ships as a unit; new target
+is "when it's done."
+
+Build order: **P1** docs + recovery plan → **P2** schema audit + column
+proposal → **P3** rename `/research` → `/qualify` → **P4** build
+`/sourcing` → **P5** help modals on `/qualify` → **P6** `/tutorials` →
+**P7** verify. Full detail in **SOURCING-PLAN.md**; see D-023 through
+D-031.
 
 **Rep management + activity logging (2026-05-22).** Onboarding moved off
 the `ALLOWED_EMAILS` env var to an invite-and-approve flow: `rep_invites`
@@ -1045,6 +1067,117 @@ PHASE-D-PLAN.md §10.
 **Trade-off.** A one-time destructive restructure applied via
 `--fresh-crm`; acceptable because the CRM tables held only test data.
 The app build is intentionally red across the D1→D6 span.
+
+### D-023 · Sourcing + Qualify naming (2026-05-26)
+
+**Decision.** The new rapid list-intake surface is named **Sourcing**.
+The existing `/research` page is renamed to **Qualify**.
+
+**Rationale.** The naming maps to the activity a rep is actually doing
+at each step — *sourcing* names from a list, then *qualifying* one
+individual deeply. "Research" was overloaded — every CRM uses it for
+both, and reps had to mentally translate.
+
+**Trade-off.** Every doc, route, nav item, and `/research` reference
+gets a one-time rename. Mechanical; tsc catches misses.
+
+### D-024 · A sourcing row IS a prospect, no new lifecycle stage (2026-05-26)
+
+**Decision.** Each row on the Sourcing table is a `prospects` record at
+`lifecycle_stage = 'researching'` from row one. No new pre-prospect
+stage; no separate `leads` table.
+
+**Rationale.** One entity, one source of truth. Splitting leads from
+prospects invites divergence and double bookkeeping. The lifecycle
+already includes `researching` for exactly this state — partially-filled
+records the rep is working on.
+
+### D-025 · Phase E schema changes are additive only (2026-05-26)
+
+**Decision.** Phase E adds columns (likely `sides_count`, `gross_volume`,
+`market_city`, `source_url`, `sourcing_status`) to `prospects` via an
+idempotent migration. No table drops, no column-type changes, no fresh
+flag.
+
+**Rationale.** The CRM tables now hold real data — destructive changes
+aren't acceptable. The Phase E surface is additive to the existing
+prospect model; new columns are enough.
+
+### D-026 · Sourcing tables are per-workflow (2026-05-26)
+
+**Decision.** `/sourcing` is a per-workflow route, mirroring `/qualify`
+(and the existing `/research`). Each workflow has its own column set.
+Real-estate ships populated at launch; other workflows get column sets
+as their sources are identified.
+
+**Rationale.** Different workflows have different intake fields. A
+RealTrends row gives sides and volume; a corporate-headshots source
+will give firm size and department. Forcing one shared column set
+means most columns are blank for most workflows, which defeats the
+"rapid intake" point.
+
+### D-027 · Sourcing carries hard qualifiers + intake fields only (2026-05-26)
+
+**Decision.** The Sourcing table holds the high-point hard qualifiers
+plus the data that's available during sourcing (name, agency, market,
+sides, volume, source URL). Smaller 1- and 2-point supporting items —
+observations like "current listing photos are weak" — stay on the
+Qualify page where they belong.
+
+**Rationale.** The point of Sourcing is rapid triage from thin data.
+Observation-driven fields require the rep to actually look at the
+prospect's work; that's research, not intake. Mixing the two would
+slow the table down and blur its purpose.
+
+### D-028 · Three-state manual toggle + advisory pre-score (2026-05-26)
+
+**Decision.** Each Sourcing row has a manual three-state toggle
+(Qualify / Pass / Undecided) and a calculated **pre-score badge**
+alongside it. The pre-score is derived on read from whichever hard
+qualifiers are filled in; the toggle is the rep's call.
+
+**Rationale.** Auto-determining the toggle was considered and rejected.
+The most predictive qualifier — *photo need* — can't be filled in from
+a public list, so an auto-rule would only fire on the easy cases and
+stay silent in the middle (the noise-to-signal trap of auto-scoring).
+Override fatigue is a known anti-pattern; once reps disagree with the
+system a few times, they stop reading the badge. Salesforce / HubSpot
+ship lead scoring exactly this way — score as hint, status as manual.
+
+**Trade-off.** The rep clicks twice per row instead of once (toggle +
+read the badge). Acceptable; the badge is a guide, not a gate.
+
+### D-029 · Phase E content is Claude-drafted, Dean-revised (2026-05-26)
+
+**Decision.** v1 content for the help modals and tutorial pages is
+drafted by Claude based on the schema, the existing pages, and the
+brand bible. Dean revises before launch.
+
+**Rationale.** A blank-page edit pass takes longer than a revision
+pass, and Claude has enough context to draft something useful. Dean's
+voice gets imprinted in the revision step.
+
+### D-030 · Bulk paste on Sourcing is deferred to v2 (2026-05-26)
+
+**Decision.** v1 Sourcing is one-row-at-a-time entry only. No
+clipboard-paste of a spreadsheet block.
+
+**Rationale.** Dean wants reps to add prospects intentionally — one
+selected name at a time — not by dumping a list. The intentionality is
+part of the workflow's quality control. Clipboard paste can be added
+later without changing the data model if reps end up needing it after
+real use.
+
+### D-031 · Wednesday launch slips for Phase E (2026-05-26)
+
+**Decision.** The Wednesday 2026-05-27 launch defers. Phase E ships as
+a unit; partial slices weren't worth the disruption. New target is
+"when it's done."
+
+**Rationale.** The Sourcing surface is meaningful enough that launching
+the old `/research` flow alongside the new one would confuse partners
+and leak technical debt forward. Better to slip a few days and ship
+the restructure clean.
 
 ---
 

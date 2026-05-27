@@ -12,10 +12,24 @@ lives in `README.md`. This file is the time-ordered receipt.
 
 ## [Unreleased]
 
-### Planned next
+### Planned next — Phase E (Sourcing + Qualify restructure)
+- **P2** — schema audit + finalized column-set proposal in
+  `SOURCING-PLAN.md` for Dean sign-off
+- **P3** — rename `/research` → `/qualify` across code + docs
+- **P4** — build `/sourcing` (per-workflow rapid-intake spreadsheet
+  with three-state manual toggle + advisory pre-score badge)
+- **P5** — help modals on `/qualify` (left-rail ToC, right pane,
+  optional tabs, per-field triggers)
+- **P6** — `/tutorials` section + one workflow walkthrough per offering
+- **P7** — verify + promote this placeholder to a finalized entry
+
+Full detail in `SOURCING-PLAN.md`; decisions logged as D-023 through
+D-031 in BUILD-PLAN §10.
+
+### Also still planned (carried forward)
 - Send-to-client flow (email the quote PDF) + final polish
 - Phase D recommended additions still open: duplicate check on
-  Research, cross-sell linked prospects, mobile pass (PHASE-D-PLAN §9)
+  Qualify, cross-sell linked prospects, mobile pass (PHASE-D-PLAN §9)
 
 ### Setup needed for this release
 - Run `npm run db:migrate` — adds `rep_invites`, `prospect_stage_events`
@@ -23,6 +37,35 @@ lives in `README.md`. This file is the time-ordered receipt.
   columns. The old `ops_profiles.active` boolean is migrated across.
 - Set a `CRON_SECRET` env var in Vercel so the digest cron route
   (`/api/cron/digest`) only runs for the scheduled job.
+- Phase E P2 will append a second migration adding the sourcing-related
+  prospect columns (`sides_count`, `gross_volume`, `market_city`,
+  `source_url`, `sourcing_status`). Re-run `npm run db:migrate` after P2.
+
+---
+
+## 2026-05-26 — Phase E kickoff (in progress)
+
+The sales pipeline gains a list-intake surface. `/research` becomes
+`/qualify` (renamed to match what it actually is — the deep work on a
+single prospect). A new `/sourcing` page lands in front of it for rapid
+spreadsheet-style intake from public sources like RealTrends. Help
+modals come to `/qualify`. A new `/tutorials` section onboards new
+reps. Wednesday launch deferred to ship the whole batch as a unit.
+
+### Added (so far)
+- **SOURCING-PLAN.md** — the full Phase E plan + decision capture.
+  Recoverable across sessions; a future Claude can pick this up cold.
+- **BUILD-PLAN.md** — Phase E summary added to §5; decision-log entries
+  D-023 through D-031 added to §10 (naming, lifecycle, schema,
+  workflow scope, column principles, three-state toggle, content
+  authorship, deferred bulk paste, launch slip).
+- **CHANGELOG.md** — this placeholder. Phase 7 promotes it to a
+  finalized entry with the real Added / Fixed / Changed sections.
+
+### Not yet (Phase 2+)
+- Code changes — Phase E is in the planning stage. Schema audit, the
+  rename, `/sourcing`, help modals, and `/tutorials` all land in
+  follow-up commits.
 
 ---
 
