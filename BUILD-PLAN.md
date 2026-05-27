@@ -5,7 +5,13 @@
 > dated history. README.md is the local-dev quickstart; this is the
 > full operating reference.
 
-**Last updated:** 2026-05-26 · Phases A, B, C, D, the quote PDF export, and the pre-launch audit + fix batch complete · **Phase E (Sourcing + Qualify restructure) starting** — Wednesday launch deferred to ship it as a unit. Full detail in `SOURCING-PLAN.md`. See `LAUNCH-AUDIT.md` for the prior launch-readiness review.
+**Last updated:** 2026-05-26 · Phases A, B, C, D, the quote PDF export, and the pre-launch audit + fix batch complete · **Phase E in progress** — P1 (docs + recovery file), P2 (schema audit + migration), and P3 (`/research` → `/qualify` rename) done; P4 (`/sourcing`), P5 (help modals), P6 (`/tutorials`), and P7 (verify) remain. Wednesday launch deferred to ship Phase E as a unit. Full detail in `SOURCING-PLAN.md`. See `LAUNCH-AUDIT.md` for the prior launch-readiness review.
+
+> **Heads-up for readers — `/research` is now `/qualify`.** Renamed in
+> Phase E (D-023). Historical references to "Research" or `/research`
+> throughout this doc and `CHANGELOG.md` describe what was built at the
+> time and are preserved as-is. Forward-looking references use the new
+> name.
 
 ---
 
@@ -477,7 +483,7 @@ the supervisor report moved to `/team/activity`. A `prospect_stage_events`
 log (database trigger) now records every stage change, so the report
 counts real transitions. The `/today` digest can be emailed each
 morning via a Vercel cron + Resend (per-rep opt-in). Still open from §9:
-duplicate-check on Research, cross-sell linked prospects, mobile pass.
+duplicate-check on Qualify, cross-sell linked prospects, mobile pass.
 
 ---
 

@@ -350,12 +350,12 @@ export function RankFactorsClient({ workflows }: { workflows: WorkflowConfig[] }
         </button>
         {dirty && (
           <span style={{ fontSize: '0.78rem', color: 'var(--warn)' }}>
-            Unpublished — research still uses the old config.
+            Unpublished — Qualify still uses the old config.
           </span>
         )}
         {!dirty && saved && (
           <span style={{ fontSize: '0.78rem', color: 'var(--good)' }}>
-            Published. Research scoring is current.
+            Published. Qualify scoring is current.
           </span>
         )}
         {error && <span style={{ fontSize: '0.78rem', color: 'var(--bad)' }}>{error}</span>}

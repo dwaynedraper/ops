@@ -7,7 +7,7 @@ import type { RankFactorKind } from '@/lib/prospects';
 import { RankFactorsClient, type WorkflowConfig } from './RankFactorsClient';
 
 /**
- * Rank-factor editor — the research scoring config, per workflow
+ * Rank-factor editor — the Qualify-page scoring config, per workflow
  * (super-admin only). Loads every workflow with its factors (active and
  * inactive) and its three thresholds.
  */

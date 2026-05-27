@@ -251,8 +251,8 @@ export default async function Dashboard() {
               {followUps.length === 0 ? (
                 <div className="surface-card">
                   <p style={{ fontSize: '0.86rem', color: 'var(--text-muted)' }}>
-                    Nothing due right now — you&apos;re clear. Qualify new prospects in
-                    Research, or let an open follow-up window come around.
+                    Nothing due right now — you&apos;re clear. Qualify new prospects,
+                    or let an open follow-up window come around.
                   </p>
                 </div>
               ) : (

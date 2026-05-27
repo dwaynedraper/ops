@@ -223,7 +223,7 @@ export function ClientListView({
         <div className="surface-card">
           <p style={{ fontSize: '0.86rem', color: 'var(--text-muted)' }}>
             {rows.length === 0
-              ? 'No prospects yet — research some.'
+              ? 'No prospects yet — qualify some.'
               : 'Nothing matches these filters.'}
           </p>
         </div>

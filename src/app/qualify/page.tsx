@@ -11,19 +11,23 @@ import {
   type ProspectStage,
   type ProspectListItem,
 } from '@/lib/prospects';
-import { ResearchClient, type ResearchWorkflow } from './ResearchClient';
+import { QualifyClient, type QualifyWorkflow } from './QualifyClient';
 
 /**
- * Research route — the pipeline's entry point, now multi-workflow.
+ * Qualify route — the per-prospect entry gate + 0–10 scoring page,
+ * multi-workflow.
  *
  * Server component: loads every active workflow with its scoring config,
  * and the rep's prospect list. The interactive client carries the
- * workflow picker. Owner-scoped (D-019): a rep researches their own
+ * workflow picker. Owner-scoped (D-019): a rep qualifies their own
  * prospects; the qualified counts are per workflow.
+ *
+ * Renamed from /research → /qualify in Phase E (D-023). The deeper
+ * per-prospect work surface continues to live at /prospects/[id] (Option B).
  */
 export const dynamic = 'force-dynamic';
 
-export const metadata = { title: 'Research' };
+export const metadata = { title: 'Qualify' };
 
 interface WorkflowRow {
   workflow_key: string;
@@ -63,10 +67,10 @@ interface ProspectRow {
 const DATE_FMT = new Intl.DateTimeFormat('en-US', { month: 'short', day: 'numeric' });
 const QUALIFIED_STAGES = ['qualified', 'contacting', 'responded', 'signed', 'client'];
 
-export default async function ProspectsPage() {
+export default async function QualifyPage() {
   const session = await auth();
   const user = session?.user;
-  if (!user) redirect('/signin?callbackUrl=/prospects');
+  if (!user) redirect('/signin?callbackUrl=/qualify');
 
   const role = user.role ?? 'partner';
 
@@ -124,7 +128,7 @@ export default async function ProspectsPage() {
 
   const qualifiedByWf = new Map(qualifiedRows.map((r) => [r.workflow_key, r.n]));
 
-  const workflows: ResearchWorkflow[] = workflowRows.map((w) => {
+  const workflows: QualifyWorkflow[] = workflowRows.map((w) => {
     const cfg = cfgByWf.get(w.workflow_key);
     const bands: RankBands = {
       qualifiedMin: cfg?.get('qualified_min') ?? DEFAULT_BANDS.qualifiedMin,
@@ -163,7 +167,7 @@ export default async function ProspectsPage() {
         <main className="app-shell-main" style={{ flex: 1 }}>
           <div style={{ maxWidth: 1100, margin: '0 auto' }}>
             <div className="eyebrow" style={{ marginBottom: '0.5rem' }}>
-              Research
+              Qualify
             </div>
             <h1
               style={{
@@ -174,15 +178,15 @@ export default async function ProspectsPage() {
                 marginBottom: '0.5rem',
               }}
             >
-              Find the <em style={{ color: 'var(--accent)' }}>right</em> prospects.
+              Qualify the <em style={{ color: 'var(--accent)' }}>right</em> prospects.
             </h1>
             <p style={{ color: 'var(--text-mid)', marginBottom: '1.75rem', maxWidth: '58ch' }}>
-              Pick the workflow you&apos;re researching for. Each has its own entry
+              Pick the workflow you&apos;re qualifying for. Each has its own entry
               gate and its own scoring — clear the gates, score the fit, and the
               strong ones move into the pipeline.
             </p>
 
-            <ResearchClient workflows={workflows} prospects={prospects} />
+            <QualifyClient workflows={workflows} prospects={prospects} />
           </div>
         </main>
 

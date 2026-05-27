@@ -1,12 +1,17 @@
 'use client';
 
 /**
- * The research surface — interactive, multi-workflow.
+ * The qualify surface — interactive, multi-workflow.
  *
- * A rep picks the workflow they're researching for; the entry gate,
+ * A rep picks the workflow they're qualifying for; the entry gate,
  * scoring factors, and identity labels all adapt to it. The score panel
  * re-rates live. "Add" sends the answers + the workflow to createProspect,
  * which recomputes server-side and persists.
+ *
+ * Renamed from ResearchClient in Phase E (D-023). Component shape and
+ * behavior unchanged; the deeper per-prospect detail page is still at
+ * /prospects/[id] (Option B), so the list-row click-throughs stay
+ * pointing there.
  */
 
 import { useState } from 'react';
@@ -27,7 +32,7 @@ import {
 } from '@/lib/prospects';
 import { createProspect } from './actions';
 
-export interface ResearchWorkflow {
+export interface QualifyWorkflow {
   key: string;
   name: string;
   branch: 'portraits' | 'realestate' | 'corporate' | null;
@@ -68,12 +73,12 @@ const BAND_META: Record<ScoreBand, { label: string; color: string; note: string 
   borderline: {
     label: 'Borderline',
     color: 'var(--warn)',
-    note: 'A judgment call. Add it and revisit, or keep researching.',
+    note: 'A judgment call. Add it and revisit, or keep qualifying.',
   },
   reject: {
     label: 'Below the bar',
     color: 'var(--bad)',
-    note: 'Under threshold. Logging it keeps it off the re-research pile.',
+    note: 'Under threshold. Logging it keeps it off the re-qualify pile.',
   },
 };
 
@@ -102,11 +107,11 @@ function initialInputs(factors: RankFactor[]): RankInputs {
   return out;
 }
 
-export function ResearchClient({
+export function QualifyClient({
   workflows,
   prospects,
 }: {
-  workflows: ResearchWorkflow[];
+  workflows: QualifyWorkflow[];
   prospects: ProspectListItem[];
 }) {
   const router = useRouter();
@@ -125,7 +130,7 @@ export function ResearchClient({
     return (
       <div className="surface-card">
         <p style={{ fontSize: '0.86rem', color: 'var(--text-muted)' }}>
-          No workflows configured yet — seed the database to start researching.
+          No workflows configured yet — seed the database to start qualifying.
         </p>
       </div>
     );
@@ -240,7 +245,7 @@ export function ResearchClient({
         })}
       </div>
 
-      <div className="research-layout">
+      <div className="qualify-layout">
         {/* ─── Form ────────────────────────────────────────────────────── */}
         <div style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
           {/* Identity */}
@@ -382,7 +387,7 @@ export function ResearchClient({
         </div>
 
         {/* ─── Live score panel ────────────────────────────────────────── */}
-        <div className="research-score">
+        <div className="qualify-score">
           <div
             className="surface-tool"
             style={{ display: 'flex', flexDirection: 'column', gap: '0.85rem' }}
@@ -516,7 +521,7 @@ export function ResearchClient({
                   className="btn-ghost"
                   style={{ marginTop: '0.5rem', padding: '0.3rem 0' }}
                 >
-                  Research another
+                  Qualify another
                 </button>
               </div>
             ) : (
@@ -562,7 +567,7 @@ export function ResearchClient({
         {myProspects.length === 0 ? (
           <div className="surface-card">
             <p style={{ fontSize: '0.86rem', color: 'var(--text-muted)' }}>
-              No prospects in this workflow yet — research one above.
+              No prospects in this workflow yet — qualify one above.
             </p>
           </div>
         ) : (

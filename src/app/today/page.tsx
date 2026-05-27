@@ -145,8 +145,8 @@ export default async function TodayPage() {
                   No replies, no follow-ups due, nothing to close. The cycle is current.
                   A good morning to put fresh names in the pipeline.
                 </p>
-                <Link href="/prospects" className="btn-primary">
-                  Research new prospects
+                <Link href="/qualify" className="btn-primary">
+                  Qualify new prospects
                 </Link>
               </div>
             )}

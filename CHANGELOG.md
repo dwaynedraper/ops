@@ -13,9 +13,13 @@ lives in `README.md`. This file is the time-ordered receipt.
 ## [Unreleased]
 
 ### Planned next — Phase E (Sourcing + Qualify restructure)
-- **P2** — schema audit + finalized column-set proposal in
-  `SOURCING-PLAN.md` for Dean sign-off
+
+Done:
+- **P1** — docs + recovery file (`SOURCING-PLAN.md`)
+- **P2** — schema audit + migration (5 new prospect columns + index)
 - **P3** — rename `/research` → `/qualify` across code + docs
+
+Remaining:
 - **P4** — build `/sourcing` (per-workflow rapid-intake spreadsheet
   with three-state manual toggle + advisory pre-score badge)
 - **P5** — help modals on `/qualify` (left-rail ToC, right pane,
@@ -43,7 +47,7 @@ D-031 in BUILD-PLAN §10.
 
 ---
 
-## 2026-05-26 — Phase E kickoff (in progress)
+## 2026-05-26 — Phase E kickoff + P1/P2/P3 (in progress)
 
 The sales pipeline gains a list-intake surface. `/research` becomes
 `/qualify` (renamed to match what it actually is — the deep work on a
@@ -52,20 +56,47 @@ spreadsheet-style intake from public sources like RealTrends. Help
 modals come to `/qualify`. A new `/tutorials` section onboards new
 reps. Wednesday launch deferred to ship the whole batch as a unit.
 
-### Added (so far)
+### Added — P1 (docs + recovery file)
 - **SOURCING-PLAN.md** — the full Phase E plan + decision capture.
   Recoverable across sessions; a future Claude can pick this up cold.
 - **BUILD-PLAN.md** — Phase E summary added to §5; decision-log entries
   D-023 through D-031 added to §10 (naming, lifecycle, schema,
   workflow scope, column principles, three-state toggle, content
   authorship, deferred bulk paste, launch slip).
-- **CHANGELOG.md** — this placeholder. Phase 7 promotes it to a
-  finalized entry with the real Added / Fixed / Changed sections.
+- **CHANGELOG.md** — this entry.
 
-### Not yet (Phase 2+)
-- Code changes — Phase E is in the planning stage. Schema audit, the
-  rename, `/sourcing`, help modals, and `/tutorials` all land in
-  follow-up commits.
+### Added — P2 (schema)
+- `prospects` gains five sourcing columns (`sides_count`, `gross_volume`,
+  `source_url`, `sourcing_note`, `sourcing_status`) + an index on
+  `sourcing_status`. Migration is idempotent and additive; Dean applied
+  it locally with `npm run db:migrate`.
+- `SOURCING-PLAN.md` §5 finalized the real-estate column set after
+  inventorying the existing `/research` fields and the `rank_factors`
+  seed. Dean signed off; smaller 1- and 2-point items stay on Qualify
+  per D-027.
+
+### Changed — P3 (rename `/research` → `/qualify`)
+- `src/app/prospects/page.tsx` → `src/app/qualify/page.tsx` (Option B —
+  per-prospect detail page at `/prospects/[id]` stays put).
+- `ResearchClient.tsx` → `QualifyClient.tsx` (component renamed too).
+- `prospects/actions.ts` → `qualify/actions.ts` (revalidate path updated).
+- Sidebar nav: "Research" link → "Qualify."
+- CSS classes: `.research-layout` / `.research-score` →
+  `.qualify-layout` / `.qualify-score`.
+- Forward-looking copy across the app updated — Dashboard empty state,
+  Today CTA, Tracking + Client + Rank Factors empty/help text. The
+  `Researched {date}` line on the prospect detail page is now
+  `Added {date}` (stage-agnostic).
+- Historical references in CHANGELOG and BUILD-PLAN preserved.
+  BUILD-PLAN gained a heads-up note; LAUNCH-AUDIT and PHASE-D-PLAN
+  flag the rename inline.
+- `tsc --noEmit` and `eslint src` clean after the rename.
+
+### Not yet (P4–P7)
+- `/sourcing` route + the spreadsheet UI (P4 — headline feature).
+- `<HelpBox>` component + per-field help on `/qualify` (P5).
+- `/tutorials` section (P6).
+- Verify + promote this placeholder to a finalized entry (P7).
 
 ---
 

@@ -365,7 +365,7 @@ h1, h2, h3, h4, h5, h6 {
   padding: 1.5rem;
   /* `clip` contains stray horizontal overflow WITHOUT becoming a scroll
      container — unlike `hidden`, which silently disables `position: sticky`
-     for every descendant (the research/calculator side panels, the
+     for every descendant (the qualify/calculator side panels, the
      tracking board). */
   overflow-x: clip;
 }
@@ -393,21 +393,21 @@ h1, h2, h3, h4, h5, h6 {
   top: 1.5rem;
 }
 
-/* ─── Research layout — form + sticky live score ──────────────────────── */
-.research-layout {
+/* ─── Qualify layout — form + sticky live score ───────────────────────── */
+.qualify-layout {
   display: grid;
   grid-template-columns: 1fr;
   gap: 1.25rem;
 }
 
 @media (min-width: 900px) {
-  .research-layout {
+  .qualify-layout {
     grid-template-columns: minmax(0, 1fr) 320px;
     align-items: start;
   }
 }
 
-.research-score {
+.qualify-score {
   position: sticky;
   top: 1.5rem;
 }

@@ -1,15 +1,18 @@
 'use server';
 
 /**
- * Research page server action.
+ * Qualify page server action.
  *
- * `createProspect` persists a researched prospect into one workflow. The
+ * `createProspect` persists a qualified prospect into one workflow. The
  * client sends the rep's answers and the chosen workflow; the server
  * re-fetches that workflow's rank factors and recomputes the 0–10 score
  * itself — a tampered or stale client can't write a bogus rank.
  *
  * The entry gate is the workflow's gate factors: every one must answer
  * true or nothing is written (D-017 / D-022).
+ *
+ * Renamed from /prospects/actions.ts in Phase E (D-023). Behavior
+ * unchanged; only the file path and revalidate target moved.
  */
 
 import { revalidatePath } from 'next/cache';
@@ -131,7 +134,7 @@ export async function createProspect(
       RETURNING id`;
     if (!row) return { ok: false, error: 'Could not save the prospect.' };
 
-    revalidatePath('/prospects');
+    revalidatePath('/qualify');
     return { ok: true, id: row.id, contactName, score, band, stage };
   } catch (err) {
     return {

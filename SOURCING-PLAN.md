@@ -247,27 +247,129 @@ a unit; partial slices weren't worth the disruption.
 
 ---
 
-## 5. Schema additions (proposed — finalized in Phase 2)
+## 5. Schema audit + finalized real-estate column set (Phase 2 — awaiting sign-off)
 
-Subject to the Phase 2 audit. Most of these may already exist on the
-`prospects` row in some form; the audit confirms which.
+### 5.1 What already exists on `prospects`
 
-```sql
--- prospects table — sourcing-relevant columns
-ALTER TABLE prospects ADD COLUMN IF NOT EXISTS sides_count integer;
-ALTER TABLE prospects ADD COLUMN IF NOT EXISTS gross_volume numeric(14, 2);
-ALTER TABLE prospects ADD COLUMN IF NOT EXISTS market_city text;
-ALTER TABLE prospects ADD COLUMN IF NOT EXISTS source_url text;
+Confirmed by reading `src/lib/db/schema.sql`:
 
--- sourcing status — three-state toggle
-ALTER TABLE prospects ADD COLUMN IF NOT EXISTS
-  sourcing_status text CHECK (sourcing_status IN ('qualify','pass','undecided'))
-  DEFAULT 'undecided';
+```
+id, workflow_key, owner_id, signed_by_id,
+contact_name, org_name, email, phone, website_url, social_url, market_area,
+rank_inputs (JSONB), rank_score, stage,
+created_at, updated_at
 ```
 
-The pre-score is **not stored** — it's a derived value calculated on
-read from the filled hard qualifiers. Storing it would introduce drift
-the moment scoring config changed.
+`market_area` already covers what the SOURCING-PLAN proposal called
+`market_city` — no new column needed for that.
+
+### 5.2 Real-estate rank factors today
+
+Read from `scripts/db-seed.mjs` (the `real_estate` workflow):
+
+| key | label | kind | weight | gate? |
+| --- | --- | --- | --- | --- |
+| `has_target_listing` | Has a current target listing | bool | 1 (gate) | ✓ |
+| `has_photo_need` | Has a visible photo need | bool | 2 (gate) | ✓ |
+| `annual_volume` | Listings per year ($500K–$2M) | number | 3 | |
+| `active_social` | Active on social (last 30 days) | bool | 2 | |
+| `weak_current_photos` | Current listing photos are weak | bool | 2 | |
+| `pro_website` | Has a real personal website | bool | 1 | |
+| `branded_email` | Uses a branded email | bool | 1 | |
+| `uses_video` | Already uses video in listings | bool | 1 | |
+
+Total non-gate weights = 10 (preserving the 0–10 scale).
+
+### 5.3 Finalized sourcing columns — real_estate
+
+Applying §3.5 (hard qualifiers + intake fields only) and Dean's
+specific guidance from the kickoff:
+
+| # | Column | Type | Source | Maps to | On Qualify too? |
+| --- | --- | --- | --- | --- | --- |
+| 1 | Contact name | text · required | Intake | `prospects.contact_name` | yes |
+| 2 | Agency | text | Intake | `prospects.org_name` | yes |
+| 3 | Market area | text | Intake | `prospects.market_area` | yes |
+| 4 | Sides per year | integer | Intake | `prospects.sides_count` **(new)** | shown read-only |
+| 5 | Gross volume | currency | Intake | `prospects.gross_volume` **(new)** | shown read-only |
+| 6 | Source URL | URL | Intake | `prospects.source_url` **(new)** | shown read-only |
+| 7 | Target listing | bool | Hard qualifier · gate | `rank_inputs.has_target_listing` | yes (gate) |
+| 8 | Photo need | bool | Hard qualifier · gate | `rank_inputs.has_photo_need` | yes (gate) |
+| 9 | Listings per year ($500K–$2M) | integer | Hard qualifier | `rank_inputs.annual_volume` | yes |
+| 10 | Status | qualify/pass/undecided | Triage | `prospects.sourcing_status` **(new)** | shown read-only |
+| 11 | Pre-score | calc · 0–10 | Derived from `rank_score` | (not stored) | the full live score |
+| 12 | Notes (one-line) | text | Triage | `prospects.sourcing_note` **(new)** | shown + editable as pinned note |
+
+**Explicitly NOT on the sourcing row** (per D-027):
+
+- `active_social` (2 pts) — observation; requires checking social.
+- `weak_current_photos` (2 pts) — observation; Dean flagged "could be
+  here, but maybe not." Defaulting to Qualify-only per his lean. Easy
+  to promote to Sourcing later if reps want it.
+- `pro_website`, `branded_email`, `uses_video` (1 pt each) — supporting
+  items, Qualify page work.
+
+### 5.4 Pre-score badge — how it's calculated
+
+The pre-score is just the existing `rank_score` field. It already runs
+the full scoring math server-side on every save, on `rank_inputs`. When
+a sourcing row has only the hard qualifiers filled in, the score is
+math-correct on the data we have — it just can't reach 10 until the
+supporting factors land on Qualify.
+
+The badge maps the score to the workflow's existing bands (`qualified
+/ borderline / reject`) — same color scheme used everywhere else. The
+sourcing row also shows a small "partial" indicator when fewer than
+all factors have been answered, so the rep reads the badge correctly.
+
+### 5.5 The migration — proposed, idempotent, additive only
+
+Appended to the end of `src/lib/db/schema.sql`. Safe on a fresh DB
+(creates the columns) and on the existing one (no-op when present).
+
+```sql
+-- ────────────────────────────────────────────────────────────────────
+-- Phase E — Sourcing columns on prospects (D-025, D-027).
+-- Additive only; safe to re-run.
+-- ────────────────────────────────────────────────────────────────────
+ALTER TABLE prospects
+  ADD COLUMN IF NOT EXISTS sides_count    INTEGER,
+  ADD COLUMN IF NOT EXISTS gross_volume   NUMERIC(14, 2),
+  ADD COLUMN IF NOT EXISTS source_url     TEXT,
+  ADD COLUMN IF NOT EXISTS sourcing_note  TEXT;
+
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM information_schema.columns
+    WHERE table_name = 'prospects' AND column_name = 'sourcing_status'
+  ) THEN
+    ALTER TABLE prospects
+      ADD COLUMN sourcing_status TEXT NOT NULL DEFAULT 'undecided'
+        CHECK (sourcing_status IN ('qualify','pass','undecided'));
+  END IF;
+END $$;
+
+CREATE INDEX IF NOT EXISTS prospects_sourcing_status_idx
+  ON prospects(sourcing_status);
+```
+
+Five new columns, one index. No destructive changes; no table renames.
+
+### 5.6 The `/prospects/[id]` page — Option B (decided 2026-05-26)
+
+**Decision.** P3 renames only the index — `/prospects` → `/qualify`.
+The per-prospect detail page at `/prospects/[id]` stays put. The URL
+hierarchy will have a page whose parent doesn't exist (no `/prospects`
+route after the rename); functionally fine in Next.js, semantically
+odd, and the minimum-change path for v1.
+
+**Rejected for now.** Option A (rename `[id]` → `/qualify/[id]`) and
+Option C (move `[id]` → `/clients/[id]`) both required touching every
+quote/notes/email reference that points at the per-prospect detail
+page. C is the cleanest long-term answer (the [id] page IS the client
+record per D-016), but is a separate decision worth a dedicated pass
+after the Phase E core lands.
 
 ---
 

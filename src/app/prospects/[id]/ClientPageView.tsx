@@ -204,7 +204,7 @@ export function ClientPageView({
               {subtitle}
             </p>
             <p style={{ fontSize: '0.74rem', color: 'var(--text-faint)', marginTop: '0.2rem' }}>
-              Researched {prospect.createdAtLabel}
+              Added {prospect.createdAtLabel}
               {prospect.signedByName ? ` · signed by ${prospect.signedByName}` : ''}
             </p>
           </div>

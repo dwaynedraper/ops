@@ -91,7 +91,7 @@ export function TrackingClient({
     return (
       <div className="surface-card">
         <p style={{ fontSize: '0.86rem', color: 'var(--text-muted)' }}>
-          No prospects in the cycle yet — qualify some in Research, then work them here.
+          No prospects in the cycle yet — qualify some, then work them here.
         </p>
       </div>
     );
@@ -469,7 +469,7 @@ function DetailPanel({
         <div className="surface-tool">
           <p style={{ fontSize: '0.85rem', color: 'var(--text)' }}>
             The full cycle ran with no reply. Close it out — {prospect.contactName} moves
-            to dormant and leaves the board. You can always research them fresh later.
+            to dormant and leaves the board. You can always qualify them fresh later.
           </p>
           <button
             className="btn-primary"

@@ -7,6 +7,12 @@
 > Covers: a research workflow per offering, the Client List, the Sprout
 > Studio handoff, recommended additions, and the build sequence.
 
+> **Heads-up — "Research" → "Qualify" (Phase E, 2026-05-26).** The
+> Research page described in §4 of this doc was renamed to Qualify in
+> Phase E (D-023), with a new Sourcing surface added in front of it.
+> References throughout this doc use the original name; the current
+> route is `/qualify`. See `SOURCING-PLAN.md`.
+
 ---
 
 ## 1. The shift

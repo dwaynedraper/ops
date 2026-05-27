@@ -747,3 +747,33 @@ END $$;
 -- Safe now — `status` exists whether the table was freshly created or
 -- migrated by the block above.
 CREATE INDEX IF NOT EXISTS ops_profiles_status_idx ON ops_profiles(status);
+
+-- ────────────────────────────────────────────────────────────────────
+-- Phase E — Sourcing columns on prospects (D-025, D-027).
+--
+-- Five new columns to support the rapid list-intake surface at
+-- /sourcing: three intake fields scraped or pasted off a public source
+-- (sides_count, gross_volume, source_url), the three-state triage
+-- toggle (sourcing_status), and the one-line note (sourcing_note).
+-- Additive only — safe on a fresh DB and on the existing one.
+-- ────────────────────────────────────────────────────────────────────
+ALTER TABLE prospects
+  ADD COLUMN IF NOT EXISTS sides_count    INTEGER,
+  ADD COLUMN IF NOT EXISTS gross_volume   NUMERIC(14, 2),
+  ADD COLUMN IF NOT EXISTS source_url     TEXT,
+  ADD COLUMN IF NOT EXISTS sourcing_note  TEXT;
+
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM information_schema.columns
+    WHERE table_name = 'prospects' AND column_name = 'sourcing_status'
+  ) THEN
+    ALTER TABLE prospects
+      ADD COLUMN sourcing_status TEXT NOT NULL DEFAULT 'undecided'
+        CHECK (sourcing_status IN ('qualify', 'pass', 'undecided'));
+  END IF;
+END $$;
+
+CREATE INDEX IF NOT EXISTS prospects_sourcing_status_idx
+  ON prospects(sourcing_status);
