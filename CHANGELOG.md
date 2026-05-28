@@ -12,48 +12,47 @@ lives in `README.md`. This file is the time-ordered receipt.
 
 ## [Unreleased]
 
-### Planned next — Phase E (Sourcing + Qualify restructure)
-
-Done:
-- **P1** — docs + recovery file (`SOURCING-PLAN.md`)
-- **P2** — schema audit + migration (5 new prospect columns + index)
-- **P3** — rename `/research` → `/qualify` across code + docs
-- **P4** — `/sourcing` route + the spreadsheet UI (headline feature)
-
-Remaining:
-- **P5** — help modals on `/qualify` (left-rail ToC, right pane,
-  optional tabs, per-field triggers)
-- **P6** — `/tutorials` section + one workflow walkthrough per offering
-- **P7** — verify + promote this placeholder to a finalized entry
-
-Full detail in `SOURCING-PLAN.md`; decisions logged as D-023 through
-D-031 in BUILD-PLAN §10.
-
-### Also still planned (carried forward)
-- Send-to-client flow (email the quote PDF) + final polish
+### Planned next
+- Send-to-client flow (email the quote PDF) + final polish.
 - Phase D recommended additions still open: duplicate check on
-  Qualify, cross-sell linked prospects, mobile pass (PHASE-D-PLAN §9)
+  Qualify, cross-sell linked prospects, mobile pass (PHASE-D-PLAN §9).
+- Tutorials for the four workflows beyond real-estate (corporate,
+  story portraits, saga, 10%) as their sources of names and the
+  motions firm up.
 
 ### Setup needed for this release
-- Run `npm run db:migrate` — adds `rep_invites`, `prospect_stage_events`
-  (+ its trigger), and the `ops_profiles.status` / `digest_email`
-  columns. The old `ops_profiles.active` boolean is migrated across.
-- Set a `CRON_SECRET` env var in Vercel so the digest cron route
-  (`/api/cron/digest`) only runs for the scheduled job.
-- Phase E P2 will append a second migration adding the sourcing-related
-  prospect columns (`sides_count`, `gross_volume`, `market_city`,
-  `source_url`, `sourcing_status`). Re-run `npm run db:migrate` after P2.
+- Run `npm run db:migrate` — applies the Phase E P2 migration
+  (`sides_count`, `gross_volume`, `source_url`, `sourcing_note`,
+  `sourcing_status` on `prospects`, plus the `sourcing_status`
+  index) and the P4.5 idempotent reweighting + branded_email
+  deactivation. Conditional updates won't clobber any
+  `/rank-factors` customizations.
+- Re-running `npm run db:seed` is optional. The schema migration
+  handles the live DB; the seed picks up the new help_text and
+  the dropped `branded_email` factor for fresh installs.
+- All earlier setup steps still apply: `CRON_SECRET`,
+  `rep_invites` / `prospect_stage_events` migrations from the
+  prior release.
 
 ---
 
-## 2026-05-26 — Phase E kickoff + P1/P2/P3 (in progress)
+## 2026-05-26 — Phase E complete: Sourcing + Qualify restructure
 
-The sales pipeline gains a list-intake surface. `/research` becomes
-`/qualify` (renamed to match what it actually is — the deep work on a
-single prospect). A new `/sourcing` page lands in front of it for rapid
-spreadsheet-style intake from public sources like RealTrends. Help
-modals come to `/qualify`. A new `/tutorials` section onboards new
-reps. Wednesday launch deferred to ship the whole batch as a unit.
+The sales pipeline gained a list-intake surface and the qualifying
+flow got rebuilt around it. `/research` is now `/qualify` — the deep
+work on one prospect. A new `/sourcing` page sits in front for rapid
+spreadsheet-style intake from public rankings like RealTrends. Each
+sourcing row IS a prospect from row one; clicking it opens
+`/qualify/[id]`, a new dedicated per-agent qualifying page. Real-estate
+scoring math was reshaped (gates contribute, listings runs piecewise,
+`branded_email` dropped, baseline anchored at the gates). Help modals
+landed on every qualifying field. A new `/tutorials` section onboards
+reps with end-to-end walkthroughs. Wednesday launch deferred to ship
+the whole batch as a unit; all phases now verified clean with
+`tsc --noEmit` and `eslint src`.
+
+Full detail in `SOURCING-PLAN.md`; decisions logged as D-023 through
+D-032 in BUILD-PLAN §10.
 
 ### Added — P1 (docs + recovery file)
 - **SOURCING-PLAN.md** — the full Phase E plan + decision capture.
@@ -204,9 +203,49 @@ Per Dean's review of P4, applied D-032 and trimmed two Sourcing columns:
   `BoolRow`, `NumberRow` on the detail page) takes a `workflowKey`
   prop so the help lookup is per-workflow.
 
-### Not yet (P6–P7)
-- `/tutorials` section (P6) — one workflow walkthrough per offering.
-- Verify + promote this placeholder to a finalized entry (P7).
+### Added — P6 (/tutorials section)
+
+- **`/tutorials` route** — new nav item between Today and the admin
+  section. Index page shows one card per active workflow; ready
+  workflows show the title, subtitle, read time, and a "Read
+  walkthrough →" button. Workflows without content yet show a
+  faded "Coming soon" card.
+- **`/tutorials/[slug]`** — per-workflow walkthrough. Long-form
+  article layout: section headers, prose paragraphs, ordered
+  steps, callouts. Reuses the `HelpBlockList` renderer from
+  HelpBox so the prose styling matches the help modals.
+- **`src/lib/tutorials-content.ts`** — v1 content for real-estate.
+  Six sections walk the full motion: overview, source from
+  RealTrends, qualify deeply, work the contact cycle, send the
+  email, what happens next. Drafted by Claude; Dean revises.
+  Other workflows ship without tutorials for now and land on the
+  index as "Coming soon."
+
+### Verified (P7)
+- `tsc --noEmit` clean across the ops codebase.
+- `eslint src` clean.
+- No stale references to `/research` in code (a single doc comment
+  in `qualify/page.tsx` notes the rename for future readers).
+- No `Research`-as-page-name UI strings remain anywhere.
+- Sourcing → Qualify navigation verified: every `/sourcing` row's
+  locked cell area links to `/qualify/[id]`; `/qualify/[id]`
+  carries a breadcrumb back to `/sourcing`.
+- Override-with-reason rule verified both client-side (UI gates
+  Save until ≥20 chars) and server-side (`validateOverride` in
+  `sourcing/actions.ts` rejects bad patches; reasons clear when
+  status no longer constitutes an override).
+- Help triggers render only when content exists for the workflow
+  + factor combination — verified `getHelpEntry` returns null and
+  `HelpBox` early-returns for missing keys.
+
+### Still on Dean (config, not code)
+- Run `npm run db:migrate` to pick up the P4.5 reweighting +
+  `branded_email` deactivation.
+- Run a real `next build` and `vitest` locally — sandbox can't
+  do either (arm64 SWC + rolldown bindings).
+- Walk the full flow end-to-end: source from a RealTrends row →
+  qualify deeply → run a contact cycle on tracking → close the
+  loop. The override-with-reason flow is worth a deliberate test.
 
 ---
 

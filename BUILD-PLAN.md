@@ -5,7 +5,7 @@
 > dated history. README.md is the local-dev quickstart; this is the
 > full operating reference.
 
-**Last updated:** 2026-05-26 · Phases A, B, C, D, the quote PDF export, and the pre-launch audit + fix batch complete · **Phase E in progress** — P1 (docs + recovery file), P2 (schema audit + migration), and P3 (`/research` → `/qualify` rename) done; P4 (`/sourcing`), P5 (help modals), P6 (`/tutorials`), and P7 (verify) remain. Wednesday launch deferred to ship Phase E as a unit. Full detail in `SOURCING-PLAN.md`. See `LAUNCH-AUDIT.md` for the prior launch-readiness review.
+**Last updated:** 2026-05-26 · Phases A, B, C, D, the quote PDF export, the pre-launch audit + fix batch, and **Phase E (Sourcing + Qualify restructure)** all complete. Open: send-to-client flow, Phase D §9 follow-ups (duplicate-check on Qualify, cross-sell, mobile pass), tutorials for the four non-real-estate workflows. Full Phase E detail in `SOURCING-PLAN.md`. See `LAUNCH-AUDIT.md` for the prior launch-readiness review.
 
 > **Heads-up for readers — `/research` is now `/qualify`.** Renamed in
 > Phase E (D-023). Historical references to "Research" or `/research`
@@ -453,27 +453,32 @@ cleanup — `/today` and `/team` were nav stubs and now resolve. The §12
 parked task is also done: the quote PDF now renders in the brand faces
 (Playfair Display + Montserrat).
 
-### Phase E — Sourcing + Qualify restructure (2026-05-26)
+### Phase E — Sourcing + Qualify restructure ✓ complete (2026-05-26)
 
-A new list-intake surface lands in front of the per-prospect page, and
-the per-prospect page is renamed to match what it actually is. The
-existing one-agent-at-a-time `/research` workflow becomes the deep-work
+A new list-intake surface landed in front of the per-prospect page,
+and the per-prospect page was renamed to match what it actually is.
+The old one-agent-at-a-time `/research` workflow became the deep-work
 **Qualify** page; a new spreadsheet-style **Sourcing** page sits in
-front of it for rapid intake from public sources like RealTrends. Each
-sourcing row IS a prospect from row one, with a manual three-state
-Qualify / Pass / Undecided toggle and a calculated advisory pre-score
-badge. Both surfaces are per-workflow, mirroring the existing
-architecture. Two adjacent gaps close at the same time: contextual help
-modals on Qualify (left-rail ToC, right pane, optional tabs) and a new
-`/tutorials` section with one workflow walkthrough per offering. The
-Wednesday launch slips so the whole batch ships as a unit; new target
-is "when it's done."
+front of it for rapid intake from public sources like RealTrends.
+Each sourcing row IS a prospect from row one, with a manual
+three-state Qualify / Pass / Undecided toggle and an advisory
+pre-score badge. Both surfaces are per-workflow, mirroring the
+existing architecture. Two adjacent gaps closed at the same time:
+contextual help modals on Qualify (left-rail ToC, right pane,
+optional tabs) and a new `/tutorials` section with one workflow
+walkthrough per offering. Mid-phase, the real-estate scoring math
+was reshaped (gates anchor the score; `annual_volume` runs piecewise;
+`branded_email` dropped) — D-032.
 
-Build order: **P1** docs + recovery plan → **P2** schema audit + column
-proposal → **P3** rename `/research` → `/qualify` → **P4** build
-`/sourcing` → **P5** help modals on `/qualify` → **P6** `/tutorials` →
-**P7** verify. Full detail in **SOURCING-PLAN.md**; see D-023 through
-D-031.
+Phases delivered:
+**P1** docs + recovery plan ✓ · **P2** schema audit + migration ✓ ·
+**P3** rename `/research` → `/qualify` ✓ · **P4** build `/sourcing` ✓ ·
+**P4.5** real-estate scoring math overhaul + column trim ✓ ·
+**P4.6** Sourcing UX surgery (lock-after-blur, override-with-reason)
++ `/qualify/[id]` ✓ · **P5** help modals on `/qualify` ✓ ·
+**P6** `/tutorials` section ✓ · **P7** verify + finalize ✓.
+
+Full detail in **SOURCING-PLAN.md**; see D-023 through D-032 below.
 
 **Rep management + activity logging (2026-05-22).** Onboarding moved off
 the `ALLOWED_EMAILS` env var to an invite-and-approve flow: `rep_invites`

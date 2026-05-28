@@ -21,15 +21,32 @@ function createPool(): Pool {
   if (!connectionString) {
     throw new Error('DATABASE_URL is not set. See .env.example.');
   }
-  return new Pool({
+  const pool = new Pool({
     connectionString,
     // Neon, Vercel Postgres, and most managed providers require TLS.
     // Local Postgres without TLS will need to override this via the
     // URL (e.g. ?sslmode=disable).
     ssl: connectionString.includes('localhost') ? false : { rejectUnauthorized: false },
     max: 10,
-    idleTimeoutMillis: 30_000,
+    // Aggressive idle close — keeps us ahead of Neon's server-side
+    // idle timeout so we never hand a client a dead connection from
+    // the pool. (Neon free-tier auto-suspends after ~5 min.)
+    idleTimeoutMillis: 10_000,
+    // Bound the initial connection attempt so a cold-wake doesn't
+    // hang forever; the next request gets a fresh attempt.
+    connectionTimeoutMillis: 10_000,
+    // TCP-level keepalive — helps catch socket deaths between Node
+    // and Neon's pooler before the next query tries to use them.
+    keepAlive: true,
   });
+  // Without this listener, an error on an idle pooled client (e.g.
+  // Neon scaling the compute to zero) crashes the Node process. With
+  // it, the pool just removes the dead client and the next query
+  // opens a fresh one.
+  pool.on('error', (err) => {
+    console.error('[ops] pg pool idle-client error:', err.message);
+  });
+  return pool;
 }
 
 /**

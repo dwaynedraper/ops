@@ -1,8 +1,9 @@
 # Phase E — Sourcing + Qualify Restructure
 
-> The plan for the next build of Sharp Sighted Ops. **Decisions settled
-> (§3) — ready to execute.** On kickoff this graduates into BUILD-PLAN §5
-> and its decision log (as D-023 onward).
+> **Status: COMPLETE (2026-05-26).** All seven phases (plus the
+> mid-phase P4.5 scoring overhaul and P4.6 UX surgery) landed.
+> Decision log entries D-023 through D-032 are in BUILD-PLAN §10.
+> CHANGELOG carries the per-phase shipping notes.
 >
 > Covers: a new Sourcing surface in front of Research (renamed Qualify),
 > contextual help modals on Qualify, a new Tutorials section in the
@@ -160,7 +161,12 @@ a unit; partial slices weren't worth the disruption.
 
 ## 4. The plan, in order
 
-### Phase 1 — Docs + recovery file (in progress)
+> **All phases complete (2026-05-26).** Each section below now
+> documents what shipped, in order. P4.5 (scoring math) and P4.6
+> (UX surgery + `/qualify/[id]`) were added mid-phase per Dean's
+> review of P4 — both folded into the build sequence here.
+
+### Phase 1 — Docs + recovery file ✓
 
 - `ops/SOURCING-PLAN.md` (this file) — captures every decision so
   the work is recoverable across sessions.
@@ -169,7 +175,7 @@ a unit; partial slices weren't worth the disruption.
 - `ops/CHANGELOG.md` — Phase E placeholder added so the in-flight
   history of the restructure has a home.
 
-### Phase 2 — Schema audit + column-set proposal
+### Phase 2 — Schema audit + column-set proposal ✓
 
 - Inventory every field on every existing `/research` page (per
   workflow), every column on `prospects`, every entry in `rank_factors`.
@@ -182,7 +188,7 @@ a unit; partial slices weren't worth the disruption.
 - Run `npm run db:migrate`.
 - Dean signs off on the proposed column set before Phase 4 starts.
 
-### Phase 3 — Rename `/research` → `/qualify`
+### Phase 3 — Rename `/research` → `/qualify` ✓
 
 - Folder rename: `src/app/research/` → `src/app/qualify/`.
 - Update every route reference: nav links, internal `<Link>` hrefs,
@@ -192,7 +198,7 @@ a unit; partial slices weren't worth the disruption.
 - Single commit so the rename reads cleanly in git history.
 - `tsc --noEmit` + `eslint src` clean.
 
-### Phase 4 — Build `/sourcing` (the headline feature)
+### Phase 4 — Build `/sourcing` (the headline feature) ✓
 
 - Per-workflow route — same shape as `/qualify` (formerly `/research`).
 - Spreadsheet-style data grid component.
@@ -212,7 +218,33 @@ a unit; partial slices weren't worth the disruption.
 - Empty state — "No prospects sourced yet. Type a name to start."
 - Bulk paste — explicitly not in v1.
 
-### Phase 5 — Help modals on `/qualify`
+### Phase 4.5 — Scoring math overhaul (D-032) ✓
+
+Added mid-phase per Dean's review of P4 / P5. Gates contribute to
+the 0–10 score (`has_target_listing`, `has_photo_need` carry weight
+1 each); `annual_volume` runs on a piecewise curve in
+`lib/prospects.ts` (`PIECEWISE_CURVES`): 0→0, 10→2.0, 30→3.0;
+`branded_email` dropped as redundant with `pro_website`;
+`active_social` weight halved (2→1). `schema.sql` carries an
+idempotent migration block that updates existing rows only if the
+old default values match — so customizations made via
+`/rank-factors` aren't clobbered. Tests in `prospects.test.ts`
+rewritten against the new model.
+
+### Phase 4.6 — Sourcing UX surgery + `/qualify/[id]` ✓
+
+Added mid-phase per Dean's review of P4. **Lock-after-blur**: every
+text/number/url cell on Sourcing displays as text with a tiny ✎
+pencil to re-edit; clicking the locked area opens
+`/qualify/[id]`. **Dropped the → open column** — locked cells are
+the click target. **Override-with-reason** inline expansion drops
+below a row when the rep's status disagrees with the band's
+recommendation (≥20 char reason required; server enforces too).
+**New `/qualify/[id]` route** — dedicated per-agent qualifying
+page; pre-fills from Sourcing's `rank_inputs`; saves route through
+`upsertSourcingRow` so both surfaces stay in sync.
+
+### Phase 5 — Help modals on `/qualify` ✓
 
 - A reusable `<HelpBox>` component (`src/components/HelpBox.tsx`):
   - Trigger: text link like "Where do I find this?"
@@ -225,7 +257,7 @@ a unit; partial slices weren't worth the disruption.
   corporate).
 - v1 content authored by Claude, revised by Dean.
 
-### Phase 6 — `/tutorials` section
+### Phase 6 — `/tutorials` section ✓
 
 - New `/tutorials` route + nav item.
 - Index page listing tutorials per workflow.
@@ -235,7 +267,7 @@ a unit; partial slices weren't worth the disruption.
   so a future move to MDX is a copy-paste away if Dean wants it.
 - v1 content authored by Claude, revised by Dean.
 
-### Phase 7 — Verify + finalize CHANGELOG
+### Phase 7 — Verify + finalize CHANGELOG ✓
 
 - `tsc --noEmit` clean.
 - `eslint src` clean.

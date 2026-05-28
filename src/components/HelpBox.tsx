@@ -335,7 +335,13 @@ function TabbedSection({
   );
 }
 
-/* ── Block renderer — paragraph / list / callout / steps / link ─── */
+/* ── Block renderer — paragraph / list / callout / steps / link.
+   Exported as `HelpBlockList` so the /tutorials pages can reuse the
+   same renderer for long-form content. ── */
+
+export function HelpBlockList({ blocks }: { blocks: HelpBlock[] }) {
+  return <BlockList blocks={blocks} />;
+}
 
 function BlockList({ blocks }: { blocks: HelpBlock[] }) {
   return (

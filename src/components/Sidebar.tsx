@@ -22,6 +22,7 @@ const NAV: NavLink[] = [
   { href: '/tracking', label: 'Tracking' },
   { href: '/clients', label: 'Clients' },
   { href: '/today', label: 'Today' },
+  { href: '/tutorials', label: 'Tutorials' },
 ];
 
 // Pricing config — super_admin only.
