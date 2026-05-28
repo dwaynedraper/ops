@@ -178,9 +178,34 @@ Per Dean's review of P4, applied D-032 and trimmed two Sourcing columns:
   override (so an old override note doesn't linger as ambient
   metadata).
 
-### Not yet (P5–P7)
-- `<HelpBox>` component + per-field help on `/qualify` (P5).
-- `/tutorials` section (P6).
+### Added — P5 (help modals on /qualify)
+
+- **`HelpBox` component** (`src/components/HelpBox.tsx`). Renders a
+  small italic "Where do I find this?" trigger next to a qualifying
+  field. Click opens a two-pane modal: left rail with the section
+  ToC, right pane with the active section's content. Sections can
+  optionally hold tabs for multi-angle topics (e.g. "via Zillow" /
+  "via Realtor.com" / "via MLS" for the listings-count field).
+  Escape closes; backdrop click closes; rendered content includes
+  paragraphs, lists, ordered steps, callouts, and external links.
+- **Help content registry** (`src/lib/help-content.ts`). v1 covers
+  every real-estate factor — both gates (target listing, photo
+  need) and all five scoring factors (annual_volume,
+  weak_current_photos, active_social, pro_website, uses_video).
+  Keyed by `{workflow_key}.{factor_key}`; absent keys make the
+  trigger render nothing, so the qualify pages naturally grow help
+  coverage as content lands. Other workflows ship without help
+  content for now.
+- **Wired into both qualify surfaces.** `QualifyClient` (the entry
+  form at `/qualify`) and `QualifyDetailClient` (the per-prospect
+  page at `/qualify/[id]`) both render a `HelpBox` next to each
+  factor's existing inline help text. Each row component
+  (`GateToggle`, `BoolFactor`, `NumberFactor` on the entry form;
+  `BoolRow`, `NumberRow` on the detail page) takes a `workflowKey`
+  prop so the help lookup is per-workflow.
+
+### Not yet (P6–P7)
+- `/tutorials` section (P6) — one workflow walkthrough per offering.
 - Verify + promote this placeholder to a finalized entry (P7).
 
 ---

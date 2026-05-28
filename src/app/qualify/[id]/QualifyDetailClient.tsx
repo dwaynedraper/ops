@@ -31,6 +31,7 @@ import {
   type ProspectStage,
 } from '@/lib/prospects';
 import type { SourcingStatus } from '@/lib/sourcing';
+import { HelpBox } from '@/components/HelpBox';
 import { upsertSourcingRow } from '@/app/sourcing/actions';
 
 export interface QualifyDetailWorkflow {
@@ -187,6 +188,7 @@ export function QualifyDetailClient({
                 <BoolRow
                   key={f.key}
                   factor={f}
+                  workflowKey={workflow.key}
                   checked={inputs[f.key] === true}
                   onChange={(v) => setFactor(f.key, v)}
                   highlight
@@ -221,6 +223,7 @@ export function QualifyDetailClient({
                   <BoolRow
                     key={f.key}
                     factor={f}
+                    workflowKey={workflow.key}
                     checked={inputs[f.key] === true}
                     onChange={(v) => setFactor(f.key, v)}
                   />
@@ -228,6 +231,7 @@ export function QualifyDetailClient({
                   <NumberRow
                     key={f.key}
                     factor={f}
+                    workflowKey={workflow.key}
                     value={typeof inputs[f.key] === 'number' ? (inputs[f.key] as number) : 0}
                     onChange={(v) => setFactor(f.key, v)}
                   />
@@ -502,11 +506,13 @@ function IdRow({ label, value }: { label: string; value: React.ReactNode }) {
 
 function BoolRow({
   factor,
+  workflowKey,
   checked,
   onChange,
   highlight,
 }: {
   factor: RankFactor;
+  workflowKey: string;
   checked: boolean;
   onChange: (v: boolean) => void;
   highlight?: boolean;
@@ -553,6 +559,9 @@ function BoolRow({
             {factor.helpText}
           </div>
         )}
+        <div style={{ marginTop: '0.2rem' }}>
+          <HelpBox workflowKey={workflowKey} factorKey={factor.key} />
+        </div>
       </div>
     </label>
   );
@@ -560,10 +569,12 @@ function BoolRow({
 
 function NumberRow({
   factor,
+  workflowKey,
   value,
   onChange,
 }: {
   factor: RankFactor;
+  workflowKey: string;
   value: number;
   onChange: (v: number) => void;
 }) {
@@ -591,6 +602,9 @@ function NumberRow({
             {factor.helpText}
           </div>
         )}
+        <div style={{ marginTop: '0.2rem' }}>
+          <HelpBox workflowKey={workflowKey} factorKey={factor.key} />
+        </div>
       </div>
       <input
         type="number"

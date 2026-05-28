@@ -30,6 +30,7 @@ import {
   type CreateProspectInput,
   type CreateProspectResult,
 } from '@/lib/prospects';
+import { HelpBox } from '@/components/HelpBox';
 import { createProspect } from './actions';
 
 export interface QualifyWorkflow {
@@ -339,6 +340,7 @@ export function QualifyClient({
                   <GateToggle
                     key={f.key}
                     factor={f}
+                    workflowKey={wf.key}
                     checked={inputs[f.key] === true}
                     onChange={(v) => setFactor(f.key, v)}
                   />
@@ -372,6 +374,7 @@ export function QualifyClient({
                     <BoolFactor
                       key={f.key}
                       factor={f}
+                      workflowKey={wf.key}
                       checked={inputs[f.key] === true}
                       onChange={(v) => setFactor(f.key, v)}
                     />
@@ -379,6 +382,7 @@ export function QualifyClient({
                     <NumberFactor
                       key={f.key}
                       factor={f}
+                      workflowKey={wf.key}
                       value={typeof inputs[f.key] === 'number' ? (inputs[f.key] as number) : 0}
                       onChange={(v) => setFactor(f.key, v)}
                     />
@@ -686,10 +690,12 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
 
 function GateToggle({
   factor,
+  workflowKey,
   checked,
   onChange,
 }: {
   factor: RankFactor;
+  workflowKey: string;
   checked: boolean;
   onChange: (v: boolean) => void;
 }) {
@@ -729,6 +735,9 @@ function GateToggle({
             {factor.helpText}
           </div>
         )}
+        <div style={{ marginTop: '0.2rem' }}>
+          <HelpBox workflowKey={workflowKey} factorKey={factor.key} />
+        </div>
       </div>
     </label>
   );
@@ -736,10 +745,12 @@ function GateToggle({
 
 function BoolFactor({
   factor,
+  workflowKey,
   checked,
   onChange,
 }: {
   factor: RankFactor;
+  workflowKey: string;
   checked: boolean;
   onChange: (v: boolean) => void;
 }) {
@@ -781,6 +792,9 @@ function BoolFactor({
             {factor.helpText}
           </div>
         )}
+        <div style={{ marginTop: '0.2rem' }}>
+          <HelpBox workflowKey={workflowKey} factorKey={factor.key} />
+        </div>
       </div>
     </label>
   );
@@ -788,10 +802,12 @@ function BoolFactor({
 
 function NumberFactor({
   factor,
+  workflowKey,
   value,
   onChange,
 }: {
   factor: RankFactor;
+  workflowKey: string;
   value: number;
   onChange: (v: number) => void;
 }) {
@@ -824,6 +840,9 @@ function NumberFactor({
             Full credit at {factor.maxInput}+
           </div>
         )}
+        <div style={{ marginTop: '0.2rem' }}>
+          <HelpBox workflowKey={workflowKey} factorKey={factor.key} />
+        </div>
       </div>
       <input
         type="number"
