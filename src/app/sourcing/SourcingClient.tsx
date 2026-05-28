@@ -36,6 +36,7 @@ import {
   type ScoreBand,
 } from '@/lib/prospects';
 import {
+  needsOverride,
   type SourcingColumn,
   type SourcingRow,
   type SourcingStatus,
@@ -67,18 +68,6 @@ const STATUS_LABEL: Record<SourcingStatus, string> = {
   qualify: 'Qualify',
   reject: 'Reject',
 };
-
-function isPositive(status: SourcingStatus): boolean {
-  return status === 'pursue' || status === 'qualify';
-}
-
-/** Mirror of the server-side override rule. */
-function needsOverride(status: SourcingStatus, band: ScoreBand): boolean {
-  if (status === 'undecided') return false;
-  if (band === 'qualified' && status === 'reject') return true;
-  if (band === 'reject' && isPositive(status)) return true;
-  return false;
-}
 
 function formatMoney(n: number): string {
   return `$${n.toLocaleString('en-US', { maximumFractionDigits: 0 })}`;
@@ -401,7 +390,12 @@ function AddProspectForm({
 
   const liveScore = computeLiveScore(workflow, draft.rankInputs);
   const band = classifyBand(liveScore, workflow.bands);
-  const override = needsOverride(draft.sourcingStatus, band);
+  // D-045: don't force a reason on a fresh add-prospect row whose
+  // factors are all empty (band='reject' / score 0 isn't meaningful).
+  const override = needsOverride(draft.sourcingStatus, band, {
+    rankInputs: draft.rankInputs,
+    factorKeys: workflow.factors.map((f) => f.key),
+  });
   const reasonOk = !override || draft.sourcingNote.trim().length >= OVERRIDE_MIN_CHARS;
 
   const canAdd =
@@ -1191,9 +1185,15 @@ function TableRow({
   const [pendingBusy, setPendingBusy] = useState(false);
 
   const band = classifyBand(row.rankScore, workflow.bands);
+  // D-045 options reused at every needsOverride call site in the row —
+  // the row's saved rank_inputs + the full factor key set.
+  const overrideOpts = {
+    rankInputs: row.rankInputs,
+    factorKeys: workflow.factors.map((f) => f.key),
+  };
   const pendingReasonOk =
     pendingStatus === null ||
-    !needsOverride(pendingStatus, band) ||
+    !needsOverride(pendingStatus, band, overrideOpts) ||
     pendingReason.trim().length >= OVERRIDE_MIN_CHARS;
 
   // What the status toggle visually reflects — pending takes precedence
@@ -1261,7 +1261,7 @@ function TableRow({
       setPendingReason('');
       return;
     }
-    if (needsOverride(next, band)) {
+    if (needsOverride(next, band, overrideOpts)) {
       setPendingStatus(next);
       setPendingReason('');
       return;
@@ -1377,7 +1377,7 @@ function TableRow({
           onCancel={handleCancel}
         />
       </div>
-      {pendingStatus !== null && needsOverride(pendingStatus, band) && (
+      {pendingStatus !== null && needsOverride(pendingStatus, band, overrideOpts) && (
         <div
           style={{ padding: '0.4rem 0.6rem' }}
           onClick={(e) => e.stopPropagation()}

@@ -66,6 +66,9 @@ export function QualifyClient({
   prospects: ProspectListItem[];
 }) {
   const [selectedKey, setSelectedKey] = useState(workflows[0]?.key ?? '');
+  // D-043: list filter state. Lives above the early-return so hook
+  // order stays stable even when no workflow is configured.
+  const [pursuedOnly, setPursuedOnly] = useState(false);
 
   const wf = workflows.find((w) => w.key === selectedKey) ?? workflows[0] ?? null;
 
@@ -89,7 +92,19 @@ export function QualifyClient({
     bands: wf.bands,
   };
 
-  const myProspects = prospects.filter((p) => p.workflowKey === wf.key);
+  // D-043: list filter. Default hides `qualified` (already in the
+  // pipeline) and `reject` (Sourcing said no). The "Pursued only"
+  // toggle narrows the remaining set to `pursue`.
+  const myProspects = prospects.filter((p) => {
+    if (p.workflowKey !== wf.key) return false;
+    if (p.sourcingStatus === 'qualify' || p.sourcingStatus === 'reject') return false;
+    if (pursuedOnly && p.sourcingStatus !== 'pursue') return false;
+    return true;
+  });
+  const totalInWorkflow = prospects.filter(
+    (p) => p.workflowKey === wf.key,
+  ).length;
+  const hiddenCount = totalInWorkflow - myProspects.length;
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
@@ -133,6 +148,12 @@ export function QualifyClient({
       {/* ─── The shared QualifyForm — create mode (no prospectId). */}
       {/* React key on workflow.key remounts the form when the rep
           switches workflows, so internal state resets cleanly. */}
+      {/* D-044: direct-entry on Qualify quietly defaults
+          sourcing_status to 'pursue' so the row appears in the
+          default Qualify list right away. The rep is here BECAUSE
+          they want to qualify this prospect — defaulting to
+          'undecided' was a friction point. The toggle still lets
+          them override. */}
       <QualifyForm
         key={wf.key}
         prospectId={null}
@@ -147,14 +168,58 @@ export function QualifyClient({
         initialInputs={{}}
         initialScore={0}
         initialStage="researching"
-        initialSourcingStatus="undecided"
+        initialSourcingStatus="pursue"
         initialSourcingNote={null}
       />
 
       {/* ─── This workflow's recent prospects. */}
       <section>
-        <div className="eyebrow" style={{ marginBottom: '0.85rem' }}>
-          Your {wf.name} prospects
+        <div
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            gap: '0.85rem',
+            marginBottom: '0.85rem',
+            flexWrap: 'wrap',
+          }}
+        >
+          <div className="eyebrow" style={{ marginBottom: 0 }}>
+            Your {wf.name} prospects
+            {hiddenCount > 0 && (
+              <span
+                style={{
+                  marginLeft: '0.6rem',
+                  fontSize: '0.62rem',
+                  color: 'var(--text-faint)',
+                  textTransform: 'none',
+                  letterSpacing: 'normal',
+                  fontWeight: 500,
+                }}
+              >
+                · {hiddenCount} hidden
+              </span>
+            )}
+          </div>
+          {/* D-043: "Pursued only" toggle. */}
+          <label
+            style={{
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: '0.4rem',
+              fontSize: '0.74rem',
+              color: 'var(--text-mid)',
+              cursor: 'pointer',
+            }}
+          >
+            <input
+              type="checkbox"
+              checked={pursuedOnly}
+              onChange={(e) => setPursuedOnly(e.target.checked)}
+              style={{ accentColor: 'var(--accent)' }}
+            />
+            <span>Pursued only</span>
+          </label>
         </div>
         {myProspects.length === 0 ? (
           <div className="surface-card">

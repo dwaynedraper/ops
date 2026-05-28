@@ -35,34 +35,13 @@ import {
   type ProspectStage,
 } from '@/lib/prospects';
 import {
+  needsOverride,
   stageForSourcingStatus,
   type SourcingStatus,
   type SourcingRow,
 } from '@/lib/sourcing';
 
 const OVERRIDE_MIN_CHARS = 20;
-
-/** True when the status is a "positive" commitment — either Sourcing's
- * "pursue this further" or Qualify's "this is qualified." Both count
- * as positive for the band-disagreement check. */
-function isPositive(status: SourcingStatus): boolean {
-  return status === 'pursue' || status === 'qualify';
-}
-
-/** Per D-028 + the V1 close: when the rep's toggle disagrees with the
- * band's recommendation, a ≥20-char reason is required.
- * - band='qualified' (high score) recommends a positive call;
- *   rejecting it requires a reason.
- * - band='reject' (low score) recommends a reject;
- *   marking it positive (pursue/qualify) requires a reason.
- * - 'undecided' is parking; never an override.
- * - 'borderline' band makes no recommendation. */
-function needsOverride(status: SourcingStatus, band: ScoreBand): boolean {
-  if (status === 'undecided') return false;
-  if (band === 'qualified' && status === 'reject') return true;
-  if (band === 'reject' && isPositive(status)) return true;
-  return false;
-}
 
 /* ── Input + result ────────────────────────────────────────────────── */
 
@@ -205,9 +184,20 @@ function validateOverride(
   patchedStatus: SourcingStatus | undefined,
   band: ScoreBand,
   reasonInput: string | null | undefined,
+  rankInputs: RankInputs,
+  factors: RankFactor[],
 ): string | null {
   if (patchedStatus === undefined) return null;
-  if (!needsOverride(patchedStatus, band)) return null;
+  // D-045: skip the rule when no qualifier inputs are filled (band='reject'
+  // on a fresh row is meaningless until the rep starts scoring).
+  if (
+    !needsOverride(patchedStatus, band, {
+      rankInputs,
+      factorKeys: factors.map((f) => f.key),
+    })
+  ) {
+    return null;
+  }
   const trimmed = (reasonInput ?? '').trim();
   if (trimmed.length < OVERRIDE_MIN_CHARS) {
     return `Your call disagrees with the pre-score band. Add a reason of at least ${OVERRIDE_MIN_CHARS} characters.`;
@@ -289,13 +279,21 @@ async function createRow(
     : 'undecided';
   const stage = stageForSourcingStatus(status, 'researching');
 
-  // P4.6 override rule: if the caller is patching status into a value
-  // that disagrees with the band, require a ≥20-char reason.
-  const overrideError = validateOverride(input.sourcingStatus, band, input.sourcingNote);
+  // P4.6 override rule (D-045-aware): if the caller is patching status
+  // into a value that disagrees with the band AND any qualifier is
+  // filled, require a ≥20-char reason.
+  const overrideError = validateOverride(
+    input.sourcingStatus,
+    band,
+    input.sourcingNote,
+    rankInputs,
+    factors,
+  );
   if (overrideError) return { ok: false, error: overrideError };
 
   // Reason is meaningful only when overriding; clear it otherwise.
-  const finalNote = needsOverride(status, band)
+  const overrideOpts = { rankInputs, factorKeys: factors.map((f) => f.key) };
+  const finalNote = needsOverride(status, band, overrideOpts)
     ? trimOrNull(input.sourcingNote)
     : null;
 
@@ -394,17 +392,27 @@ async function updateRow(
   const { score: newScore } = scoreProspect(factors, newRankInputs);
   const newBand = classifyBand(newScore, bands);
 
-  // P4.6 override rule: when status is being patched into a value that
-  // disagrees with the new band, require a ≥20-char reason. If the rep
-  // is only editing rank inputs (status untouched), existing status
-  // carries forward even if the band shifted.
-  const overrideError = validateOverride(input.sourcingStatus, newBand, input.sourcingNote);
+  // P4.6 override rule (D-045-aware): when status is being patched into
+  // a value that disagrees with the new band AND any qualifier is filled,
+  // require a ≥20-char reason. If the rep is only editing rank inputs
+  // (status untouched), existing status carries forward even if the
+  // band shifted.
+  const overrideError = validateOverride(
+    input.sourcingStatus,
+    newBand,
+    input.sourcingNote,
+    newRankInputs,
+    factors,
+  );
   if (overrideError) return { ok: false, error: overrideError };
 
   // Note carries weight only when overriding. If the current state
   // doesn't constitute an override, drop the note. Otherwise honor the
   // input (if patched) or keep whatever's on the row.
-  const isOverride = needsOverride(newSourcingStatus, newBand);
+  const isOverride = needsOverride(newSourcingStatus, newBand, {
+    rankInputs: newRankInputs,
+    factorKeys: factors.map((f) => f.key),
+  });
   const newSourcingNote = !isOverride
     ? null
     : input.sourcingNote !== undefined

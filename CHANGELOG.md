@@ -367,6 +367,65 @@ all touch `/contact` so they ride one commit.
     `CycleUrgency` type (`'now' | 'soon' | 'overdue' | 'idle'`),
     surfaced via `CycleState.urgency` and `TrackingCard.urgency`.
 
+### F6 — Qualify polish (D-042, D-043, D-044, D-045)
+
+Four decisions, all on `/qualify`. Two of them (D-045 + D-044)
+also tighten the server contract that `/sourcing` shares.
+
+- **D-042 — One-click Qualify at score ≥ 7.** New prominent
+  primary button on the live score panel of `QualifyForm`,
+  visible whenever every entry gate is clear AND the score is
+  ≥ 7 AND the rep hasn't already set `status='qualify'`.
+  Clicking commits `sourcing_status='qualify'` which advances
+  the lifecycle stage to `qualified`. The existing
+  three-button toggle stays for explicit Pursue / Undecided /
+  Reject choices. Required a small refactor of `onSave` to
+  accept an optional `overrideStatus` argument so the shortcut
+  saves the right value without waiting for the local status
+  state to settle.
+- **D-043 — Qualify list filtering.** The "Your prospects"
+  list at the bottom of `/qualify` now:
+  - Hides `sourcing_status='qualify'` (already in the
+    pipeline) and `sourcing_status='reject'` (Sourcing said
+    no) by default. Default view shows pursue + undecided.
+  - Adds a "Pursued only" checkbox toggle that narrows the
+    remaining set to `pursue` alone.
+  - Surfaces a "· N hidden" count next to the section
+    eyebrow so the rep sees what the filter is suppressing.
+  - Required surfacing `sourcing_status` on
+    `ProspectListItem` and the page query.
+- **D-044 — Direct-entry default = `pursue`.** `QualifyClient`
+  passes `initialSourcingStatus="pursue"` (was `"undecided"`)
+  to the create-mode `QualifyForm`. A rep adding a prospect
+  straight on Qualify is here BECAUSE they want to qualify,
+  so the row appears in the default Qualify list right away.
+  The status toggle still lets them change it.
+- **D-045 — Skip override-with-reason when empty.** The
+  override rule (status disagrees with band → ≥20-char reason
+  required) carves out an exception: when no qualifier inputs
+  are filled at all, `band='reject'` (score 0) isn't
+  meaningful and no reason is required. The rule re-engages
+  the moment any qualifier is set.
+  - Consolidated `needsOverride` into `src/lib/sourcing.ts`
+    as the single source of truth — previously duplicated in
+    `QualifyForm`, `SourcingClient`, and `sourcing/actions.ts`.
+    New signature takes an optional `{ rankInputs, factorKeys
+    }` to enable the D-045 carve-out.
+  - QualifyForm passes its full input set + every factor key.
+  - SourcingClient passes the row's `rankInputs` + every
+    factor key at all four call sites (AddProspectForm,
+    pendingReasonOk, handleStatusChange, override-panel
+    render).
+  - The server's `validateOverride` in
+    `sourcing/actions.ts` gains `rankInputs` + `factors`
+    parameters and applies the same rule. The two
+    `needsOverride` call sites that decide whether to keep
+    the override note (createRow + updateRow) also pass the
+    options.
+  - Net effect: same override gate behavior on real cases,
+    but a fresh direct-entry row no longer demands a reason
+    before the rep has touched a single qualifier.
+
 ### Pricing & Admin gating — verified, not changed
 - Sidebar already gates the admin section to `super_admin` via
   `role === 'super_admin'` filtering. Every admin route
@@ -412,6 +471,18 @@ all touch `/contact` so they ride one commit.
   V2 merges, the same migration runs against prod via the next
   deploy. Walk the workflow tabs on Sourcing / Qualify / Contact
   to confirm the new palette reads right.
+- F6: no migration needed — pure code change. Walk `/qualify`:
+  - On the create form, hit Save without filling any
+    qualifier and confirm no reason is demanded (D-045).
+  - Confirm a brand-new direct-entry row lands in the default
+    list (status now defaults to pursue — D-044).
+  - Score a row to ≥ 7 and confirm the prominent "Qualify
+    this prospect" button appears on the score panel (D-042).
+  - Toggle "Pursued only" and confirm the list narrows;
+    confirm hidden-count badge reads honestly.
+  - Also walk `/sourcing`: status toggles on rows with no
+    qualifiers filled should no longer trigger the override
+    panel.
 - F5: same `npm run db:migrate` picks up the email overhaul
   (D-047) + standardized signature (D-048) on every script row
   whose body still matches the V1 closing pattern. Then walk

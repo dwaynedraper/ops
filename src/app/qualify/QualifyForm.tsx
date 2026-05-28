@@ -38,7 +38,7 @@ import {
   type ScoreBand,
   type ProspectStage,
 } from '@/lib/prospects';
-import type { SourcingStatus } from '@/lib/sourcing';
+import { needsOverride, type SourcingStatus } from '@/lib/sourcing';
 import { HelpBox } from '@/components/HelpBox';
 import { upsertSourcingRow } from '@/app/sourcing/actions';
 
@@ -74,17 +74,6 @@ const BAND_META: Record<ScoreBand, { label: string; color: string }> = {
   borderline: { label: 'Borderline', color: 'var(--warn)' },
   reject: { label: 'Below the bar', color: 'var(--bad)' },
 };
-
-function isPositive(status: SourcingStatus): boolean {
-  return status === 'pursue' || status === 'qualify';
-}
-
-function needsOverride(status: SourcingStatus, band: ScoreBand): boolean {
-  if (status === 'undecided') return false;
-  if (band === 'qualified' && status === 'reject') return true;
-  if (band === 'reject' && isPositive(status)) return true;
-  return false;
-}
 
 /* ── The unified form ──────────────────────────────────────────────── */
 
@@ -142,7 +131,14 @@ export function QualifyForm({
   const gateFactors = workflow.factors.filter((f) => f.isGate);
   const scoringFactors = workflow.factors.filter((f) => !f.isGate);
 
-  const override = needsOverride(status, band);
+  // D-045: the override-with-reason rule skips when no qualifier
+  // inputs are filled at all — band='reject' (score 0) on a fresh
+  // direct-entry isn't meaningful, so don't force a reason out of
+  // the rep before they've even started scoring.
+  const override = needsOverride(status, band, {
+    rankInputs: inputs,
+    factorKeys: workflow.factors.map((f) => f.key),
+  });
   const reasonOk = !override || reason.trim().length >= OVERRIDE_MIN_CHARS;
 
   // Create mode requires a name to enable Save. Edit mode requires
@@ -160,8 +156,14 @@ export function QualifyForm({
     setSavedAt(null);
   }
 
-  async function onSave() {
-    if (!canSave) return;
+  /** Save with the current status (default), or override it for the
+   * one-click Qualify path (D-042). The override doesn't reach the
+   * needsOverride check because by definition Qualify is a positive
+   * call and the rep clicked it at score ≥ 7 — band is qualified or
+   * borderline, neither a forced-reason case. */
+  async function onSave(overrideStatus?: SourcingStatus) {
+    if (!canSave && !overrideStatus) return;
+    const effectiveStatus = overrideStatus ?? status;
     setBusy(true);
     setError(null);
     setSavedAt(null);
@@ -175,13 +177,13 @@ export function QualifyForm({
               marketArea: identity.marketArea ?? '',
               sourceUrl: identity.sourceUrl ?? '',
               rankInputPatches: inputs,
-              sourcingStatus: status,
+              sourcingStatus: effectiveStatus,
               sourcingNote: override ? reason.trim() : null,
             }
           : {
               id: prospectId,
               rankInputPatches: inputs,
-              sourcingStatus: status,
+              sourcingStatus: effectiveStatus,
               sourcingNote: override ? reason.trim() : null,
             },
       );
@@ -189,6 +191,9 @@ export function QualifyForm({
         setError(res.error ?? 'Could not save.');
         return;
       }
+      // Sync local state with the saved-from row so the form reflects
+      // what's on the server (including any status override).
+      if (overrideStatus) setStatus(overrideStatus);
       setServerScore(res.row.rankScore);
       setServerStage(res.row.stage);
       setSavedAt(Date.now());
@@ -353,7 +358,7 @@ export function QualifyForm({
             <button
               className="btn-primary"
               disabled={!canSave}
-              onClick={onSave}
+              onClick={() => onSave()}
               style={{ justifyContent: 'center' }}
             >
               {busy ? 'Saving…' : isCreate ? 'Save & open' : 'Save'}
@@ -431,6 +436,26 @@ export function QualifyForm({
                 : 'Clear every entry gate before this score is actionable.'}
             </p>
           </div>
+
+          {/* D-042: one-click Qualify shortcut. Visible whenever the
+              score is ≥ 7 (including the borderline band) AND every
+              gate is clear AND the rep hasn't already qualified this
+              row. The shortcut commits sourcing_status='qualify',
+              which advances stage to 'qualified' via
+              stageForSourcingStatus. The three-button toggle below
+              stays available for explicit Pursue / Undecided /
+              Reject choices. */}
+          {gateOpen && scored.score >= 7 && status !== 'qualify' && (
+            <button
+              type="button"
+              className="btn-primary"
+              disabled={busy || !hasNameForCreate}
+              onClick={() => onSave('qualify')}
+              style={{ justifyContent: 'center' }}
+            >
+              {busy ? 'Saving…' : 'Qualify this prospect'}
+            </button>
+          )}
 
           {!isCreate && (
             <div

@@ -247,4 +247,8 @@ export interface ProspectListItem {
   stage: ProspectStage;
   /** Pre-formatted for display (the list is server-rendered). */
   createdAt: string;
+  /** D-043: drives the Qualify list filter — default view hides
+   * `qualified` and `reject`; the "Pursued only" toggle narrows to
+   * `pursue` alone. Carries the same enum as `prospects.sourcing_status`. */
+  sourcingStatus: 'undecided' | 'pursue' | 'qualify' | 'reject';
 }
