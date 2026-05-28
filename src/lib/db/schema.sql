@@ -777,3 +777,34 @@ END $$;
 
 CREATE INDEX IF NOT EXISTS prospects_sourcing_status_idx
   ON prospects(sourcing_status);
+
+-- ────────────────────────────────────────────────────────────────────
+-- Phase E P4.5 — real_estate scoring math overhaul (D-032).
+--
+-- Each UPDATE is conditional on the original default value, so a rep
+-- who's already customized a factor via /rank-factors won't have their
+-- edit clobbered. Idempotent — safe to re-run.
+-- ────────────────────────────────────────────────────────────────────
+DO $$
+BEGIN
+  -- Gates now contribute 1.0 each to the score (used to be 0 = pass/fail
+  -- only). Entry is still gated by gatesPassed().
+  UPDATE rank_factors SET weight = 1
+    WHERE workflow_key = 'real_estate' AND key = 'has_target_listing' AND weight = 0;
+  UPDATE rank_factors SET weight = 1
+    WHERE workflow_key = 'real_estate' AND key = 'has_photo_need' AND weight = 0;
+
+  -- annual_volume max_input lifted to 30 to match the piecewise curve's
+  -- ceiling. The curve in lib/prospects.ts handles actual scoring; this
+  -- value is only informational on the UI now.
+  UPDATE rank_factors SET max_input = 30
+    WHERE workflow_key = 'real_estate' AND key = 'annual_volume' AND max_input = 24;
+
+  -- active_social weight halved (2 → 1) — supporting, not headline.
+  UPDATE rank_factors SET weight = 1
+    WHERE workflow_key = 'real_estate' AND key = 'active_social' AND weight = 2;
+
+  -- branded_email dropped from the model — redundant with pro_website.
+  UPDATE rank_factors SET active = false
+    WHERE workflow_key = 'real_estate' AND key = 'branded_email' AND active = true;
+END $$;

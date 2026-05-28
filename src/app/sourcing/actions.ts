@@ -215,8 +215,8 @@ async function createRow(
 
   const factors = await loadWorkflowFactors(input.workflowKey);
   const rankInputs = mergeRankInputs({}, input.rankInputPatches, factors);
-  const scoringFactors = factors.filter((f) => !f.isGate);
-  const { score } = scoreProspect(scoringFactors, rankInputs);
+  // D-032: gates contribute to the score, same as any other factor.
+  const { score } = scoreProspect(factors, rankInputs);
 
   const status = isSourcingStatus(input.sourcingStatus)
     ? input.sourcingStatus

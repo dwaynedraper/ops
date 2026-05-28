@@ -1185,6 +1185,54 @@ the old `/research` flow alongside the new one would confuse partners
 and leak technical debt forward. Better to slip a few days and ship
 the restructure clean.
 
+### D-032 · Real-estate scoring math overhaul (2026-05-26)
+
+**Decision.** Three changes to the real-estate workflow's rank scoring:
+
+1. **Gates contribute to the score.** `has_target_listing` and
+   `has_photo_need` each carry weight 1. They're still gates — entry
+   blocked by `gatesPassed()` if either is false — but they now also
+   add to the 0–10 number.
+2. **`annual_volume` runs on a piecewise curve** instead of linear:
+   0 listings → 0 pts, 10 listings → 2.0 pts (knee), 30 listings →
+   3.0 pts (cap). Implemented as a small `PIECEWISE_CURVES` map in
+   `lib/prospects.ts` keyed by factor key. Other workflows still
+   default to linear.
+3. **`branded_email` is dropped** as a redundant signal — anyone with
+   `pro_website` almost certainly has a branded email. Deactivated in
+   the DB via an idempotent `schema.sql` migration.
+
+**Final weights (real_estate):**
+
+| Factor | Weight | Notes |
+| --- | --- | --- |
+| `has_target_listing` (gate) | 1 | now contributes |
+| `has_photo_need` (gate) | 1 | now contributes |
+| `annual_volume` | 3 | piecewise 0→0, 10→2, 30→3 |
+| `weak_current_photos` | 2 | unchanged |
+| `active_social` | 1 | down from 2 |
+| `pro_website` | 1 | unchanged |
+| `uses_video` | 1 | unchanged |
+| ~~`branded_email`~~ | ~~1~~ | dropped |
+| **Total** | **10** | |
+
+Spot-checks: gates only = 2.0; gates + 10 listings = 4.0; gates + 30
+listings = 5.0; all factors maxed = 10.0.
+
+**Rationale.** Dean's pipeline analysis — agents with 10-12 listings
+a year (≈ one per month) are at a "growth phase where a retainer
+gives them the boost." The old linear curve undersold that range
+(10/24 × 3 = 1.25 pts). The new piecewise + anchored gates produce a
+"4 baseline for an in-range agent, climbing toward 10 with the
+supporting factors."
+
+**Trade-off.** The piecewise curve is hardcoded for `annual_volume`
+only. If another factor ever needs a curve we add a
+`score_breakpoints` JSONB column to `rank_factors`; not worth the
+schema overhead yet. The migration in `schema.sql` is conditional on
+the old default values so a rep who's already used `/rank-factors` to
+customize isn't clobbered.
+
 ---
 
 *Stay Sharp. Stay Seen. Stay Human.*

@@ -139,7 +139,10 @@ export function QualifyClient({
   const gateFactors = wf.factors.filter((f) => f.isGate);
   const scoringFactors = wf.factors.filter((f) => !f.isGate);
 
-  const scored = scoreProspect(scoringFactors, inputs);
+  // D-032: gates contribute to the score too. `scoringFactors` above
+  // is kept only for rendering the "score the fit" panel; the actual
+  // score sees every factor.
+  const scored = scoreProspect(wf.factors, inputs);
   const band = classifyBand(scored.score, wf.bands);
   const gateOpen = gatesPassed(wf.factors, inputs);
   const hasName = identity.contactName.trim().length > 0;

@@ -116,8 +116,8 @@ export async function createProspect(
     targetCount: cfg.get('qualified_target_count') ?? DEFAULT_BANDS.targetCount,
   };
 
-  const scoringFactors = factors.filter((f) => !f.isGate);
-  const { score } = scoreProspect(scoringFactors, clean);
+  // D-032: gates contribute to the score, same as any other factor.
+  const { score } = scoreProspect(factors, clean);
   const band = classifyBand(score, bands);
   const stage = stageForBand(band);
 

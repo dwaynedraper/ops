@@ -119,7 +119,39 @@ reps. Wednesday launch deferred to ship the whole batch as a unit.
 - Sidebar nav gained the Sourcing item, positioned before Qualify so
   the order matches the flow: Source → Qualify → Track.
 
-### Not yet (P5–P7)
+### Changed — P4.5 (scoring math overhaul + column trim)
+Per Dean's review of P4, applied D-032 and trimmed two Sourcing columns:
+
+- **Scoring math (D-032).**
+  - Gates contribute to the 0–10 score. `has_target_listing` and
+    `has_photo_need` carry weight 1 each (still gated by
+    `gatesPassed()`; entry blocked if either is false).
+  - `annual_volume` runs on a piecewise curve in
+    `lib/prospects.ts` (`PIECEWISE_CURVES`): 0→0, 10→2.0, 30→3.0,
+    capped at 3.
+  - `branded_email` dropped as redundant with `pro_website`. The
+    `schema.sql` migration sets `active=false` idempotently.
+  - `active_social` weight 2 → 1.
+  - All scoring call sites (`QualifyClient`, `qualify/actions.ts`,
+    `sourcing/actions.ts`) stopped filtering out gate factors.
+  - `src/lib/prospects.test.ts` rewritten against the new model.
+- **Seed updated** in `scripts/db-seed.mjs` — re-running `db:seed`
+  is optional (the SQL migration handles the live DB), but it picks
+  up the new help_text and weights for fresh installs.
+- **Sourcing columns trimmed.** Dropped `Sides` (listings is a
+  close-enough proxy via the `annual_volume` qualifier) and `Note`
+  (repurposed as the override-reason inline expansion in the next
+  pass). Schema columns (`sides_count`, `sourcing_note`) retained
+  in case either is reinstated.
+
+### Not yet (P4.5 cont'd + P5–P7)
+- Lock-after-blur cells on Sourcing + pencil to re-edit (next pass).
+- Drop the `→` arrow column; the whole locked row area becomes the
+  click target.
+- Build the new `/qualify/[id]` route — dedicated per-agent
+  qualifying form, sourcing inputs pre-filled.
+- Override-with-reason inline expansion when status disagrees with
+  the pre-score band (20-char minimum).
 - `<HelpBox>` component + per-field help on `/qualify` (P5).
 - `/tutorials` section (P6).
 - Verify + promote this placeholder to a finalized entry (P7).

@@ -264,8 +264,12 @@ const BOOKING_URL = 'https://sharpsightedphotos.sproutstudio.com/book/connection
 // Factor builders. A gate factor (is_gate, weight 0) must answer true to
 // enter the pipeline and does not score. Scoring weights sum to 10 per
 // workflow, so a maxed-out prospect lands a clean 10.
-const gate = (key, label, help_text, sort_order) =>
-  ({ key, label, help_text, kind: 'bool', weight: 0, max_input: null, is_gate: true, sort_order });
+// D-032: gates can carry a weight too. They're still gates (gatesPassed
+// blocks entry until they're all true), but if their weight is > 0 they
+// also add to the 0–10 score. Defaults to 0 to preserve the original
+// behavior for workflows that haven't been reweighted yet.
+const gate = (key, label, help_text, sort_order, weight = 0) =>
+  ({ key, label, help_text, kind: 'bool', weight, max_input: null, is_gate: true, sort_order });
 const boolF = (key, label, help_text, weight, sort_order) =>
   ({ key, label, help_text, kind: 'bool', weight, max_input: null, is_gate: false, sort_order });
 const numF = (key, label, help_text, weight, max_input, sort_order) =>
@@ -285,14 +289,18 @@ const WORKFLOWS = [
     workflow_key: 'real_estate', name: 'Real Estate Media', branch: 'realestate',
     contact_noun: 'Agent', org_noun: 'Agency', accent: '#64748b', sort_order: 10,
     factors: [
-      gate('has_target_listing', 'Has a current target listing', 'A live listing now in the $500K–$2M range — something worth shooting.', 1),
-      gate('has_photo_need',     'Has a visible photo need',     'Their current listing photos are weak or missing — a real gap to fill.', 2),
-      numF('annual_volume',       'Listings per year ($500K–$2M)',  'Homes the agent closes annually in the target price band.',              3, 24, 10),
-      boolF('active_social',      'Active on social (last 30 days)', 'Posts regularly — a sign they value visibility and will value media.',   2, 20),
-      boolF('weak_current_photos','Current listing photos are weak', 'A visible quality gap on their live listings — the clearest opportunity.', 2, 30),
+      // D-032 — gates now anchor the score; annual_volume runs on a
+      // piecewise curve (lib/prospects.ts PIECEWISE_CURVES) so 10
+      // listings = 2.0 and 30 listings = 3.0. Weight totals to 10.
+      gate('has_target_listing', 'Has a current target listing', 'A live listing now in the $500K–$2M range — something worth shooting.', 1, 1),
+      gate('has_photo_need',     'Has a visible photo need',     'Their current listing photos are weak or missing — a real gap to fill.', 2, 1),
+      numF('annual_volume',       'Listings per year ($500K–$2M)',  'Homes the agent closes annually in the target price band. 10 listings ≈ 2.0 pts, 30 ≈ 3.0 (piecewise).', 3, 30, 10),
+      boolF('weak_current_photos','Current listing photos are weak', 'A visible quality gap on their live listings — the clearest opportunity.', 2, 20),
+      boolF('active_social',      'Active on social (last 30 days)', 'Posts regularly — a sign they value visibility and will value media.',   1, 30),
       boolF('pro_website',        'Has a real personal website',     'A proper site on their own domain — they invest in their brand.',         1, 40),
-      boolF('branded_email',      'Uses a branded email',            'Email on their own domain, not a free gmail/yahoo address.',              1, 50),
-      boolF('uses_video',         'Already uses video in listings',  'Comfortable with video — an easier sell for reels and walkthroughs.',     1, 60),
+      boolF('uses_video',         'Already uses video in listings',  'Comfortable with video — an easier sell for reels and walkthroughs.',     1, 50),
+      // branded_email dropped (D-032) — redundant with pro_website. The
+      // schema.sql migration deactivates the existing row.
     ],
     thresholds: thresholds(8, 6, 10),
     links: [BOOKING_LINK],

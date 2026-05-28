@@ -94,14 +94,43 @@ function round1(n: number): number {
   return Math.round(n * 10) / 10;
 }
 
-/** Points one raw answer earns for its factor. */
+/**
+ * Piecewise curves, keyed by rank-factor key. If a number factor's key
+ * has an entry here, the curve replaces the default linear `value /
+ * maxInput * weight` math. Edits to weight in /rank-factors don't
+ * affect the curve shape — to rev a shape, edit the function below and
+ * record a decision log entry.
+ *
+ * D-032 (real-estate annual_volume):
+ *   value ≤ 0  → 0
+ *   value = 10 → 2.0  (roughly one listing per month is "worthwhile")
+ *   value = 30 → 3.0  (full credit; high-volume agent)
+ *   value > 30 → 3.0  (capped)
+ */
+const PIECEWISE_CURVES: Record<string, (value: number) => number> = {
+  annual_volume: (value) => {
+    if (value <= 0) return 0;
+    if (value <= 10) return (value / 10) * 2;
+    if (value <= 30) return 2 + (value - 10) / 20;
+    return 3;
+  },
+};
+
+/** Points one raw answer earns for its factor. Gates count toward the
+ * score, same as any other factor (D-032); they're called "gates"
+ * because `gatesPassed` blocks entry until they're all true, not
+ * because they're scored differently. */
 function earnedFor(factor: RankFactor, raw: boolean | number | undefined): number {
   if (factor.kind === 'bool') {
     return raw === true ? factor.weight : 0;
   }
+  const value = typeof raw === 'number' && Number.isFinite(raw) ? raw : 0;
+  const curve = PIECEWISE_CURVES[factor.key];
+  if (curve) {
+    return Math.max(0, curve(value));
+  }
   const max = factor.maxInput ?? 0;
   if (max <= 0) return 0;
-  const value = typeof raw === 'number' && Number.isFinite(raw) ? raw : 0;
   const clamped = Math.min(Math.max(value, 0), max);
   return factor.weight * (clamped / max);
 }

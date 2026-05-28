@@ -146,17 +146,11 @@ export function buildColumnConfig(
   });
 
   // ── Intake — workflow-specific scraped data ───────────────────────
+  // Sides was dropped per Dean's review of P4 — listings (annual_volume
+  // hard qualifier) is a close-enough proxy. The schema column
+  // `prospects.sides_count` is retained in case Dean reverses, but it
+  // isn't surfaced on the UI.
   if (SIDES_VOLUME_WORKFLOWS.has(workflowKey)) {
-    cols.push({
-      key: 'sidesCount',
-      label: 'Sides',
-      kind: 'integer',
-      group: 'intake',
-      isRankInput: false,
-      isPrimary: false,
-      width: 80,
-      help: 'Total transaction sides per year (buyer-side + seller-side).',
-    });
     cols.push({
       key: 'grossVolume',
       label: 'Gross volume',
@@ -201,7 +195,7 @@ export function buildColumnConfig(
     help: 'Where this name came from — e.g. the RealTrends page.',
   });
 
-  // ── Triage — status + notes ───────────────────────────────────────
+  // ── Triage — status ──────────────────────────────────────────────
   cols.push({
     key: 'sourcingStatus',
     label: 'Status',
@@ -211,15 +205,11 @@ export function buildColumnConfig(
     isPrimary: false,
     width: 150,
   });
-  cols.push({
-    key: 'sourcingNote',
-    label: 'Note',
-    kind: 'text',
-    group: 'triage',
-    isRankInput: false,
-    isPrimary: false,
-    width: 220,
-  });
+
+  // sourcing_note is intentionally NOT a default column anymore. It's
+  // repurposed as the "override reason" — surfaced inline on a row
+  // only when the rep's status disagrees with the pre-score band's
+  // recommendation (≥20 chars required).
 
   return cols;
 }
