@@ -17,6 +17,7 @@ interface NavLink {
 const NAV: NavLink[] = [
   { href: '/', label: 'Dashboard' },
   { href: '/calculator', label: 'Calculator' },
+  { href: '/sourcing', label: 'Sourcing' },
   { href: '/qualify', label: 'Qualify' },
   { href: '/tracking', label: 'Tracking' },
   { href: '/clients', label: 'Clients' },

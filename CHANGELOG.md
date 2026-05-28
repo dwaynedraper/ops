@@ -18,10 +18,9 @@ Done:
 - **P1** — docs + recovery file (`SOURCING-PLAN.md`)
 - **P2** — schema audit + migration (5 new prospect columns + index)
 - **P3** — rename `/research` → `/qualify` across code + docs
+- **P4** — `/sourcing` route + the spreadsheet UI (headline feature)
 
 Remaining:
-- **P4** — build `/sourcing` (per-workflow rapid-intake spreadsheet
-  with three-state manual toggle + advisory pre-score badge)
 - **P5** — help modals on `/qualify` (left-rail ToC, right pane,
   optional tabs, per-field triggers)
 - **P6** — `/tutorials` section + one workflow walkthrough per offering
@@ -92,8 +91,35 @@ reps. Wednesday launch deferred to ship the whole batch as a unit.
   flag the rename inline.
 - `tsc --noEmit` and `eslint src` clean after the rename.
 
-### Not yet (P4–P7)
-- `/sourcing` route + the spreadsheet UI (P4 — headline feature).
+### Added — P4 (`/sourcing` route + spreadsheet UI)
+- `src/lib/sourcing.ts` — types, the three-state `SourcingStatus`,
+  the per-workflow `buildColumnConfig`, `stageForSourcingStatus`
+  helper, and the pure check for the "partial score" indicator.
+- `src/app/sourcing/actions.ts` — `upsertSourcingRow` server action
+  (create + per-cell update in one path). Re-fetches the workflow's
+  rank_factors and recomputes the 0–10 score server-side every save
+  (D-028). Status toggles update lifecycle stage only when the
+  prospect is in `researching` / `qualified` / `passed` — later
+  stages don't reverse from a Sourcing edit (D-024).
+- `src/app/sourcing/page.tsx` — server component. Loads every active
+  workflow with its scoring config + the rep's existing rows
+  (owner-scoped, D-019), builds the column config per workflow, and
+  hands it to the interactive client.
+- `src/app/sourcing/SourcingClient.tsx` — the spreadsheet itself.
+  CSS-Grid table with the workflow's column set: identity columns,
+  workflow-specific intake (real-estate gets `sides`/`gross volume`),
+  the hard qualifiers (gates + ≥3pt scoring factors from
+  `rank_factors`), the Source URL, the three-state Qualify / Pass /
+  Undecided toggle, and the one-line note. Every cell autosaves on
+  blur with optimistic UI; the score badge re-renders from the
+  server's `rank_score` so the pre-score is always math-correct.
+  An empty draft row at the bottom materializes a prospect on first
+  cell save (only commits once a name is typed). The row's `→` link
+  opens `/prospects/[id]` for the deep work.
+- Sidebar nav gained the Sourcing item, positioned before Qualify so
+  the order matches the flow: Source → Qualify → Track.
+
+### Not yet (P5–P7)
 - `<HelpBox>` component + per-field help on `/qualify` (P5).
 - `/tutorials` section (P6).
 - Verify + promote this placeholder to a finalized entry (P7).
