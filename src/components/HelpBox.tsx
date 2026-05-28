@@ -14,20 +14,31 @@
  */
 
 import { useEffect, useId, useMemo, useState } from 'react';
-import { getHelpEntry, type HelpBlock, type HelpEntry } from '@/lib/help-content';
+import {
+  getHelpEntry,
+  type HelpBlock,
+  type HelpEntry,
+  type HelpMode,
+} from '@/lib/help-content';
 
 export function HelpBox({
   workflowKey,
   factorKey,
   label = 'Where do I find this?',
+  mode = 'qualify',
 }: {
   workflowKey: string;
   factorKey: string;
   label?: string;
+  /** Which content angle to load — qualify-time (deep read of one
+   * prospect, default) or sourcing-time (batch triage). Different
+   * entries live under different keys; missing entries render no
+   * trigger. (D-041.) */
+  mode?: HelpMode;
 }) {
   const entry = useMemo(
-    () => getHelpEntry(workflowKey, factorKey),
-    [workflowKey, factorKey],
+    () => getHelpEntry(workflowKey, factorKey, mode),
+    [workflowKey, factorKey, mode],
   );
   const [open, setOpen] = useState(false);
 

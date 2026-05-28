@@ -63,11 +63,18 @@ export interface SourcingRow {
    * filled in. The badge tone depends on the band, but the partial
    * indicator on the badge reflects this. */
   hasPartialScore: boolean;
+  /** ISO timestamp of `prospects.created_at`. Surfaced so the
+   * Sourcing client can sort newest-first by default — newly-added
+   * prospects land on top, instead of relying on the server's
+   * pre-sort which UUID order alone wouldn't preserve once the
+   * client re-sorts on any other column and then back. (D-035.) */
+  createdAt: string;
 }
 
 /** Empty row template — what an "add a new prospect" row looks like
- * before any cells have been touched. */
-export const EMPTY_SOURCING_ROW: Omit<SourcingRow, 'id' | 'workflowKey'> = {
+ * before any cells have been touched. `id`, `workflowKey`, and
+ * `createdAt` are all server-assigned. */
+export const EMPTY_SOURCING_ROW: Omit<SourcingRow, 'id' | 'workflowKey' | 'createdAt'> = {
   contactName: '',
   orgName: null,
   marketArea: null,
@@ -212,6 +219,10 @@ export function buildColumnConfig(
   });
 
   // ── Triage — status ──────────────────────────────────────────────
+  // Width sized to fit the three-button Pursue/—/Reject toggle without
+  // clipping under any state. The toggle is interactive even in display
+  // mode (D-037), so the column always has to fit the controls, not
+  // just the pill. (D-038.)
   cols.push({
     key: 'sourcingStatus',
     label: 'Status',
@@ -219,7 +230,7 @@ export function buildColumnConfig(
     group: 'triage',
     isRankInput: false,
     isPrimary: false,
-    width: 150,
+    width: 200,
   });
 
   // sourcing_note is intentionally NOT a default column anymore. It's

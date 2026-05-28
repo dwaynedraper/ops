@@ -84,6 +84,74 @@ in `V2-PLAN.md`.
   `position: static` and the layout stacks (full mobile pass lands
   in F11).
 
+### F2 — Sourcing polish (D-035 → D-041)
+
+The polish-and-fit pass on `/sourcing`. Six concrete moves:
+
+- **D-035 — Newest-first default sort.** Added `createdAt` (ISO
+  string) to `SourcingRow` and surfaced `created_at::text` in the
+  page query + the `upsertSourcingRow` action. Default sort is now
+  `createdAt` desc — a freshly-added prospect lands on top
+  regardless of how the rep had the table sorted before, including
+  after the rep toggles to a different column and back. Replaces
+  the previous fallback that sorted by `id` (UUID lexicographic).
+- **D-036 — Sort indicators on every header.** `SortHeader` always
+  renders a glyph: ↑/↓ on the active column, ↕ at 40% opacity on
+  inactive sortable columns. Reads "this is clickable to sort" at
+  a glance.
+- **D-038 — Status column fit.** Bumped the `sourcingStatus`
+  column from 150 → 200px and trimmed the `SourcingStatusToggle`
+  button padding + letter-spacing slightly. Pursue / — / Reject all
+  fit cleanly in the always-visible toggle, never clipped under any
+  state. The wider column also makes room for the override panel
+  below the row to align cleanly to the right.
+- **D-037 + D-039 — Always-interactive controls + row-body
+  navigation.** Major behavior shift on `TableRow`:
+  - Status toggle + bool rank-input checkboxes are now ALWAYS
+    interactive (display mode + edit mode). Clicking either commits
+    immediately via `upsertSourcingRow` with a minimal patch — no
+    draft, no Save button needed.
+  - When clicking a status button would create an override case
+    (the rep's call disagrees with the band), the row drops an
+    inline panel below itself with the `OverrideExpansion` + a
+    Cancel / "Save with reason" pair. The toggle visually reflects
+    the rep's pending choice (`visibleStatus = pendingStatus ?? row.sourcingStatus`)
+    so they see what they're about to commit to.
+  - Row body click → `useRouter().push('/qualify/${row.id}')`. The
+    interactive controls (status cell, bool cell, action buttons,
+    edit-mode inputs) call `e.stopPropagation()` so they don't
+    trigger navigation. Cursor is `pointer` only when the row is
+    navigable (not in edit mode, no override pending, no other row
+    active). Tooltip on the row reads "Open in Qualify."
+  - Pencil click → unlocks edit mode for only the FIRST-CLASS
+    non-control cells (name, agency, market, gross_volume,
+    source_url) plus integer rank inputs (typing into them on every
+    keystroke would spam the server). Commit only includes those
+    fields — status + bool values committed already.
+  - The `StatusPill` component is now unused and removed.
+- **D-040 — Custom CSS tooltips.** Attribute-driven, CSS-only,
+  zero-JS hover labels via `data-tooltip="…"` on any element.
+  Instant on hover — no delay — because reps are clicking rapidly
+  and a tooltip that hesitates is worse than none. Position
+  defaults to above; `data-tooltip-pos="below"` for top-of-viewport
+  elements. Pseudo-element rendered as `::after` with `pointer-events:
+  none` so it doesn't interfere with clicks. Wired onto: pencil,
+  Save, Cancel, the three status toggle buttons, the score cell,
+  and the row body.
+- **D-041 — Sourcing help boxes.** Added `mode: 'qualify' |
+  'sourcing'` to `HelpBox` + `getHelpEntry`. Authored a new
+  registry of sourcing-time content for the real-estate workflow
+  (`gross_volume`, `source_url`, `has_target_listing`,
+  `annual_volume`, `pro_website`, `uses_video`) — six entries
+  pitched at batch triage instead of deep-read qualify. Voice:
+  "you've got 50 names, spend 30 seconds, defer the deep stuff to
+  Qualify." Wired the trigger into `FormField` (per-field on the
+  add-prospect form), `QualifierField` (per-qualifier on the
+  add-prospect form), and `TableHeader` (per-column). The native
+  `title=` attributes on the headers come off (they were slow and
+  the help modal replaces them). Missing entries render no
+  trigger, so columns without authored content stay clean.
+
 ### Pricing & Admin gating — verified, not changed
 - Sidebar already gates the admin section to `super_admin` via
   `role === 'super_admin'` filtering. Every admin route
@@ -95,11 +163,29 @@ in `V2-PLAN.md`.
 - `tsc --noEmit` and `eslint src` clean.
 
 ### Still on Dean
-- F0: stand up the second Neon project + swap `DATABASE_URL` in
-  `.env.local` when convenient.
+- F0: ✓ done. Second Neon project (`ep-divine-rain-aqktp4bn`) is
+  up, schema migrated, `.env.local` swapped. Production stays on
+  the prod project via Vercel env vars.
 - F1: walk the sidebar in dev — confirm the section layout, the
   sticky bottom controls, and the scroll behavior when the nav is
   taller than the viewport.
+- F2: walk Sourcing in dev — verify
+  (a) newly-added rows land on top,
+  (b) headers show ↕ / ↑ / ↓,
+  (c) clicking a status toggle on a normal row commits without a
+      save step, and an override case opens the inline panel,
+  (d) clicking a bool checkbox commits immediately,
+  (e) clicking the row body (not on a control) navigates to
+      `/qualify/[id]`,
+  (f) the pencil unlocks edit mode for the other cells and Save
+      commits cleanly,
+  (g) hovering the pencil / status buttons / row shows the custom
+      tooltip instantly,
+  (h) header HelpBox triggers open the sourcing-mode modals, and
+      the field-level triggers on the add-prospect form match.
+  Revise any of the six new help entries in `src/lib/help-content.ts`
+  (`sourcingRealEstate`) — first draft Claude, your voice will
+  refine.
 
 ---
 

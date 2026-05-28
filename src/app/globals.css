@@ -469,6 +469,45 @@ h1, h2, h3, h4, h5, h6 {
   }
 }
 
+/* ─── Custom hover tooltips (D-040) ───────────────────────────────────── */
+/* Attribute-driven, CSS-only, no JS. Drop `data-tooltip="…"` on any
+   element and a small label appears above it on hover. The label is
+   instant — no fade or delay — because reps on Sourcing are clicking
+   things rapidly and a tooltip that hesitates is worse than none.
+   Position defaults to above; set `data-tooltip-pos="below"` for
+   elements near the top of the viewport. Whitespace stays on one line;
+   tooltip text should be short ("Move to Qualify", "Edit row"). */
+[data-tooltip] {
+  position: relative;
+}
+
+[data-tooltip]:hover::after,
+[data-tooltip]:focus-visible::after {
+  content: attr(data-tooltip);
+  position: absolute;
+  left: 50%;
+  transform: translateX(-50%);
+  bottom: calc(100% + 6px);
+  padding: 0.32rem 0.55rem;
+  background: var(--surface-3);
+  color: var(--text);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  font-size: 0.7rem;
+  font-weight: 500;
+  letter-spacing: 0.01em;
+  white-space: nowrap;
+  pointer-events: none;
+  z-index: 50;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.18);
+}
+
+[data-tooltip][data-tooltip-pos='below']:hover::after,
+[data-tooltip][data-tooltip-pos='below']:focus-visible::after {
+  bottom: auto;
+  top: calc(100% + 6px);
+}
+
 /* ─── Container for centered narrow content (auth, marketing) ─────────── */
 .container-narrow {
   max-width: 720px;

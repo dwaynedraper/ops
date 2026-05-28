@@ -253,6 +253,7 @@ interface ExistingRow {
   rank_inputs: RankInputs;
   rank_score: string;
   stage: ProspectStage;
+  created_at: string;
 }
 
 async function createRow(
@@ -317,7 +318,8 @@ async function createRow(
     RETURNING id, workflow_key, contact_name, org_name, market_area,
               sides_count, gross_volume, source_url,
               sourcing_status, sourcing_note,
-              rank_inputs, rank_score::text AS rank_score, stage`;
+              rank_inputs, rank_score::text AS rank_score, stage,
+              created_at::text AS created_at`;
   if (!inserted) return { ok: false, error: 'Could not save that prospect.' };
 
   revalidatePath('/sourcing');
@@ -339,7 +341,8 @@ async function updateRow(
     SELECT id, workflow_key, contact_name, org_name, market_area,
            sides_count, gross_volume, source_url,
            sourcing_status, sourcing_note,
-           rank_inputs, rank_score::text AS rank_score, stage
+           rank_inputs, rank_score::text AS rank_score, stage,
+           created_at::text AS created_at
     FROM prospects WHERE id = ${prospect.id}`;
   if (!existing) return { ok: false, error: 'That prospect is no longer in the pipeline.' };
 
@@ -425,7 +428,8 @@ async function updateRow(
     RETURNING id, workflow_key, contact_name, org_name, market_area,
               sides_count, gross_volume, source_url,
               sourcing_status, sourcing_note,
-              rank_inputs, rank_score::text AS rank_score, stage`;
+              rank_inputs, rank_score::text AS rank_score, stage,
+              created_at::text AS created_at`;
   if (!updated) return { ok: false, error: 'Could not save that prospect.' };
 
   revalidatePath('/sourcing');
@@ -472,5 +476,6 @@ function rowFromExisting(r: ExistingRow, factors: RankFactor[]): SourcingRow {
     rankScore: Number(r.rank_score),
     stage: r.stage,
     hasPartialScore: hasPartial,
+    createdAt: r.created_at,
   };
 }
