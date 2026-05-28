@@ -104,14 +104,14 @@ export default async function TodayPage() {
             {dueNow.length > 0 && (
               <Section
                 title="Follow-ups due today"
-                hint="Work these top-down — highest score first. The composer is in Tracking."
-                action={{ href: '/tracking', label: 'Open Tracking →' }}
+                hint="Work these top-down — highest score first. The composer is in Contact."
+                action={{ href: '/contact', label: 'Open Contact →' }}
               >
                 {dueNow.map((i) => (
                   <DigestRow
                     key={i.id}
                     item={i}
-                    href="/tracking"
+                    href="/contact"
                     tag={`${i.status === 'due' ? 'Due' : 'Ready'} · ${i.nextLabel}`}
                     tagColor={i.status === 'due' ? 'var(--warn)' : 'var(--accent)'}
                   />
@@ -124,13 +124,13 @@ export default async function TodayPage() {
               <Section
                 title="Ready to close out"
                 hint="The full cycle ran with no reply. Close them so the board stays honest."
-                action={{ href: '/tracking', label: 'Open Tracking →' }}
+                action={{ href: '/contact', label: 'Open Contact →' }}
               >
                 {closeOuts.map((i) => (
                   <DigestRow
                     key={i.id}
                     item={i}
-                    href="/tracking"
+                    href="/contact"
                     tag="No reply"
                     tagColor="var(--text-faint)"
                   />

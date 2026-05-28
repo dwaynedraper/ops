@@ -38,10 +38,7 @@ const TOOLS_LINKS: NavLink[] = [
 const SALES_LINKS: NavLink[] = [
   { href: '/sourcing', label: 'Sourcing' },
   { href: '/qualify', label: 'Qualify' },
-  // Route stays `/tracking` until F3 renames the folder; the label
-  // already reads "Contact" per D-066 so the rest of the rename can
-  // be a pure URL sweep when it lands.
-  { href: '/tracking', label: 'Contact' },
+  { href: '/contact', label: 'Contact' },
   { href: '/clients', label: 'Client List' },
 ];
 

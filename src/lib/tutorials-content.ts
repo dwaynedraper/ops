@@ -132,22 +132,22 @@ const realEstateTutorial: TutorialEntry = {
       body: [
         {
           kind: 'paragraph',
-          text: "Once an agent is Qualified, they show up on /tracking. The Tracking page is the daily working surface — every Qualified agent gets a card with a pre-filled contact script ready to send.",
+          text: "Once an agent is Qualified, they show up on /contact. The Contact page is the daily working surface — every Qualified agent gets a card with a pre-filled contact script ready to send.",
         },
         {
           kind: 'steps',
           items: [
-            'Open /tracking. Cards are grouped by where they are in the contact cycle.',
+            'Open /contact. Cards are grouped by where they are in the contact cycle.',
             "Pick a card. The right pane shows the next script (first touch, follow-up 1, follow-up 2, close-out).",
             "Click Copy. The script is on your clipboard with placeholders already replaced — agent name, agency name, your booking link.",
             "Paste into the channel you're using (email, Instagram DM, whatever).",
-            "Back on Tracking, click Log contact. The card moves into 'Waiting for reply.' If a follow-up is due, the system surfaces it on the next pass.",
+            "Back on Contact, click Log contact. The card moves into 'Waiting for reply.' If a follow-up is due, the system surfaces it on the next pass.",
           ],
         },
         {
           kind: 'callout',
           tone: 'info',
-          text: "Every lifecycle move on Tracking has a 20-second Undo. If you mark a touch and immediately realize you grabbed the wrong card, the toast at the bottom lets you cancel before anything commits.",
+          text: "Every lifecycle move on Contact has a 20-second Undo. If you mark a touch and immediately realize you grabbed the wrong card, the toast at the bottom lets you cancel before anything commits.",
         },
         {
           kind: 'paragraph',

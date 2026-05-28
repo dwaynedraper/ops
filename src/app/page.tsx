@@ -242,8 +242,8 @@ export default async function Dashboard() {
               >
                 <div className="eyebrow">Follow-ups due</div>
                 {followUps.length > 0 && (
-                  <Link href="/tracking" className="btn-ghost" style={{ padding: '0.2rem 0' }}>
-                    Open Tracking →
+                  <Link href="/contact" className="btn-ghost" style={{ padding: '0.2rem 0' }}>
+                    Open Contact →
                   </Link>
                 )}
               </div>
@@ -262,7 +262,7 @@ export default async function Dashboard() {
                     return (
                       <Link
                         key={f.id}
-                        href="/tracking"
+                        href="/contact"
                         className="surface-tool"
                         style={{
                           display: 'flex',
@@ -382,7 +382,7 @@ export default async function Dashboard() {
                         </div>
                         {hit ? (
                           <Link
-                            href="/tracking"
+                            href="/contact"
                             style={{
                               fontSize: '0.74rem',
                               fontWeight: 600,

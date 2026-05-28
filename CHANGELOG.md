@@ -61,8 +61,8 @@ in `V2-PLAN.md`.
   (super-admin only). (D-066.)
 - Label renames: `Calculator` → **Quote Calculator**, `Clients` →
   **Client List**. URLs unchanged; pure display-text edits.
-- The "Contact" sidebar label points at `/tracking` for now — F3
-  renames the route folder and the href flips at the same time.
+- The "Contact" sidebar label pointed at `/tracking` until F3
+  landed the route-folder rename; href now reads `/contact`.
 - Active-route matching now handles nested routes: `/qualify`
   highlights for both `/qualify` and `/qualify/[id]`, same for
   `/tutorials`.
@@ -201,6 +201,57 @@ needed to change:
   `real_estate` ships in V2). New `WhereToStart` component
   imports `getHelpEntry` directly to gate visibility.
 
+### F3 — Tracking → Contact rename (D-046)
+
+App-wide rename of the contact-cycle surface from `/tracking` to
+`/contact`. Pure URL + folder + label sweep; no behavior or schema
+changes. Same shape as the V1 `/research` → `/qualify` rename.
+
+- **Folder rename** via `git mv`:
+  - `src/app/tracking/` → `src/app/contact/`
+  - `src/app/contact/TrackingClient.tsx` → `src/app/contact/ContactClient.tsx`
+- **In-folder renames** (page-internal only):
+  - `TrackingPage` → `ContactPage` (default export)
+  - `TrackingClient` → `ContactClient` (exported component)
+  - `TrackingWorkflow` → `ContactWorkflow` (local interface)
+  - Page eyebrow + `metadata.title` "Tracking" → "Contact"
+  - `callbackUrl=/tracking` → `callbackUrl=/contact`
+  - All three `revalidatePath('/tracking')` → `'/contact'`
+  - Header comment on `actions.ts` updated; "tracking board"
+    phrasings inside comments now read "contact board."
+- **External URL references** swept:
+  - `Sidebar.tsx` — `href: '/contact'`. The placeholder comment
+    about "route stays /tracking until F3" comes out.
+  - `src/app/page.tsx` — three Dashboard Links (`Open Tracking →`
+    button + two row Links to follow-up cards) now point at
+    `/contact` and read "Open Contact →".
+  - `src/lib/digest-email.ts` — both `${base}/tracking` URL
+    constructions now `${base}/contact`.
+  - `src/app/today/page.tsx` — four refs (Section action hrefs +
+    DigestRow hrefs) + two `"Open Tracking →"` button labels +
+    the "the composer is in Tracking" hint copy all flipped to
+    Contact.
+  - `src/lib/tutorials-content.ts` — the real-estate Step 3
+    walkthrough rewritten to say `/contact` and "the Contact
+    page" instead of `/tracking` / "the Tracking page."
+- **Out of scope (intentional):** the supporting library at
+  `src/lib/tracking.ts` keeps its filename, and the in-lib types
+  `TrackingCard`, `TrackingStatus` (plus `statusRank`'s signature)
+  stay as-is. Every consumer still imports from `@/lib/tracking`.
+  The V2-PLAN F3 wording is "folder rename" + URL sweep — a
+  lib-side rename can land as a small follow-up if the naming
+  mismatch starts to bite. Three new comment headers (page.tsx,
+  ContactClient.tsx, actions.ts) explicitly flag this so a future
+  reader doesn't trip over the asymmetry.
+- **Doc sweep:** the F1 note about "Contact label points at
+  /tracking until F3" updated to reflect that F3 has landed.
+  Historical V1 entries (Phase B, etc.) keep their original
+  `/tracking` references — they describe what shipped at the
+  time and shouldn't be rewritten.
+- **Verified:** `tsc --noEmit` + `eslint src` clean. Every
+  `/tracking` left in `src/` is either a `@/lib/tracking` import
+  (correct) or a "was `/tracking` pre-F3" comment header.
+
 ### Pricing & Admin gating — verified, not changed
 - Sidebar already gates the admin section to `super_admin` via
   `role === 'super_admin'` filtering. Every admin route
@@ -235,6 +286,10 @@ needed to change:
   Revise any of the six new help entries in `src/lib/help-content.ts`
   (`sourcingRealEstate`) — first draft Claude, your voice will
   refine.
+- F3: walk Contact in dev — visit `/contact`, confirm the page H1
+  reads "Contact," the sidebar highlights "Contact" when you're
+  on it, follow-up Links from Dashboard + Today both land on
+  `/contact`, and the digest email URLs read `…/contact`.
 
 ---
 

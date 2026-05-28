@@ -1,11 +1,17 @@
 'use client';
 
 /**
- * The tracking board — interactive, multi-workflow.
+ * The contact board (was the "tracking board" pre-F3 / D-046) —
+ * interactive, multi-workflow.
  *
  * Left: every prospect in a contact cycle, across workflows, most urgent
  * first, with a workflow filter. Right: the selected prospect's cycle,
  * worked against its own workflow's scripts.
+ *
+ * Lib types still read `TrackingCard` / `TrackingStatus` per the V2-PLAN
+ * F3 scope (route folder + URL references only). A lib-side rename can
+ * follow if needed; this file keeps the imports and renames the local
+ * type + exported component to `Contact*`.
  */
 
 import { useState } from 'react';
@@ -22,7 +28,7 @@ import {
 } from '@/lib/tracking';
 import { logContact, markResponded, closeOut } from './actions';
 
-export interface TrackingWorkflow {
+export interface ContactWorkflow {
   key: string;
   name: string;
   accent: string;
@@ -50,7 +56,7 @@ function seedValues(card: TrackingCard, repName: string): Record<string, string>
   };
 }
 
-export function TrackingClient({
+export function ContactClient({
   cards,
   workflows,
   scriptsByWorkflow,
@@ -58,7 +64,7 @@ export function TrackingClient({
   repName,
 }: {
   cards: TrackingCard[];
-  workflows: TrackingWorkflow[];
+  workflows: ContactWorkflow[];
   scriptsByWorkflow: Record<string, ContactScript[]>;
   linksByWorkflow: Record<string, HandoffLink[]>;
   repName: string;

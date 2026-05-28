@@ -79,7 +79,7 @@ export function digestEmailHtml(data: DigestData, p: DigestEmailParams): string 
           .map((i) =>
             itemRow(
               i,
-              `${base}/tracking`,
+              `${base}/contact`,
               `${i.status === 'due' ? 'Due' : 'Ready'} · ${i.nextLabel}`,
               i.status === 'due' ? WARN : RUST,
             ),
@@ -93,7 +93,7 @@ export function digestEmailHtml(data: DigestData, p: DigestEmailParams): string 
       section(
         'Ready to close out',
         data.closeOuts
-          .map((i) => itemRow(i, `${base}/tracking`, 'No reply', FAINT))
+          .map((i) => itemRow(i, `${base}/contact`, 'No reply', FAINT))
           .join(''),
       ),
     );
