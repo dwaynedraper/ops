@@ -41,6 +41,7 @@ import {
   type SourcingStatus,
 } from '@/lib/sourcing';
 import { HelpBox } from '@/components/HelpBox';
+import { getHelpEntry } from '@/lib/help-content';
 import { upsertSourcingRow, type UpsertSourcingRowInput } from './actions';
 
 /** Map a sourcing column key to the help-content factor key. Column
@@ -56,6 +57,7 @@ function helpKeyForColumn(columnKey: string): string {
 }
 
 const OVERRIDE_MIN_CHARS = 20;
+const QUALIFY_COL_WIDTH = 56;
 const SCORE_COL_WIDTH = 80;
 const ACTIONS_COL_WIDTH = 56;
 
@@ -284,6 +286,14 @@ export function SourcingClient({
         })}
       </div>
 
+      {/* ─── Where to start (F2.8.4) ──────────────────────────────── */}
+      {/* Sits between the workflow tabs and the form so a rep new to
+          /sourcing — or returning after a break — gets a clear
+          three-step guide before they start typing. Per-workflow
+          content; renders nothing if a workflow doesn't have a
+          `start` entry authored. */}
+      <WhereToStart workflowKey={wf.key} contactNoun={wf.contactNoun} />
+
       {/* ─── Add-prospect form ────────────────────────────────────── */}
       <AddProspectForm
         key={wf.key}
@@ -315,6 +325,66 @@ export function SourcingClient({
 }
 
 /* ── Add-prospect form ────────────────────────────────────────────── */
+
+/* ── Where-to-start onboarding strip (F2.8.4) ─────────────────────── */
+
+function WhereToStart({
+  workflowKey,
+  contactNoun,
+}: {
+  workflowKey: string;
+  contactNoun: string;
+}) {
+  // Render nothing if the workflow doesn't have a `start` entry yet —
+  // V2 only ships real_estate; other workflows backlog the content.
+  const entry = getHelpEntry(workflowKey, 'start', 'sourcing');
+  if (!entry) return null;
+
+  const lowerNoun = contactNoun.toLowerCase();
+  return (
+    <div
+      style={{
+        display: 'flex',
+        alignItems: 'center',
+        gap: '0.85rem',
+        flexWrap: 'wrap',
+        padding: '0.7rem 1rem',
+        background: 'var(--accent-dim)',
+        border: '1px solid var(--border-accent)',
+        borderRadius: 'var(--radius)',
+      }}
+    >
+      <span
+        style={{
+          fontSize: '0.6rem',
+          letterSpacing: '0.22em',
+          textTransform: 'uppercase',
+          fontWeight: 700,
+          color: 'var(--accent)',
+        }}
+      >
+        Where to start
+      </span>
+      <span
+        style={{
+          fontSize: '0.82rem',
+          color: 'var(--text-mid)',
+          flex: 1,
+          minWidth: '14ch',
+        }}
+      >
+        Sourcing {lowerNoun}s in three steps — get the list, fill each
+        row, keep moving.
+      </span>
+      <HelpBox
+        workflowKey={workflowKey}
+        factorKey="start"
+        mode="sourcing"
+        label="Open the guide →"
+      />
+    </div>
+  );
+}
 
 function AddProspectForm({
   workflow,
@@ -840,7 +910,8 @@ function SourcingTable({
   const cols = workflow.columns;
 
   const template = useMemo(() => {
-    const parts: string[] = [`${SCORE_COL_WIDTH}px`];
+    // Column order: [Qualify button] [Score] [...workflow cols] [Actions]
+    const parts: string[] = [`${QUALIFY_COL_WIDTH}px`, `${SCORE_COL_WIDTH}px`];
     for (const c of cols) parts.push(`${c.width}px`);
     parts.push(`${ACTIONS_COL_WIDTH}px`);
     return parts.join(' ');
@@ -929,6 +1000,18 @@ function TableHeader({
         borderBottom: '1px solid var(--border)',
       }}
     >
+      {/* Qualify-button column — leftmost. Header reads "Qualify
+          selection"; each row's cell holds the per-row button that
+          opens /qualify/[id]. (D-042 placeholder; the actual
+          one-click Qualify gating arrives in F6.) */}
+      <div
+        role="columnheader"
+        style={{ ...cellBase, textAlign: 'center', lineHeight: 1.15 }}
+      >
+        Qualify
+        <br />
+        selection
+      </div>
       <SortHeader
         label="Score"
         sortKey="rankScore"
@@ -1228,10 +1311,15 @@ function TableRow({
     }
   }
 
-  /* Row navigability — the body is a clickable area that opens Qualify
-     (D-039). Edit mode, pending-override, or another active row all
-     suspend it so the rep can finish what they're doing. */
-  const navigable = !isActive && pendingStatus === null && !anotherRowIsActive;
+  /* Row editability — clicking anywhere on the row body that isn't an
+     interactive control activates edit mode. The leftmost Qualify
+     button and the Name cell are the two exceptions that navigate to
+     /qualify/[id] instead. Edit mode, pending-override, or another
+     active row all suspend the activate-on-click so the rep can
+     finish what they're doing. (Supersedes D-039: row body
+     navigates → row body activates edit; the explicit Qualify
+     column carries the navigate intent.) */
+  const editable = !isActive && pendingStatus === null && !anotherRowIsActive;
 
   /* Row styling — gutter above/below when active, plus a soft background
      tint so clicking off feels intentional. */
@@ -1241,7 +1329,7 @@ function TableRow({
     alignItems: 'stretch',
     borderBottom: '1px solid var(--border)',
     opacity: row.sourcingStatus === 'reject' && !isActive ? 0.55 : 1,
-    cursor: navigable ? 'pointer' : 'default',
+    cursor: editable ? 'pointer' : 'default',
   };
   const wrapperStyle: React.CSSProperties = isActive
     ? {
@@ -1258,10 +1346,11 @@ function TableRow({
       <div
         role="row"
         style={rowStyle}
-        onClick={navigable ? handleNavigate : undefined}
-        data-tooltip={navigable ? 'Open in Qualify' : undefined}
+        onClick={editable ? handleActivate : undefined}
+        data-tooltip={editable ? 'Click to edit' : undefined}
         data-tooltip-pos="below"
       >
+        <QualifyButtonCell onNavigate={handleNavigate} />
         <ScoreCell row={row} bands={workflow.bands} />
         {workflow.columns.map((col) => (
           <RowCell
@@ -1277,13 +1366,13 @@ function TableRow({
             visibleStatus={visibleStatus}
             onStatusChange={handleStatusChange}
             onBoolChange={handleBoolChange}
+            onNavigate={handleNavigate}
           />
         ))}
         <ActionsCell
           isActive={isActive}
           busy={busy}
           canSave
-          onEdit={handleActivate}
           onSave={commit}
           onCancel={handleCancel}
         />
@@ -1364,6 +1453,7 @@ function RowCell({
   visibleStatus,
   onStatusChange,
   onBoolChange,
+  onNavigate,
 }: {
   column: SourcingColumn;
   factor: RankFactor | undefined;
@@ -1374,7 +1464,44 @@ function RowCell({
   visibleStatus: SourcingStatus;
   onStatusChange: (next: SourcingStatus) => void;
   onBoolChange: (key: string, next: boolean) => void;
+  onNavigate: () => void;
 }) {
+  // Primary cell (Name) — always a navigation link to /qualify/[id]
+  // regardless of edit mode. The name is not editable from Sourcing
+  // (rep edits it on Qualify if it ever needs to change). The
+  // leftmost Qualify button + this cell are the two row exceptions
+  // that navigate instead of activating edit (F2.8.1).
+  if (column.isPrimary) {
+    return (
+      <div
+        role="cell"
+        onClick={(e) => {
+          e.stopPropagation();
+          onNavigate();
+        }}
+        data-tooltip="Open in Qualify"
+        data-tooltip-pos="below"
+        style={{
+          padding: '0.55rem 0.65rem',
+          fontSize: '0.85rem',
+          fontWeight: 500,
+          color: 'var(--accent)',
+          cursor: 'pointer',
+          textDecoration: 'underline',
+          textDecorationColor: 'var(--border-accent)',
+          textUnderlineOffset: '0.2rem',
+          textDecorationStyle: 'dotted',
+          whiteSpace: 'nowrap',
+          overflow: 'hidden',
+          textOverflow: 'ellipsis',
+          lineHeight: 1.3,
+        }}
+      >
+        {row.contactName || <Dim>—</Dim>}
+      </div>
+    );
+  }
+
   // Status cell — always renders the toggle (D-037). Stop propagation
   // so clicking a status button doesn't also trigger row navigation.
   if (column.key === 'sourcingStatus') {
@@ -1561,20 +1688,20 @@ const cellInputStyle: React.CSSProperties = {
   fontSize: '0.82rem',
 };
 
-/* ── Pencil / check column ───────────────────────────────────────── */
+/* ── Save / Cancel column (edit mode only) ───────────────────────── */
+/* Display mode renders an empty cell — the row-body click is the
+   edit trigger now (F2.8.1 replaces the pencil-as-edit-trigger). */
 
 function ActionsCell({
   isActive,
   busy,
   canSave,
-  onEdit,
   onSave,
   onCancel,
 }: {
   isActive: boolean;
   busy: boolean;
   canSave: boolean;
-  onEdit: () => void;
   onSave: () => void;
   onCancel: () => void;
 }) {
@@ -1591,7 +1718,7 @@ function ActionsCell({
         cursor: 'default',
       }}
     >
-      {isActive ? (
+      {isActive && (
         <>
           <button
             type="button"
@@ -1635,26 +1762,52 @@ function ActionsCell({
             ✕
           </button>
         </>
-      ) : (
-        <button
-          type="button"
-          onClick={onEdit}
-          aria-label="Edit row"
-          data-tooltip="Edit this row in place"
-          style={{
-            width: 24,
-            height: 24,
-            border: '1px solid var(--border)',
-            borderRadius: 'var(--radius-sm)',
-            background: 'transparent',
-            color: 'var(--text-mid)',
-            cursor: 'pointer',
-            fontSize: '0.74rem',
-          }}
-        >
-          ✎
-        </button>
       )}
+    </div>
+  );
+}
+
+/* ── Qualify button column (leftmost) ─────────────────────────────── */
+/* Per-row navigate-to-/qualify/[id] button. Sits in the new leftmost
+   column; the header above reads "Qualify selection." Stop-propagates
+   the click so the row-body activate-edit doesn't also fire. */
+
+function QualifyButtonCell({ onNavigate }: { onNavigate: () => void }) {
+  return (
+    <div
+      role="cell"
+      onClick={(e) => e.stopPropagation()}
+      style={{
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        padding: '0.3rem',
+        cursor: 'default',
+      }}
+    >
+      <button
+        type="button"
+        onClick={onNavigate}
+        aria-label="Open in Qualify"
+        data-tooltip="Open in Qualify"
+        style={{
+          width: 32,
+          height: 26,
+          border: '1px solid var(--border-accent)',
+          borderRadius: 'var(--radius-sm)',
+          background: 'var(--accent-dim)',
+          color: 'var(--accent)',
+          cursor: 'pointer',
+          fontSize: '0.85rem',
+          fontWeight: 600,
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          lineHeight: 1,
+        }}
+      >
+        →
+      </button>
     </div>
   );
 }

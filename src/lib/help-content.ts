@@ -401,6 +401,82 @@ const realEstate: Record<string, HelpEntry> = {
  */
 
 const sourcingRealEstate: Record<string, HelpEntry> = {
+  start: {
+    title: 'Where to start',
+    subtitle:
+      "First time sourcing real estate, or coming back after a break? Three steps from a public ranking to a populated row.",
+    sections: [
+      {
+        id: 'get-the-list',
+        title: '1. Get the list',
+        body: [
+          {
+            kind: 'paragraph',
+            text: "Sourcing is fastest when you work off a public ranking. RealTrends publishes them by city — pick the corridor city you're targeting and the page gives you the top producers, sorted by sides or volume.",
+          },
+          {
+            kind: 'steps',
+            items: [
+              "Open the RealTrends ranking for your target city (link below).",
+              "Stay on the by-sides ranking — sides is the count that maps to our hard qualifier.",
+              'Skim the top 30–50 names. Keep the tab open; you\'ll reference it as you fill rows.',
+            ],
+          },
+          {
+            kind: 'link',
+            url: 'https://www.realtrends.com/ranking/best-real-estate-agents-southlake-texas/individuals-by-sides/',
+            label: 'RealTrends rankings (example: Southlake)',
+          },
+          {
+            kind: 'callout',
+            tone: 'info',
+            text: "Don't have a ranking in front of you? A brokerage's agent page works too — Compass, Briggs Freeman, Allie Beth — just pull the top producers and start filling rows.",
+          },
+        ],
+      },
+      {
+        id: 'fill-each-row',
+        title: '2. Fill each row',
+        body: [
+          {
+            kind: 'paragraph',
+            text: "Paste the agent's name, their agency, and the market they work. Fill the hard qualifiers as you can — every column has a per-field help link that explains what to look for in 30 seconds or less.",
+          },
+          {
+            kind: 'list',
+            items: [
+              '**Name** — required. Paste exactly as it appears.',
+              '**Agency** — required. Pulls in from the ranking too.',
+              '**Market** — the city or corridor. "Southlake," "121 Corridor," etc.',
+              '**Gross volume** — the dollar figure from RealTrends. Strip the $ and commas.',
+              '**Source URL** — paste the RealTrends page (or wherever you found them). Future-you will thank you.',
+              '**Hard qualifiers** — fill what you can see fast. Defer the rest to Qualify.',
+            ],
+          },
+          {
+            kind: 'paragraph',
+            text: 'Then set the **status** — Pursue / Undecided / Reject. Pursue lands the row in the Qualify queue. The pre-score badge is advisory, not binding.',
+          },
+        ],
+      },
+      {
+        id: 'keep-moving',
+        title: '3. Keep moving',
+        body: [
+          {
+            kind: 'paragraph',
+            text: "Sourcing is a rapid-fire surface. Aim for 30 seconds per row — 60 if a qualifier needs a click. Anything that takes longer than that belongs on Qualify, where you do the deep read of the prospects you actually committed to pursue.",
+          },
+          {
+            kind: 'callout',
+            tone: 'info',
+            text: "If you find yourself reading a Zillow profile for two minutes, stop. Save what you have, toggle Pursue (or Undecided if you're not sure), and move on. The whole list will take 45–90 minutes if you keep the cadence.",
+          },
+        ],
+      },
+    ],
+  },
+
   gross_volume: {
     title: 'Gross volume',
     subtitle:
@@ -530,39 +606,64 @@ const sourcingRealEstate: Record<string, HelpEntry> = {
   },
 
   annual_volume: {
-    title: 'Annual volume (in millions)',
-    subtitle: "The RealTrends figure, transcribed. Read it once, type it, move on.",
+    title: 'Listings per year ($500K–$2M)',
+    subtitle:
+      "Count of homes the agent closes in our target price band per year. Not dollars — the listings count.",
     sections: [
       {
-        id: 'how-to-read',
-        title: 'How to read the RealTrends number',
+        id: 'the-rapid-read',
+        title: 'The rapid read',
         body: [
           {
             kind: 'paragraph',
-            text: 'RealTrends ranks agents by "Sales Volume" — total dollars closed across the year. The number in the cell here is millions: $34M closed → enter 34.',
+            text: "RealTrends ranks agents by total sides — that's the count we want, restricted to the $500K–$2M band. The cell takes a whole number: 10, 22, 30.",
           },
           {
             kind: 'list',
             items: [
-              "$8M → 8",
-              "$34M → 34",
-              "$120M → 120",
+              '10 listings/yr ≈ growth-phase agent, retainer fits.',
+              '20+/yr ≈ a known producer in the band.',
+              '30+/yr ≈ full-volume relationship; the Visibility Retainer makes the most sense.',
             ],
-          },
-        ],
-      },
-      {
-        id: 'why-this-scores',
-        title: 'Why this is a hard qualifier',
-        body: [
-          {
-            kind: 'paragraph',
-            text: "Annual volume is a near-perfect proxy for whether the agent treats marketing as an investment. Below ~$10M it's hard to justify the spend; above ~$30M it sells itself.",
           },
           {
             kind: 'callout',
             tone: 'info',
-            text: "The piecewise score curve gives full credit at $30M+, partial credit between $10M and $30M, and zero below $10M. So a 34 lands the row in the top band on volume alone.",
+            text: "The score curve gives full credit at 30+, partial credit between 10 and 30, and zero below 10. Entering 30 lands the row in the top band on volume alone.",
+          },
+        ],
+      },
+      {
+        id: 'estimating-the-in-band-share',
+        title: 'Estimating the $500K–$2M share',
+        body: [
+          {
+            kind: 'paragraph',
+            text: "RealTrends reports TOTAL sides — all price bands combined. You need the in-band fraction, not the total. Eyeball it from their Past Sales on Zillow.",
+          },
+          {
+            kind: 'steps',
+            items: [
+              "Note the RealTrends total sides for the year.",
+              "Open the agent's Zillow profile, scroll Past Sales.",
+              "Glance at the price column for the most recent ~20 closings — what fraction sits between $500K and $2M?",
+              'Multiply: total sides × in-band fraction = the number you enter. Round.',
+            ],
+          },
+          {
+            kind: 'callout',
+            tone: 'warn',
+            text: "Don't deep-research this on Sourcing. A close-enough estimate is what the cell wants. The exact count gets refined on Qualify.",
+          },
+        ],
+      },
+      {
+        id: 'when-to-defer',
+        title: "When to leave it blank",
+        body: [
+          {
+            kind: 'paragraph',
+            text: "If the agent isn't on RealTrends and Zillow Past Sales is thin, leave the cell at 0 and let the row ride on the other qualifiers. The deep count happens on Qualify when you can pull MLS or do a longer Zillow scan.",
           },
         ],
       },

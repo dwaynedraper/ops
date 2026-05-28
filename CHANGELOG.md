@@ -152,6 +152,55 @@ The polish-and-fit pass on `/sourcing`. Six concrete moves:
   the help modal replaces them). Missing entries render no
   trigger, so columns without authored content stay clean.
 
+### F2 — Sourcing revisions after first walk-through (F2.8)
+
+Dean walked the table in dev and called out four things that
+needed to change:
+
+- **F2.8.1 — Row interaction model reversed (supersedes D-039).**
+  The row body now opens edit mode on click (which is what reps
+  expect from a spreadsheet-style triage surface). A new
+  **leftmost column** holds a per-row **Qualify selection**
+  button — a small terracotta-accented `→` that navigates to
+  `/qualify/[id]`. The Name cell is the second navigation
+  exception: clicking it also opens `/qualify/[id]` (the name is
+  the prospect's identity, so it reads as a link). The pencil
+  comes out of `ActionsCell` entirely — the row body click is the
+  edit trigger now; in display mode that column is empty, in edit
+  mode it holds Save + Cancel.
+  - `QUALIFY_COL_WIDTH = 56` added to the grid template; column
+    order is now `[Qualify] [Score] […workflow cols] [Actions]`.
+  - `TableHeader` renders "Qualify / selection" as the leftmost
+    columnheader.
+  - New `QualifyButtonCell` component; new `onNavigate` prop on
+    `RowCell` so the Name cell can fire navigation without
+    bubbling up through the row's activate-edit handler.
+  - `RowCell` gains a `column.isPrimary` branch — the name is
+    rendered as a dotted-underline accent link, not an editable
+    input. Name editing happens on Qualify going forward.
+- **F2.8.2 — Tooltip restyled.** The original tooltip read as a
+  small button hovering below the row (surface-3 background,
+  strong border, box-shadow). Lightened to a flat cursor-hint:
+  no shadow, no border, smaller font + padding, `surface-tool-2`
+  background. Row-body tooltip now reads "Click to edit"; the
+  Qualify button + Name cell read "Open in Qualify."
+- **F2.8.3 — `annual_volume` sourcing help rewritten.** My
+  first-draft sourcing entry treated `annual_volume` as a dollar
+  figure (`$34M → 34`), which contradicts the field — it's the
+  COUNT of listings closed per year in the $500K–$2M band. New
+  three-section entry covers the rapid read (10/yr / 20+ / 30+
+  scoring bands), estimating the in-band fraction from RealTrends
+  + Zillow Past Sales, and when to defer to Qualify.
+- **F2.8.4 — "Where to start" onboarding strip.** New inline
+  card between the workflow tabs and the add-prospect form, with
+  a prominent `Open the guide →` HelpBox trigger. Authored a
+  three-section guide (get the list / fill each row / keep
+  moving) including a RealTrends example URL and the "30 seconds
+  per row" cadence guidance. Per-workflow content; renders
+  nothing when a workflow lacks a `start` entry (only
+  `real_estate` ships in V2). New `WhereToStart` component
+  imports `getHelpEntry` directly to gate visibility.
+
 ### Pricing & Admin gating — verified, not changed
 - Sidebar already gates the admin section to `super_admin` via
   `role === 'super_admin'` filtering. Every admin route
