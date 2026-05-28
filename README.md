@@ -57,6 +57,36 @@ The dev server runs at <http://localhost:3000>. Every route except
 `/signin/*` and `/api/auth/*` redirects to `/signin` if no session
 cookie is present — the proxy gates the whole app.
 
+### Testing database (V2 onward)
+
+Local dev points at a **separate Neon project from production** so the
+v2 branch can be exercised without writing into prod data. (D-064.)
+
+One-time setup:
+
+1. In the Neon dashboard, create a second project — name it whatever
+   makes sense (e.g. `sharp-ops-testing`). Free tier is fine.
+2. Copy the **pooled** connection string from the new project.
+3. In `.env.local`, replace the `DATABASE_URL` line with the new
+   project's string. Keep the production string somewhere safe (Vercel
+   project settings already has it). The append `?sslmode=verify-full`
+   if it's not already there.
+4. Apply the schema: `npm run db:migrate`. This runs against whatever
+   `DATABASE_URL` is currently set to — i.e. the new testing project.
+5. Seed it if you want sample data: `npm run db:seed`.
+
+After that, `npm run dev` writes to the testing project. Production
+on Vercel keeps using its own `DATABASE_URL` (set in Vercel env vars)
+— it's never affected by local work.
+
+To swap back to prod for a one-off read, point `DATABASE_URL` at the
+prod string temporarily. To swap permanently, change the env var and
+re-run the dev server.
+
+> If you ever need a true production restore-point during V2, take a
+> Neon snapshot or export `pg_dump` of the prod DB first. The
+> migrations on the testing project don't touch prod.
+
 ### Useful scripts
 
 ```

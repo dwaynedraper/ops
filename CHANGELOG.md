@@ -40,6 +40,69 @@ lives in `README.md`. This file is the time-ordered receipt.
 
 ---
 
+## V2 — in progress (on the `v2` branch)
+
+Live users stay on master/V1 until V2 is merged. Each phase below
+finishes with a clean `tsc --noEmit` + `eslint src` and a doc entry
+in `V2-PLAN.md`.
+
+### F0 — Testing DB setup (docs only)
+- README gains a "Testing database (V2 onward)" section. One-time
+  Dean task: create a second Neon project, swap `DATABASE_URL` in
+  `.env.local` to it, run `npm run db:migrate`. No code changes.
+  (D-064.)
+
+### F1 — Sidebar restructure + sticky app-shell
+
+- `src/components/Sidebar.tsx` rebuilt into four sections with
+  section headers + top-border separators: **Dashboard** (single
+  link), **TOOLS** (Quote Calculator, Tutorials), **SALES**
+  (Sourcing, Qualify, Contact, Client List), **PRICING & ADMIN**
+  (super-admin only). (D-066.)
+- Label renames: `Calculator` → **Quote Calculator**, `Clients` →
+  **Client List**. URLs unchanged; pure display-text edits.
+- The "Contact" sidebar label points at `/tracking` for now — F3
+  renames the route folder and the href flips at the same time.
+- Active-route matching now handles nested routes: `/qualify`
+  highlights for both `/qualify` and `/qualify/[id]`, same for
+  `/tutorials`.
+- Sidebar is now `position: sticky; top: 0; height: 100vh` via the
+  new `.app-shell-aside` class. The page scrolls normally (so the
+  footer follows the content), but the aside stays pinned at the
+  top of the viewport — wordmark up top, scrollable nav in the
+  middle, theme toggle + sign-out pinned at the bottom — no matter
+  how tall the page is. (D-067.) `align-self: start` on the aside
+  prevents CSS Grid's default `stretch` from defeating sticky
+  positioning. The first attempt used `height: 100vh; overflow:
+  hidden` on `.app-shell` to lock the whole shell to the viewport,
+  but the inner main+footer column wasn't height-constrained, so
+  the page scrolled anyway and the toggle/sign-out dropped below
+  the fold. Sticky-aside also avoids the trap where shell-level
+  `overflow: hidden` silently disables `position: sticky` for
+  every nested side panel (calculator summary, qualify score,
+  tracking list). On mobile (≤768px), the aside reverts to
+  `position: static` and the layout stacks (full mobile pass lands
+  in F11).
+
+### Pricing & Admin gating — verified, not changed
+- Sidebar already gates the admin section to `super_admin` via
+  `role === 'super_admin'` filtering. Every admin route
+  (`/rates`, `/packages`, `/corporate`, `/rank-factors`,
+  `/scripts`, `/team`) re-checks the role server-side per the V1
+  launch audit. Both layers hold.
+
+### Verified
+- `tsc --noEmit` and `eslint src` clean.
+
+### Still on Dean
+- F0: stand up the second Neon project + swap `DATABASE_URL` in
+  `.env.local` when convenient.
+- F1: walk the sidebar in dev — confirm the section layout, the
+  sticky bottom controls, and the scroll behavior when the nav is
+  taller than the viewport.
+
+---
+
 ## 2026-05-26 — V1 Sourcing close
 
 The Sourcing redesign that wraps V1 on master. After this lands, V2
