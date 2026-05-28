@@ -40,6 +40,101 @@ lives in `README.md`. This file is the time-ordered receipt.
 
 ---
 
+## 2026-05-26 — V1 Sourcing close
+
+The Sourcing redesign that wraps V1 on master. After this lands, V2
+moves to a branch so live users aren't broken mid-stride.
+
+### The mental model fix (D-034)
+
+Sourcing was conflated with Qualify in two ways: a positive toggle on
+Sourcing was named "Qualify" *and* auto-promoted the prospect to
+`stage = qualified`. Dean called this out — Sourcing is triage, not
+qualification. The promotion path now runs:
+
+- **Sourcing toggle** is `Pursue / Undecided / Reject`. Pursue records
+  that this prospect is worth qualifying. Stage stays `researching`.
+  Reject moves stage to `rejected`.
+- **The Qualify page is the only way to set `stage = qualified`.**
+  Its toggle is `Qualify / Undecided / Reject`. Same `sourcing_status`
+  column; Sourcing writes `pursue`, Qualify writes `qualify`, both
+  write `reject`.
+
+### Lifecycle stage rename: `passed` → `rejected`
+
+Same ambiguity as the Sourcing-status rename. Idempotent migration
+in `schema.sql` finds the auto-named CHECK by introspecting
+`pg_constraint`, drops it, UPDATEs existing rows, re-adds the CHECK.
+`STAGE_LABEL`, `STAGE_NEXT`, the `ClientPageView` button copy, every
+`'passed'` literal across the codebase — all swept.
+
+### Sourcing UI redesign
+
+- **Add-prospect form at the top.** Form-style, not inline. Name +
+  Agency are required (asterisks); everything else optional. State
+  lives in the form until Add fires; the foot-gun where typing one
+  letter created a prospect is gone.
+- **No draft row in the table.** The table is read-only by default;
+  edits go through row-level edit mode.
+- **Row-level edit.** A pencil per row unlocks every cell in that row
+  at once. Save with the green check, or by clicking off the row.
+  Cancel with the ✕ button reverts. The active row gets a soft
+  background tint + gutter above and below to soften accidental
+  click-offs.
+- **Sortable columns.** Click any header → sort by it. Click again
+  to reverse direction. Sortable: Score, Name, Agency, Market, Sides,
+  Gross Volume, every hard-qualifier column, and Status. Default sort
+  is created-order, newest first.
+- **Filter bar** above the table — All / Undecided / Pursued /
+  Qualified / Rejected, with live counts.
+- **Per-status pill** when the row is locked, three-state toggle when
+  the row is active.
+
+### Files
+
+- `src/app/sourcing/SourcingClient.tsx` — full rewrite around the
+  new structure. Drops `DraftRow`, `LockableCell`, the cell-level
+  lock state, and the per-cell autosave guard. Adds
+  `AddProspectForm`, `FilterBar`, `SourcingTable`, `TableRow`,
+  `RowCell` (display vs. edit by `isActive`), `ActionsCell`
+  (pencil/check/cancel), `SortHeader`. Live-score helper for the
+  form mirrors `scoreProspect` so the badge updates as the rep
+  types in qualifiers.
+- `src/app/sourcing/actions.ts` — `needsOverride` rewritten to
+  treat `pursue` and `qualify` together as "positive." The same
+  rule fires from either page.
+- `src/lib/sourcing.ts` — `SourcingStatus` gains `pursue`;
+  `stageForSourcingStatus` no longer auto-promotes `pursue` to
+  `qualified` (returns `researching`).
+- `src/lib/prospects.ts` — `ProspectStage` `'passed'` → `'rejected'`;
+  `STAGE_LABEL` + `STAGE_NEXT` updated.
+- `src/lib/prospects.test.ts` — rejected-stage assertions updated.
+- `src/lib/db/schema.sql` — adds two idempotent migration blocks:
+  one to extend the `sourcing_status` CHECK with `'pursue'`, one to
+  rename `stage = 'passed'` rows to `'rejected'` and swap the CHECK.
+- `src/app/qualify/QualifyForm.tsx` — `STATUS_LABEL` and `needsOverride`
+  follow the same `isPositive` logic so Qualify's override-with-reason
+  rule mirrors Sourcing's. Score-panel hint text no longer references
+  the removed `recommendedStatus` helper.
+- `src/app/qualify/QualifyClient.tsx`, `clients/ClientListView.tsx`,
+  `prospects/[id]/ClientPageView.tsx` — `passed` keys renamed to
+  `rejected`, label + button copy updated.
+- `src/lib/tutorials-content.ts` — real-estate walkthrough updated
+  to reflect the Pursue/Qualify split.
+
+### Verified
+- `tsc --noEmit` clean.
+- `eslint src` clean.
+
+### Still on Dean
+- Run `npm run db:migrate` to apply the two new migration blocks
+  (CHECK extension + stage rename + row update).
+- Manually walk: add a prospect via the form, sort/filter the table,
+  edit a row via pencil, save via check, try to Pursue a low-score
+  to see the override expansion.
+
+---
+
 ## 2026-05-26 — Draft-row glitch + Pass → Reject
 
 Two follow-ups Dean caught in real use.

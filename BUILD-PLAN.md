@@ -5,7 +5,7 @@
 > dated history. README.md is the local-dev quickstart; this is the
 > full operating reference.
 
-**Last updated:** 2026-05-26 · Phases A, B, C, D, the quote PDF export, the pre-launch audit + fix batch, and **Phase E (Sourcing + Qualify restructure)** all complete. Open: Phase D §9 follow-ups (duplicate-check on Qualify, cross-sell, mobile pass), tutorials for the four non-real-estate workflows. **Send-to-client flow discarded** as a miscommunication — earlier doc references stay as historical record. Full Phase E detail in `SOURCING-PLAN.md`. See `LAUNCH-AUDIT.md` for the prior launch-readiness review.
+**Last updated:** 2026-05-26 · Phases A, B, C, D, Phase E, P8 unification, and the **V1 Sourcing close** all complete on master. Open: Phase D §9 follow-ups (duplicate-check on Qualify, cross-sell, mobile pass), tutorials for the four non-real-estate workflows. **Send-to-client flow discarded** as a miscommunication. V2 (anything bigger Dean has been holding) starts on a branch off master so live users aren't broken mid-stride. Decision log includes D-034 (Sourcing decides "worth qualifying," not "qualified"). See `SOURCING-PLAN.md` and `LAUNCH-AUDIT.md` for prior context.
 
 > **Heads-up for readers — `/research` is now `/qualify`.** Renamed in
 > Phase E (D-023). Historical references to "Research" or `/research`
@@ -1189,6 +1189,35 @@ a unit; partial slices weren't worth the disruption. New target is
 the old `/research` flow alongside the new one would confuse partners
 and leak technical debt forward. Better to slip a few days and ship
 the restructure clean.
+
+### D-034 · Sourcing decides "worth qualifying," not "qualified" (2026-05-26)
+
+**Decision.** The Sourcing positive toggle (formerly "Qualify") is now
+"Pursue." It records that the rep wants to take this prospect into the
+qualifying phase, but **does not** promote the lifecycle stage to
+`qualified`. The only path to `stage = qualified` is through the
+Qualify page (`/qualify` form or `/qualify/[id]`), via its
+`Qualify / Undecided / Reject` toggle. Reject means the same thing
+from either side and moves stage to `rejected`.
+
+**Rationale.** Dean caught a conflation: the Sourcing toggle was named
+the same as the Qualify decision and produced the same lifecycle
+outcome. That's two paths to the same destination, only one of which
+involved any qualifying work. Splitting the two restores the mental
+model — Sourcing is triage, Qualify is qualification.
+
+**Schema.** The `sourcing_status` column now allows four values:
+`undecided | pursue | qualify | reject`. Sourcing UI exposes
+Pursue/Undecided/Reject; Qualify UI exposes Qualify/Undecided/Reject.
+The same column carries both phases' calls. The override-with-reason
+rule treats `pursue` and `qualify` as equivalently "positive" for
+band-disagreement checks.
+
+**Lifecycle stage `passed` renamed to `rejected`** in the same migration
+batch — same ambiguity as the earlier `pass` → `reject` Sourcing
+rename. The CHECK constraint is rebuilt; existing rows are migrated;
+all UI labels swept. (Logged as part of this decision rather than a
+separate D-entry — they're the same conceptual cleanup.)
 
 ### D-033 · Qualify is one surface, two modes (2026-05-26)
 
