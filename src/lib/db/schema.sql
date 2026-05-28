@@ -889,3 +889,39 @@ BEGIN
   UPDATE rank_factors SET active = false
     WHERE workflow_key = 'real_estate' AND key = 'branded_email' AND active = true;
 END $$;
+
+-- ────────────────────────────────────────────────────────────────────
+-- V2 F4 — workflow color palette (D-053).
+--
+-- Brings existing workflow rows up to the new accent palette: gold for
+-- RE Media (Sharp pillar), violet for Corp HS, brand cyan for Story
+-- Portraits (Seen / Photos pillar), dramatic red for The Saga, and
+-- fuchsia for The 10% Rule (contribution, not sales).
+--
+-- Each UPDATE is conditional on the original V1 default, so any manual
+-- accent edit a super-admin has already made (via hand-SQL, or any
+-- future /rates accent editor) is preserved. Idempotent — safe to
+-- re-run.
+-- ────────────────────────────────────────────────────────────────────
+DO $$
+BEGIN
+  -- RE Media: steel → brand gold.
+  UPDATE workflows SET accent = '#c9922a'
+    WHERE workflow_key = 'real_estate' AND accent = '#64748b';
+
+  -- Corporate Headshots: cyan → violet (frees brand cyan for portraits).
+  UPDATE workflows SET accent = '#8b5cf6'
+    WHERE workflow_key = 'corporate' AND accent = '#0ea5e9';
+
+  -- Story Portraits: terracotta → brand cyan (the Seen pillar).
+  UPDATE workflows SET accent = '#38bdf8'
+    WHERE workflow_key = 'story_portraits' AND accent = '#c25f3e';
+
+  -- The Saga: rust → dramatic red.
+  UPDATE workflows SET accent = '#dc2626'
+    WHERE workflow_key = 'saga' AND accent = '#a0462a';
+
+  -- The 10% Rule: emerald → fuchsia.
+  UPDATE workflows SET accent = '#ec4899'
+    WHERE workflow_key = 'ten_percent' AND accent = '#10b981';
+END $$;

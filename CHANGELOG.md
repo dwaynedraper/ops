@@ -252,6 +252,43 @@ changes. Same shape as the V1 `/research` → `/qualify` rename.
   `/tracking` left in `src/` is either a `@/lib/tracking` import
   (correct) or a "was `/tracking` pre-F3" comment header.
 
+### F4 — Workflow color palette (D-053)
+
+Five new workflow accent hex values. Pure data change — every UI
+surface already reads `workflow.accent` from the DB, so the colors
+update everywhere as soon as the rows do.
+
+The new palette:
+
+- **RE Media** — `#c9922a` (brand gold, the Sharp pillar's Media accent)
+- **Corp HS** — `#8b5cf6` (violet)
+- **Story Portraits** — `#38bdf8` (brand cyan, the Photos pillar)
+- **The Saga** — `#dc2626` (dramatic red)
+- **The 10% Rule** — `#ec4899` (fuchsia)
+
+Changes:
+
+- **`scripts/db-seed.mjs`** — `accent` values on the five
+  workflow seed entries updated to the D-053 hex codes. Fresh
+  installs (`npm run db:seed`) pick these up.
+- **`src/lib/db/schema.sql`** — new idempotent migration block
+  at the bottom. Each `UPDATE workflows SET accent = …` is
+  guarded by `WHERE workflow_key = … AND accent = '<V1 default>'`,
+  so a super-admin who's already customized an accent (via
+  hand-SQL or a future accent editor on `/rates`) keeps their
+  edit. The V1 defaults the migration looks for:
+  `#64748b` (RE), `#0ea5e9` (Corp), `#c25f3e` (Story),
+  `#a0462a` (Saga), `#10b981` (10%).
+- **Note on the Saga × workflow-row conflict:** dramatic red
+  collides with the rejected-state styling for table rows.
+  F7's REJECTED badge + 55% opacity treatment (D-055) is the
+  disambiguation; the seed comment flags it inline.
+
+No code changes anywhere else — every consumer (workflow tabs on
+Sourcing, Qualify pickers, Contact column heads, Clients rows,
+Dashboard panels) reads `workflow.accent` from the workflows
+table and renders whatever's there.
+
 ### Pricing & Admin gating — verified, not changed
 - Sidebar already gates the admin section to `super_admin` via
   `role === 'super_admin'` filtering. Every admin route
@@ -290,6 +327,13 @@ changes. Same shape as the V1 `/research` → `/qualify` rename.
   reads "Contact," the sidebar highlights "Contact" when you're
   on it, follow-up Links from Dashboard + Today both land on
   `/contact`, and the digest email URLs read `…/contact`.
+- F4: run `npm run db:migrate` against the testing DB to pick up
+  the new workflow accent values (the migration is idempotent
+  and only updates rows whose `accent` still matches the V1
+  default — any manual edit you've made is preserved). When
+  V2 merges, the same migration runs against prod via the next
+  deploy. Walk the workflow tabs on Sourcing / Qualify / Contact
+  to confirm the new palette reads right.
 
 ---
 

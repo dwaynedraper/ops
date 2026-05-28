@@ -287,7 +287,8 @@ const WORKFLOWS = [
   // ─── Real Estate Media ────────────────────────────────────────────
   {
     workflow_key: 'real_estate', name: 'Real Estate Media', branch: 'realestate',
-    contact_noun: 'Agent', org_noun: 'Agency', accent: '#64748b', sort_order: 10,
+    // D-053: brand gold — the Sharp pillar's Media accent.
+    contact_noun: 'Agent', org_noun: 'Agency', accent: '#c9922a', sort_order: 10,
     factors: [
       // D-032 — gates now anchor the score; annual_volume runs on a
       // piecewise curve (lib/prospects.ts PIECEWISE_CURVES) so 10
@@ -370,7 +371,8 @@ Stay Sharp. Stay Seen. Stay Human.
   // ─── Corporate Headshots ──────────────────────────────────────────
   {
     workflow_key: 'corporate', name: 'Corporate Headshots', branch: 'corporate',
-    contact_noun: 'Contact', org_noun: 'Company', accent: '#0ea5e9', sort_order: 20,
+    // D-053: violet.
+    contact_noun: 'Contact', org_noun: 'Company', accent: '#8b5cf6', sort_order: 20,
     factors: [
       gate('has_team_to_shoot', 'Has a team that needs headshots', 'Enough people on staff — roughly 8 or more — to make a Team Day worth booking.', 1),
       gate('weak_team_photos',  'Current team photos are weak or mismatched', 'Headshots on the site and LinkedIn are dated, inconsistent, DIY, or missing.', 2),
@@ -450,7 +452,8 @@ Stay Sharp. Stay Seen. Stay Human.
   // ─── Story Portraits ──────────────────────────────────────────────
   {
     workflow_key: 'story_portraits', name: 'Story Portraits', branch: 'portraits',
-    contact_noun: 'Contact', org_noun: null, accent: '#c25f3e', sort_order: 30,
+    // D-053: brand cyan — the Photos pillar (Seen).
+    contact_noun: 'Contact', org_noun: null, accent: '#38bdf8', sort_order: 30,
     factors: [
       gate('public_facing_brand',  'Has a public-facing personal brand', 'A founder, exec, creator, author, or speaker — someone whose face is part of their work.', 1),
       gate('weak_personal_photos', 'Current personal photos are weak',   'Their portraits are outdated, DIY, or a generic studio headshot.', 2),
@@ -529,7 +532,10 @@ Stay Sharp. Stay Seen. Stay Human.
   // ─── The Saga ─────────────────────────────────────────────────────
   {
     workflow_key: 'saga', name: 'The Saga', branch: 'portraits',
-    contact_noun: 'Contact', org_noun: null, accent: '#a0462a', sort_order: 40,
+    // D-053: dramatic red. Note: this collides with the workflow-row
+    // rejected-state styling — F7's REJECTED badge + 55% opacity is the
+    // disambiguation (D-055).
+    contact_noun: 'Contact', org_noun: null, accent: '#dc2626', sort_order: 40,
     factors: [
       gate('milestone_reason', 'A milestone or legacy reason',    'An anniversary, an exit, a legacy year — a reason this chapter deserves more than a session.', 1),
       gate('budget_capacity',  'Budget capacity for $8k+',        'The means and the mindset for a two-day, $8,000+ engagement.', 2),
@@ -595,7 +601,8 @@ Stay Sharp. Stay Seen. Stay Human.
   // factors are fit-and-priority signals, and there is no quote.
   {
     workflow_key: 'ten_percent', name: 'The 10% Rule', branch: null,
-    contact_noun: 'Contact', org_noun: 'Organization', accent: '#10b981', sort_order: 50,
+    // D-053: fuchsia / hot pink — signals contribution, not sales.
+    contact_noun: 'Contact', org_noun: 'Organization', accent: '#ec4899', sort_order: 50,
     factors: [
       gate('on_cause_list',  'On the supported-cause list (§7.1)', 'The cause fits a category Dean actively supports — see CLAUDE.md §7.1.', 1),
       gate('non_polarizing', 'Non-polarizing (§7.2)',              'Not a politically polarizing issue — the 10% engine is contribution, not activism.', 2),
