@@ -143,6 +143,22 @@ export function UndoProvider({ children }: { children: ReactNode }) {
     intern.resolve({ outcome: 'undone' });
   }, []);
 
+  /** Rep pressed "Commit now" — cancel the wait, fire immediately. (D-050.)
+   * Lifecycle moves still get the 20s safety window by default, but the
+   * rep is never blocked from forward progress when they're sure. */
+  const commitNow = useCallback(
+    (id: number) => {
+      const intern = internals.current.get(id);
+      if (!intern) return;
+      if (intern.timer) {
+        clearTimeout(intern.timer);
+        intern.timer = null;
+      }
+      void commit(id);
+    },
+    [commit],
+  );
+
   /** Clear a settled error toast. */
   const dismiss = useCallback((id: number) => {
     internals.current.delete(id);
@@ -205,6 +221,7 @@ export function UndoProvider({ children }: { children: ReactNode }) {
               key={it.id}
               item={it}
               onUndo={() => undo(it.id)}
+              onCommitNow={() => commitNow(it.id)}
               onDismiss={() => dismiss(it.id)}
             />
           ))}
@@ -219,10 +236,12 @@ export function UndoProvider({ children }: { children: ReactNode }) {
 function UndoToast({
   item,
   onUndo,
+  onCommitNow,
   onDismiss,
 }: {
   item: ToastItem;
   onUndo: () => void;
+  onCommitNow: () => void;
   onDismiss: () => void;
 }) {
   // `new Date().getTime()` rather than `Date.now()` — the lint purity rule
@@ -288,6 +307,21 @@ function UndoToast({
               onClick={onUndo}
             >
               Undo
+            </button>
+            {/* D-050: "Commit now" cancels the safety window. Lifecycle
+                moves still get the 20s by default, but the rep is never
+                blocked from forward progress when they're sure. */}
+            <button
+              type="button"
+              className="btn-primary"
+              style={{
+                padding: '0.25rem 0.7rem',
+                flexShrink: 0,
+                fontSize: '0.68rem',
+              }}
+              onClick={onCommitNow}
+            >
+              Commit now
             </button>
           </>
         )}

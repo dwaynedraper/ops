@@ -289,6 +289,84 @@ Sourcing, Qualify pickers, Contact column heads, Clients rows,
 Dashboard panels) reads `workflow.accent` from the workflows
 table and renders whatever's there.
 
+### F5 — Contact page rebuild (D-047, D-048, D-049, D-050, D-051)
+
+Four decisions land together in this phase. Each is independent but
+all touch `/contact` so they ride one commit.
+
+- **D-047 — Email first-touch wording overhaul.** The real-estate
+  first-touch sales-pitch paragraph swaps "I shoot real estate
+  media in the 121 corridor — …" for **"Sharp Sighted Media shoots
+  real estate media in the 121 corridor, from Allen to Southlake.
+  The base package delivers stills, aerial, floor plan, twilight,
+  and a vertical reel, all delivered within 24 hours. One shoot,
+  five deliverables, MLS-ready."** Brand-agnostic phrasing —
+  reps send the message, not Dean. Update lands in
+  `scripts/db-seed.mjs` and as an idempotent `REPLACE()` in
+  `src/lib/db/schema.sql`.
+- **D-048 — Standardized signature.** Every script across every
+  workflow now closes with:
+
+  ```
+  Regards,
+  {{rep_name}} • Sharp Sighted Branch
+  https://sharpsighted.branch
+
+  Stay Sharp. Stay Seen. Stay Human.
+  ```
+
+  The tagline is now the absolute last line. Branch per workflow:
+  real_estate → **Media** (sharpsighted.media), corporate +
+  story_portraits + saga → **Photos** (sharpsighted.photos),
+  ten_percent → **Studio** (sharpsighted.studio). Update covers
+  all 17 seed scripts and a per-workflow `REPLACE()` migration
+  block in schema.sql so live rows pick it up without a re-seed.
+  Migrations preserve manual edits — REPLACE only acts on the V1
+  closing pattern.
+- **D-049 — Navigable cycle-step tabs + inactive-step badges.**
+  Every cycle pill (First touch / Follow-up 1 / Follow-up 2 /
+  Final touch) is now a real button. Clicking an inactive step
+  shows:
+  - **Past step:** the message *as it actually went out* (filled
+    placeholders), plus a green "Already sent · {date}" badge.
+    Required surfacing `filled_subject` + `filled_body` from
+    `prospect_contacts` through the `ContactLog` interface and
+    the page query — they live in the DB but weren't passed to
+    the client until now.
+  - **Future step:** the *template* body, plus a yellow
+    "Send {prevStepLabel} first" badge.
+  - **Current step:** the live composer (original behavior).
+
+  A "← Back to {nextStepLabel}" link returns to the live view.
+  The Log-contact action only renders on the current step — past
+  + future are read-only.
+- **D-050 — "Commit now" on the 20s undo toast.** `UndoProvider`
+  gains a `commitNow(id)` callback that cancels the wait timer
+  and fires the action immediately. The toast renders a
+  `Commit now` btn-primary alongside the existing Undo. Lifecycle
+  moves still get the safety window by default, but the rep is
+  never blocked when they're sure. Sharp-eyed implementation
+  detail: `commitNow` reuses the existing `commit(id)` path so
+  the success/failure handling, route refresh, and resolved
+  promise outcome all stay identical to the timer-driven path.
+- **D-051 — Card list redesign: workflow-color body + urgency
+  dot on the left.** The contact card list moves to:
+  - A new **left-side urgency dot** (`9px`, with a soft glow on
+    `now`/`overdue`). Color reflects how urgent the card is:
+    - **Green** (`now`): reply waiting (replied), first touch
+      ready, or follow-up due within the last 24h.
+    - **Yellow** (`soon`): due within the next 24h.
+    - **Red** (`overdue`): more than 24h past due.
+    - **Faint** (`idle`): waiting > 1 day, or cycle done.
+  - The **workflow accent** colors the card body — a 4px
+    left-stripe + a `10%`-tinted background. Active card uses
+    `1A` tint (~10%), idle uses `0D` tint (~5%), border picks
+    up the accent on active.
+  - Status meta label + score read at the same level as before.
+  - Urgency computed server-side in `computeCycle` — new
+    `CycleUrgency` type (`'now' | 'soon' | 'overdue' | 'idle'`),
+    surfaced via `CycleState.urgency` and `TrackingCard.urgency`.
+
 ### Pricing & Admin gating — verified, not changed
 - Sidebar already gates the admin section to `super_admin` via
   `role === 'super_admin'` filtering. Every admin route
@@ -334,6 +412,20 @@ table and renders whatever's there.
   V2 merges, the same migration runs against prod via the next
   deploy. Walk the workflow tabs on Sourcing / Qualify / Contact
   to confirm the new palette reads right.
+- F5: same `npm run db:migrate` picks up the email overhaul
+  (D-047) + standardized signature (D-048) on every script row
+  whose body still matches the V1 closing pattern. Then walk
+  `/contact`: confirm the live composer reads with the new
+  signature, the cycle pills are navigable (click an inactive
+  step to view past as-sent or future template), an undo toast
+  shows the **Commit now** button next to Undo, and the card
+  list shows the urgency dot on the left + workflow-accent body.
+  Vitest's tracking suite can't run in my sandbox right now
+  (rolldown native binding loader bug); please run
+  `npm test src/lib/tracking.test.ts` locally to confirm the
+  new `urgency` field doesn't break expectations — if a test
+  pinned the literal shape of `CycleState`, it'll need a small
+  update for the added field.
 
 ---
 

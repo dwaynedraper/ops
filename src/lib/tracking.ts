@@ -47,6 +47,13 @@ export interface ContactLog {
   channel: string;
   sentAtLabel: string;
   responseReceived: boolean;
+  /** Snapshot of the message text as it actually went out, surfaced so
+   * the Contact page's navigable cycle-step tabs can show what the
+   * rep sent — not just the template that would have been sent (D-049).
+   * Nullable for safety on legacy rows that pre-date the snapshot
+   * column. */
+  filledSubject: string | null;
+  filledBody: string | null;
 }
 
 /**
@@ -59,12 +66,22 @@ export interface ContactLog {
  */
 export type TrackingStatus = 'ready' | 'due' | 'waiting' | 'replied' | 'cycle_done';
 
+/** D-051 urgency level — drives the per-card status dot on Contact:
+ *   now      — needs action right now (green): reply waiting, first
+ *              touch ready, or follow-up due within the last 24h.
+ *   soon     — due within the next 24h (yellow).
+ *   overdue  — more than 24h past due (red).
+ *   idle     — waiting > 1 day, or the cycle is done (no dot color). */
+export type CycleUrgency = 'now' | 'soon' | 'overdue' | 'idle';
+
 export interface CycleState {
   status: TrackingStatus;
   /** The script to send next, or null when the cycle is exhausted. */
   nextScript: ContactScript | null;
   /** For 'waiting' only: whole days until the next touch is due. */
   dueInDays: number | null;
+  /** D-051 urgency, used by the Contact card list status dot. */
+  urgency: CycleUrgency;
 }
 
 /** The minimal contact shape computeCycle needs. */
@@ -92,6 +109,7 @@ export interface TrackingCard {
   /** stage_key of the script to send next, or null if the cycle is done. */
   nextStepKey: string | null;
   dueInDays: number | null;
+  urgency: CycleUrgency;
 }
 
 const MS_PER_DAY = 86_400_000;
@@ -172,7 +190,7 @@ export function computeCycle(
 ): CycleState {
   // A reply ends the rep's cycle work — the client page takes over.
   if (stage === 'responded') {
-    return { status: 'replied', nextScript: null, dueInDays: null };
+    return { status: 'replied', nextScript: null, dueInDays: null, urgency: 'now' };
   }
 
   const done = new Set(contacts.map((c) => c.stepKey));
@@ -180,7 +198,7 @@ export function computeCycle(
 
   // Nothing sent yet — the first touch is ready to go.
   if (contacts.length === 0) {
-    return { status: 'ready', nextScript: upcoming, dueInDays: null };
+    return { status: 'ready', nextScript: upcoming, dueInDays: null, urgency: 'now' };
   }
 
   const latest = contacts.reduce((a, b) => (b.sentAt > a.sentAt ? b : a));
@@ -189,17 +207,29 @@ export function computeCycle(
 
   // Final touch sent (no more scripts, or a 0-day step) — cycle exhausted.
   if (upcoming === null || followupAfter === 0) {
-    return { status: 'cycle_done', nextScript: null, dueInDays: null };
+    return { status: 'cycle_done', nextScript: null, dueInDays: null, urgency: 'idle' };
   }
 
   const daysSince = (now.getTime() - latest.sentAt.getTime()) / MS_PER_DAY;
   if (daysSince >= followupAfter) {
-    return { status: 'due', nextScript: upcoming, dueInDays: null };
+    // D-051: "due today" (within the last 24h since due) is green; past
+    // that is red.
+    const daysOverdue = daysSince - followupAfter;
+    return {
+      status: 'due',
+      nextScript: upcoming,
+      dueInDays: null,
+      urgency: daysOverdue <= 1 ? 'now' : 'overdue',
+    };
   }
+  const dueInDays = Math.max(1, Math.ceil(followupAfter - daysSince));
+  // D-051: due within 24h (i.e. tomorrow) reads as 'soon' (yellow);
+  // anything further out is 'idle' (no urgency).
   return {
     status: 'waiting',
     nextScript: upcoming,
-    dueInDays: Math.max(1, Math.ceil(followupAfter - daysSince)),
+    dueInDays,
+    urgency: dueInDays === 1 ? 'soon' : 'idle',
   };
 }
 

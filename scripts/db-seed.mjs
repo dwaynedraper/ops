@@ -314,13 +314,15 @@ const WORKFLOWS = [
 
 {{intro}}
 
-I shoot real estate media in the 121 corridor — stills, aerial, floor plan, twilight, and a vertical reel, all delivered within 24 hours. One shoot, five deliverables, MLS-ready.
+Sharp Sighted Media shoots real estate media in the 121 corridor, from Allen to Southlake. The base package delivers stills, aerial, floor plan, twilight, and a vertical reel, all delivered within 24 hours. One shoot, five deliverables, MLS-ready.
 
 If you have a listing coming up, I'd love to show you what that looks like on one of yours.
 
-Stay Sharp. Stay Seen. Stay Human.
-{{rep_name}} · Sharp Sighted Media
-sharpsighted.media`,
+Regards,
+{{rep_name}} • Sharp Sighted Media
+https://sharpsighted.media
+
+Stay Sharp. Stay Seen. Stay Human.`,
       },
       {
         stage_key: 'followup_1', label: 'Follow-up 1', channel: 'email',
@@ -334,8 +336,11 @@ The Essentials package is $400 a property: stills, aerial, floor plan, twilight,
 
 Worth a look at one of yours?
 
-Stay Sharp. Stay Seen. Stay Human.
-{{rep_name}} · Sharp Sighted Media`,
+Regards,
+{{rep_name}} • Sharp Sighted Media
+https://sharpsighted.media
+
+Stay Sharp. Stay Seen. Stay Human.`,
       },
       {
         stage_key: 'followup_2', label: 'Follow-up 2', channel: 'email',
@@ -349,8 +354,11 @@ If marketing is a competitive advantage for you and not just a line item, I'd li
 
 Reach out whenever the timing is right.
 
-Stay Sharp. Stay Seen. Stay Human.
-{{rep_name}} · Sharp Sighted Media`,
+Regards,
+{{rep_name}} • Sharp Sighted Media
+https://sharpsighted.media
+
+Stay Sharp. Stay Seen. Stay Human.`,
       },
       {
         stage_key: 'final', label: 'Final touch', channel: 'email',
@@ -362,8 +370,11 @@ I won't keep landing in your inbox — but I wanted to close the loop properly. 
 
 If real estate media ever moves up your list, sharpsighted.media has examples and pricing, and my line is always open.
 
-Stay Sharp. Stay Seen. Stay Human.
-{{rep_name}} · Sharp Sighted Media`,
+Regards,
+{{rep_name}} • Sharp Sighted Media
+https://sharpsighted.media
+
+Stay Sharp. Stay Seen. Stay Human.`,
       },
     ],
   },
@@ -400,8 +411,11 @@ Most teams I shoot have headshots taken five different ways over five different 
 
 If a refresh is on your radar, here's where to start: {{booking_link}}
 
-Stay Sharp. Stay Seen. Stay Human.
-{{rep_name}} · Sharp Sighted`,
+Regards,
+{{rep_name}} • Sharp Sighted Photos
+https://sharpsighted.photos
+
+Stay Sharp. Stay Seen. Stay Human.`,
       },
       {
         stage_key: 'followup_1', label: 'Follow-up 1', channel: 'email',
@@ -415,8 +429,11 @@ A Team Day is a $600 base plus a per-person rate, on-site, with same-day-clean t
 
 Worth a short call? {{booking_link}}
 
-Stay Sharp. Stay Seen. Stay Human.
-{{rep_name}} · Sharp Sighted`,
+Regards,
+{{rep_name}} • Sharp Sighted Photos
+https://sharpsighted.photos
+
+Stay Sharp. Stay Seen. Stay Human.`,
       },
       {
         stage_key: 'followup_2', label: 'Follow-up 2', channel: 'email',
@@ -430,8 +447,11 @@ If you're hiring, rebranding, or just tired of the mismatched grid, one session 
 
 Whenever the timing's right: {{booking_link}}
 
-Stay Sharp. Stay Seen. Stay Human.
-{{rep_name}} · Sharp Sighted`,
+Regards,
+{{rep_name}} • Sharp Sighted Photos
+https://sharpsighted.photos
+
+Stay Sharp. Stay Seen. Stay Human.`,
       },
       {
         stage_key: 'final', label: 'Final touch', channel: 'email',
@@ -443,8 +463,11 @@ I won't keep landing in your inbox. {{intro}}
 
 If team headshots ever move up the list at {{company}}, the door's here and my line is open: {{booking_link}}
 
-Stay Sharp. Stay Seen. Stay Human.
-{{rep_name}} · Sharp Sighted`,
+Regards,
+{{rep_name}} • Sharp Sighted Photos
+https://sharpsighted.photos
+
+Stay Sharp. Stay Seen. Stay Human.`,
       },
     ],
   },
@@ -480,8 +503,11 @@ If your current photos feel like a stand-in for someone you're not anymore, that
 
 A connection call is the place to start — no commitment: {{booking_link}}
 
-Stay Sharp. Stay Seen. Stay Human.
-{{rep_name}} · Sharp Sighted Photos`,
+Regards,
+{{rep_name}} • Sharp Sighted Photos
+https://sharpsighted.photos
+
+Stay Sharp. Stay Seen. Stay Human.`,
       },
       {
         stage_key: 'followup_1', label: 'Follow-up 1', channel: 'email',
@@ -495,8 +521,11 @@ The way it works: an hour of discovery first — your location, your timing, you
 
 Want to talk it through? {{booking_link}}
 
-Stay Sharp. Stay Seen. Stay Human.
-{{rep_name}} · Sharp Sighted Photos`,
+Regards,
+{{rep_name}} • Sharp Sighted Photos
+https://sharpsighted.photos
+
+Stay Sharp. Stay Seen. Stay Human.`,
       },
       {
         stage_key: 'followup_2', label: 'Follow-up 2', channel: 'email',
@@ -510,8 +539,11 @@ The portrait that follows you for the next five years should look like you — n
 
 Whenever the timing fits: {{booking_link}}
 
-Stay Sharp. Stay Seen. Stay Human.
-{{rep_name}} · Sharp Sighted Photos`,
+Regards,
+{{rep_name}} • Sharp Sighted Photos
+https://sharpsighted.photos
+
+Stay Sharp. Stay Seen. Stay Human.`,
       },
       {
         stage_key: 'final', label: 'Final touch', channel: 'email',
@@ -523,8 +555,11 @@ I'll stop here — but I wanted to close the loop properly. {{intro}}
 
 If the timing ever turns, the connection call is always open: {{booking_link}}
 
-Stay Sharp. Stay Seen. Stay Human.
-{{rep_name}} · Sharp Sighted Photos`,
+Regards,
+{{rep_name}} • Sharp Sighted Photos
+https://sharpsighted.photos
+
+Stay Sharp. Stay Seen. Stay Human.`,
       },
     ],
   },
@@ -562,8 +597,11 @@ Given where you are right now, I think it's worth a conversation. No pitch — j
 
 If you're open to it: {{booking_link}}
 
-Stay Sharp. Stay Seen. Stay Human.
-{{rep_name}} · Sharp Sighted`,
+Regards,
+{{rep_name}} • Sharp Sighted Photos
+https://sharpsighted.photos
+
+Stay Sharp. Stay Seen. Stay Human.`,
       },
       {
         stage_key: 'followup_1', label: 'Follow-up', channel: 'email',
@@ -577,8 +615,11 @@ The Saga isn't something to rush into — it's a real investment of two days and
 
 The door's here when you want it: {{booking_link}}
 
-Stay Sharp. Stay Seen. Stay Human.
-{{rep_name}} · Sharp Sighted`,
+Regards,
+{{rep_name}} • Sharp Sighted Photos
+https://sharpsighted.photos
+
+Stay Sharp. Stay Seen. Stay Human.`,
       },
       {
         stage_key: 'final', label: 'Final touch', channel: 'email',
@@ -590,8 +631,11 @@ I'll leave it here for now. {{intro}}
 
 A Saga keeps. When the milestone comes into view, I'd be honored to document it — reach out any time: {{booking_link}}
 
-Stay Sharp. Stay Seen. Stay Human.
-{{rep_name}} · Sharp Sighted`,
+Regards,
+{{rep_name}} • Sharp Sighted Photos
+https://sharpsighted.photos
+
+Stay Sharp. Stay Seen. Stay Human.`,
       },
     ],
   },
@@ -628,8 +672,11 @@ What {{organization}} does is one of those. If there's a story here that photogr
 
 Could we talk about what would actually help?
 
-Stay Sharp. Stay Seen. Stay Human.
-{{rep_name}} · Sharp Sighted`,
+Regards,
+{{rep_name}} • Sharp Sighted Studio
+https://sharpsighted.studio
+
+Stay Sharp. Stay Seen. Stay Human.`,
       },
       {
         stage_key: 'followup_1', label: 'Follow-up', channel: 'email',
@@ -641,8 +688,11 @@ Just circling back once. {{intro}}
 
 The offer stands with no strings — contributed photography or film for {{organization}}, on your timeline. If it's useful, I'd love to help; if the timing isn't right, no need to reply.
 
-Stay Sharp. Stay Seen. Stay Human.
-{{rep_name}} · Sharp Sighted`,
+Regards,
+{{rep_name}} • Sharp Sighted Studio
+https://sharpsighted.studio
+
+Stay Sharp. Stay Seen. Stay Human.`,
       },
     ],
   },

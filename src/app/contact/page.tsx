@@ -67,6 +67,8 @@ interface ContactRow {
   channel: string;
   sent_at: Date;
   response_received: boolean;
+  filled_subject: string | null;
+  filled_body: string | null;
 }
 interface LinkRow {
   workflow_key: string;
@@ -147,7 +149,8 @@ export default async function ContactPage() {
   const contactRows =
     prospectIds.length > 0
       ? await sql<ContactRow>`
-          SELECT id, prospect_id, step_key, channel, sent_at, response_received
+          SELECT id, prospect_id, step_key, channel, sent_at, response_received,
+                 filled_subject, filled_body
           FROM prospect_contacts
           WHERE prospect_id = ANY(${prospectIds})
           ORDER BY sent_at ASC`
@@ -178,6 +181,8 @@ export default async function ContactPage() {
       channel: c.channel,
       sentAtLabel: DATE_FMT.format(new Date(c.sent_at)),
       responseReceived: c.response_received,
+      filledSubject: c.filled_subject,
+      filledBody: c.filled_body,
     }));
     return {
       prospect: {
@@ -195,6 +200,7 @@ export default async function ContactPage() {
       status: cycle.status,
       nextStepKey: cycle.nextScript?.stageKey ?? null,
       dueInDays: cycle.dueInDays,
+      urgency: cycle.urgency,
     };
   });
 
