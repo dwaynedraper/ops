@@ -203,8 +203,12 @@ Instead — **handoff links as config-backed placeholders:**
   instantly current. **Changing a Sprout URL never means touching a
   script** — exactly the "turns into a variable in the email" model.
 
-Editing lives in the Scripts editor's **Handoff links** panel (§5). The
-same links will power the send-to-client flow when that's built.
+Editing lives in the Scripts editor's **Handoff links** panel (§5).
+
+> *Note (2026-05-26):* The send-to-client flow this paragraph
+> previously referenced was discarded as a miscommunication.
+> Handoff links still resolve as placeholders in the contact
+> composer; quotes themselves stay manual send.
 
 ---
 

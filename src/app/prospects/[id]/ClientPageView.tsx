@@ -77,7 +77,7 @@ const STAGE_COLOR: Record<ProspectStage, string> = {
   responded: 'var(--warn)',
   signed: 'var(--good)',
   client: 'var(--brand-cyan)',
-  passed: 'var(--text-faint)',
+  rejected: 'var(--text-faint)',
   dormant: 'var(--text-faint)',
 };
 
@@ -97,8 +97,8 @@ function stageActionLabel(stage: ProspectStage): string {
       return 'Mark as signed';
     case 'client':
       return 'Mark as active client';
-    case 'passed':
-      return 'Pass on this prospect';
+    case 'rejected':
+      return 'Reject this prospect';
     case 'dormant':
       return 'Mark dormant';
     default:

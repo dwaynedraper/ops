@@ -13,7 +13,7 @@
  * a Sourcing edit (D-024 / D-028).
  *
  * `deleteSourcingRow` is intentionally not provided in v1. A row the
- * rep wants out of the active triage gets `sourcing_status = 'pass'`,
+ * rep wants out of the active triage gets `sourcing_status = 'reject'`,
  * which moves the lifecycle stage to `passed` — the row stays in the
  * archive but drops off the active list. Hard delete can be added
  * later if it's actually needed.
@@ -42,22 +42,26 @@ import {
 
 const OVERRIDE_MIN_CHARS = 20;
 
-/** What the pre-score band recommends — null = no recommendation
- * (borderline). Mirrors the client's `recommendedStatus`. */
-function recommendedStatus(band: ScoreBand): SourcingStatus | null {
-  if (band === 'qualified') return 'qualify';
-  if (band === 'reject') return 'pass';
-  return null;
+/** True when the status is a "positive" commitment — either Sourcing's
+ * "pursue this further" or Qualify's "this is qualified." Both count
+ * as positive for the band-disagreement check. */
+function isPositive(status: SourcingStatus): boolean {
+  return status === 'pursue' || status === 'qualify';
 }
 
-/** Per D-028 + Dean's P4.6 review: when the rep's toggle disagrees
- * with the band's recommendation, a ≥20-char reason is required.
- * `undecided` is parking — never counts as a disagreement. */
+/** Per D-028 + the V1 close: when the rep's toggle disagrees with the
+ * band's recommendation, a ≥20-char reason is required.
+ * - band='qualified' (high score) recommends a positive call;
+ *   rejecting it requires a reason.
+ * - band='reject' (low score) recommends a reject;
+ *   marking it positive (pursue/qualify) requires a reason.
+ * - 'undecided' is parking; never an override.
+ * - 'borderline' band makes no recommendation. */
 function needsOverride(status: SourcingStatus, band: ScoreBand): boolean {
-  const rec = recommendedStatus(band);
-  if (rec === null) return false;
   if (status === 'undecided') return false;
-  return status !== rec;
+  if (band === 'qualified' && status === 'reject') return true;
+  if (band === 'reject' && isPositive(status)) return true;
+  return false;
 }
 
 /* ── Input + result ────────────────────────────────────────────────── */
@@ -110,7 +114,7 @@ function clampMoney(v: number | null | undefined): number | null {
   return Math.round(v * 100) / 100;
 }
 
-const SOURCING_STATUSES: SourcingStatus[] = ['qualify', 'pass', 'undecided'];
+const SOURCING_STATUSES: SourcingStatus[] = ['undecided', 'pursue', 'qualify', 'reject'];
 function isSourcingStatus(v: unknown): v is SourcingStatus {
   return typeof v === 'string' && (SOURCING_STATUSES as readonly string[]).includes(v);
 }

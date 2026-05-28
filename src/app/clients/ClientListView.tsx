@@ -43,7 +43,7 @@ const STAGE_TONE: Record<ProspectStage, StageTone> = {
   responded: 'warn',
   signed: 'good',
   client: 'cyan',
-  passed: 'muted',
+  rejected: 'muted',
   dormant: 'muted',
 };
 const TONE_COLOR: Record<StageTone, string> = {
@@ -61,7 +61,7 @@ const STAGE_ORDER: ProspectStage[] = [
   'responded',
   'signed',
   'client',
-  'passed',
+  'rejected',
   'dormant',
 ];
 

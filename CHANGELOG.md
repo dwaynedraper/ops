@@ -13,12 +13,16 @@ lives in `README.md`. This file is the time-ordered receipt.
 ## [Unreleased]
 
 ### Planned next
-- Send-to-client flow (email the quote PDF) + final polish.
 - Phase D recommended additions still open: duplicate check on
   Qualify, cross-sell linked prospects, mobile pass (PHASE-D-PLAN §9).
 - Tutorials for the four workflows beyond real-estate (corporate,
   story portraits, saga, 10%) as their sources of names and the
   motions firm up.
+
+### Removed from the plan
+- Send-to-client flow (emailing the quote PDF from inside ops) —
+  discarded as a miscommunication. Earlier docs and CHANGELOG
+  entries that reference it stay as historical record.
 
 ### Setup needed for this release
 - Run `npm run db:migrate` — applies the Phase E P2 migration
@@ -33,6 +37,94 @@ lives in `README.md`. This file is the time-ordered receipt.
 - All earlier setup steps still apply: `CRON_SECRET`,
   `rep_invites` / `prospect_stage_events` migrations from the
   prior release.
+
+---
+
+## 2026-05-26 — Draft-row glitch + Pass → Reject
+
+Two follow-ups Dean caught in real use.
+
+### Fixed
+- **The "16 H prospects" glitch.** `DraftRow.submit` didn't guard
+  against concurrent in-flight saves. If a rep typed in the draft
+  row, blurred, then immediately interacted with another cell while
+  the first save was still over the network (~600ms), the next
+  blur called submit again — `setDraft(emptyDraft())` only runs
+  after the server response, so the second submit saw the same
+  draft and created a duplicate. Added a ref-backed guard: if a
+  draft create is already in flight, the next blur is a no-op.
+  (`SourcingClient.tsx` — DraftRow.)
+
+### Changed
+- **Sourcing status `'pass'` renamed to `'reject'`.** "Pass" was
+  ambiguous (could read as "this one passed the bar"); "Reject"
+  has only one meaning. Updated everywhere — `SourcingStatus`
+  type, the three-state toggle on Sourcing and Qualify, the
+  override-with-reason copy, server-side validation
+  (`sourcing/actions.ts`), the override "you picked X" message,
+  the tutorial copy.
+  - Schema migration in `schema.sql` is idempotent: drops the
+    old CHECK that allows `'pass'`, UPDATEs existing rows
+    `'pass' → 'reject'`, and re-adds the CHECK with the new
+    value. Only runs when the old CHECK is still present.
+  - **The lifecycle stage `'passed'` is unchanged** — it has the
+    same ambiguity, but renaming it is a bigger sweep touching
+    many UI strings, `STAGE_LABEL`, `STAGE_NEXT`, and historical
+    DB rows. Surface as a follow-up if it bothers in use.
+
+### Verified
+- `tsc --noEmit` and `eslint src` clean.
+
+### Still on Dean
+- Run `npm run db:migrate` to pick up the `'pass'` → `'reject'`
+  row migration and the new CHECK.
+
+---
+
+## 2026-05-26 — P8: Qualify unification (one surface, two modes)
+
+Post-launch refinement caught after Phase E shipped. Phase E's P4.6
+delivered two visibly different qualifying pages (`/qualify` for
+new agents and `/qualify/[id]` for existing ones) — Dean called
+out the misalignment: qualifying is conceptually one job
+("carrying the prospect's info from sourcing to qualify"), not
+two. This entry unifies them.
+
+### Added
+- `src/app/qualify/QualifyForm.tsx` — the shared form. Create
+  mode (`prospectId === null`): editable identity, workflow
+  picker rendered by the wrapper, no breadcrumb. Edit mode
+  (`prospectId` set): read-only identity card with link to the
+  full record, breadcrumb back to `/sourcing`. Both modes show
+  the same gates, scoring factors, status chooser, override-
+  with-reason expansion, live score panel, and save button.
+  Both save through `upsertSourcingRow`. After a successful
+  create the form pushes to `/qualify/[new-id]` so the rep
+  stays on Qualify with the new record loaded.
+
+### Changed
+- `src/app/qualify/QualifyClient.tsx` — slimmed to just the
+  create-mode wrapper (workflow picker + `QualifyForm` + the
+  recent-prospects list). The recent-prospects list now links
+  to `/qualify/[id]` instead of `/prospects/[id]`, so clicking
+  a recent name resumes qualifying instead of jumping to the
+  mini-CRM.
+- `src/app/qualify/[id]/page.tsx` — now renders `QualifyForm`
+  directly. The breadcrumb + h1 chrome stays in the server page.
+
+### Removed
+- `src/app/qualify/[id]/QualifyDetailClient.tsx` — subsumed by
+  `QualifyForm`.
+- `src/app/qualify/actions.ts` — `createProspect` is no longer
+  used; `upsertSourcingRow` handles create and update in one
+  path.
+
+### Decision
+- **D-033** added to BUILD-PLAN §10 — locks in the unified
+  intent.
+
+### Verified
+- `tsc --noEmit` and `eslint src` clean.
 
 ---
 

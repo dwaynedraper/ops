@@ -52,7 +52,7 @@ const realEstateTutorial: TutorialEntry = {
         {
           kind: 'callout',
           tone: 'info',
-          text: "The system favors rep judgment. The pre-score badge advises; the rep decides. The Qualify/Pass toggle is yours to set — the system will ask for a reason if your call disagrees with the math, but it never forces a decision.",
+          text: "The system favors rep judgment. The pre-score badge advises; the rep decides. The Pursue/Reject toggle on Sourcing is your triage call — it decides whether the prospect is worth qualifying. The Qualify/Reject toggle on the Qualify page is the formal qualification. The system asks for a reason if your call disagrees with the math, but it never forces a decision.",
         },
         {
           kind: 'paragraph',
@@ -78,7 +78,7 @@ const realEstateTutorial: TutorialEntry = {
             'Drop in Gross Volume if it shows on the source.',
             'Open the agent on Zillow or Realtor.com in a new tab. Check whether they have a target listing (active, $500K–$2M) and whether their current photos are weak. Toggle the gates.',
             "Estimate their in-band listings per year — RealTrends gives you total sides, but you want the $500K–$2M slice. The 'Where do I find this?' link on the listings field shows you the math.",
-            "Set Status to Qualify, Pass, or leave it Undecided. The pre-score badge on the left is your hint — you can agree or override with a reason.",
+            "Set Status to Pursue, Reject, or leave it Undecided. The pre-score badge on the left is your hint — you can agree or override with a reason.",
           ],
         },
         {
@@ -88,7 +88,7 @@ const realEstateTutorial: TutorialEntry = {
         },
         {
           kind: 'paragraph',
-          text: 'Rows you Pass on stay visible (faded) so you don\'t accidentally re-source the same agent. Rows you Qualify get a green status badge and move into the active pipeline.',
+          text: 'Rows you Reject stay visible (faded) so you don\'t accidentally re-source the same agent. Rows you Pursue get a green status badge and surface on the Qualify queue, waiting for the deep-work step before they enter the active pipeline.',
         },
       ],
     },
@@ -117,11 +117,11 @@ const realEstateTutorial: TutorialEntry = {
         {
           kind: 'callout',
           tone: 'warn',
-          text: "If your call disagrees with the band (you want to Pass on a Qualified-band agent, or Qualify someone Below the bar), the page asks for a reason — at least 20 characters. This isn't bureaucracy; it's a paper trail for future-you. Real-estate is full of 'I just had a feeling' moments, and the reason field lets you record the feeling.",
+          text: "If your call disagrees with the band (you want to Reject a Qualified-band agent, or Qualify someone Below the bar), the page asks for a reason — at least 20 characters. This isn't bureaucracy; it's a paper trail for future-you. Real-estate is full of 'I just had a feeling' moments, and the reason field lets you record the feeling.",
         },
         {
           kind: 'paragraph',
-          text: 'Click Save when you\'re done. The score recomputes server-side and the agent\'s lifecycle stage updates to match the status (Qualify → stage = qualified; Pass → stage = passed).',
+          text: 'Click Save when you\'re done. The score recomputes server-side and the agent\'s lifecycle stage updates to match the status (Qualify → stage = qualified; Reject → stage = rejected). This is the only path to qualified — Pursue on Sourcing flags a prospect as worth qualifying but does not qualify them.',
         },
       ],
     },

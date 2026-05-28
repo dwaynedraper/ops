@@ -524,7 +524,7 @@ CREATE TABLE IF NOT EXISTS prospects (
                   CHECK (stage IN (
                     'researching', 'qualified', 'contacting',
                     'responded', 'signed', 'client',
-                    'passed', 'dormant'
+                    'rejected', 'dormant'
                   )),
 
   created_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
@@ -771,7 +771,88 @@ BEGIN
   ) THEN
     ALTER TABLE prospects
       ADD COLUMN sourcing_status TEXT NOT NULL DEFAULT 'undecided'
-        CHECK (sourcing_status IN ('qualify', 'pass', 'undecided'));
+        CHECK (sourcing_status IN ('qualify', 'reject', 'undecided'));
+  END IF;
+END $$;
+
+-- ────────────────────────────────────────────────────────────────────
+-- Rename sourcing_status value 'pass' → 'reject'. The original value
+-- was ambiguous ("could that mean 'passed the bar'?") — Dean called
+-- it out in real use; 'reject' has only one meaning. Idempotent —
+-- only runs if the CHECK still allows the old value.
+-- ────────────────────────────────────────────────────────────────────
+DO $$
+BEGIN
+  IF EXISTS (
+    SELECT 1 FROM pg_constraint
+    WHERE conrelid = 'prospects'::regclass
+      AND contype = 'c'
+      AND pg_get_constraintdef(oid) LIKE '%''pass''%'
+      AND pg_get_constraintdef(oid) LIKE '%sourcing_status%'
+  ) THEN
+    -- Drop the auto-named CHECK so the UPDATE doesn't violate it.
+    ALTER TABLE prospects DROP CONSTRAINT IF EXISTS prospects_sourcing_status_check;
+    UPDATE prospects SET sourcing_status = 'reject' WHERE sourcing_status = 'pass';
+    ALTER TABLE prospects ADD CONSTRAINT prospects_sourcing_status_check
+      CHECK (sourcing_status IN ('qualify', 'reject', 'undecided'));
+  END IF;
+END $$;
+
+-- ────────────────────────────────────────────────────────────────────
+-- V1 close: add 'pursue' to the sourcing_status enum.
+--
+-- Sourcing's positive toggle no longer auto-promotes to lifecycle
+-- stage 'qualified' — it just records "this is worth qualifying" and
+-- leaves stage='researching'. The Qualify (deep-work) page remains
+-- the only path to stage='qualified', and uses sourcing_status='qualify'.
+-- Both values live in the same column; Sourcing UI exposes pursue/
+-- reject/undecided, Qualify UI exposes qualify/reject/undecided.
+-- Idempotent — only runs when the CHECK doesn't yet allow 'pursue'.
+-- ────────────────────────────────────────────────────────────────────
+DO $$
+BEGIN
+  IF EXISTS (
+    SELECT 1 FROM pg_constraint
+    WHERE conrelid = 'prospects'::regclass
+      AND contype = 'c'
+      AND pg_get_constraintdef(oid) LIKE '%sourcing_status%'
+      AND pg_get_constraintdef(oid) NOT LIKE '%''pursue''%'
+  ) THEN
+    ALTER TABLE prospects DROP CONSTRAINT IF EXISTS prospects_sourcing_status_check;
+    ALTER TABLE prospects ADD CONSTRAINT prospects_sourcing_status_check
+      CHECK (sourcing_status IN ('undecided', 'pursue', 'qualify', 'reject'));
+  END IF;
+END $$;
+
+-- ────────────────────────────────────────────────────────────────────
+-- V1 close: lifecycle stage 'passed' → 'rejected'. The old name shared
+-- the ambiguity that drove the sourcing_status 'pass' rename — "passed"
+-- can read as "passed the bar." "Rejected" has only one meaning.
+-- Idempotent — only runs when the old CHECK is still in place.
+-- ────────────────────────────────────────────────────────────────────
+DO $$
+DECLARE
+  stage_check_name TEXT;
+BEGIN
+  -- Find the CHECK constraint that mentions 'passed'. Postgres
+  -- auto-names ours; this works regardless of the suffix Postgres
+  -- chose. Returns NULL if the rename has already happened.
+  SELECT conname INTO stage_check_name
+  FROM pg_constraint
+  WHERE conrelid = 'prospects'::regclass
+    AND contype = 'c'
+    AND pg_get_constraintdef(oid) LIKE '%''passed''%'
+    AND pg_get_constraintdef(oid) LIKE '%stage%';
+
+  IF stage_check_name IS NOT NULL THEN
+    EXECUTE format('ALTER TABLE prospects DROP CONSTRAINT %I', stage_check_name);
+    UPDATE prospects SET stage = 'rejected' WHERE stage = 'passed';
+    ALTER TABLE prospects ADD CONSTRAINT prospects_stage_check
+      CHECK (stage IN (
+        'researching', 'qualified', 'contacting',
+        'responded', 'signed', 'client',
+        'rejected', 'dormant'
+      ));
   END IF;
 END $$;
 

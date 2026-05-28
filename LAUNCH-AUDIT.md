@@ -224,6 +224,8 @@ decide if any are launch-required:
 - **Send-to-client flow** — quotes can be generated as a PDF, but there's no
   in-app "email this quote to the client" button. If you're sending quotes
   manually for now, that's fine — just confirm it's intentional for launch.
+  *Note (2026-05-26):* Discarded as a miscommunication. Quotes stay manual
+  send.
 - **Duplicate-check on Qualify** — nothing stops two reps qualifying the same
   prospect. (Note: Research was renamed to Qualify in Phase E / D-023.)
 - **Cross-sell / linked prospects** and a **mobile layout pass** — both deferred.

@@ -15,7 +15,23 @@
 
 import type { RankFactor, ProspectStage } from './prospects';
 
-export type SourcingStatus = 'qualify' | 'pass' | 'undecided';
+/**
+ * Sourcing's status enum holds the rep's "what should happen with this
+ * prospect" decision. Four values:
+ *
+ *   undecided  — nothing decided yet (fresh row or borderline)
+ *   pursue     — Sourcing said yes: this is worth qualifying. Stage
+ *                stays `researching`; the prospect lands in the
+ *                Qualify queue but is NOT yet qualified.
+ *   qualify    — Qualify (the deep-work page) said yes: this prospect
+ *                IS qualified. Stage advances to `qualified`. Only set
+ *                from the Qualify page, never directly from Sourcing.
+ *   reject     — either phase said no. Stage moves to `rejected`.
+ *
+ * Sourcing's toggle exposes Pursue / Reject / Undecided. The Qualify
+ * page's toggle exposes Qualify / Reject / Undecided. Same enum, two
+ * different UI surfaces, no foot-gun. */
+export type SourcingStatus = 'undecided' | 'pursue' | 'qualify' | 'reject';
 
 /** A row as the Sourcing page sends and stores it. Mirrors the shape
  * of `prospects` for the fields the page edits + the rank_inputs
@@ -222,14 +238,18 @@ export function stageForSourcingStatus(
   status: SourcingStatus,
   currentStage: ProspectStage,
 ): ProspectStage {
-  const reversible: ProspectStage[] = ['researching', 'qualified', 'passed'];
+  const reversible: ProspectStage[] = ['researching', 'qualified', 'rejected'];
   if (!reversible.includes(currentStage)) return currentStage;
 
   switch (status) {
     case 'qualify':
       return 'qualified';
-    case 'pass':
-      return 'passed';
+    case 'pursue':
+      // Sourcing's "I want to qualify this" doesn't itself qualify.
+      // The actual qualification happens on /qualify/[id].
+      return 'researching';
+    case 'reject':
+      return 'rejected';
     case 'undecided':
       return 'researching';
   }

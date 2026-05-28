@@ -12,7 +12,7 @@ import {
   type ProspectStage,
 } from '@/lib/prospects';
 import type { SourcingStatus } from '@/lib/sourcing';
-import { QualifyDetailClient, type QualifyDetailWorkflow } from './QualifyDetailClient';
+import { QualifyForm, type QualifyFormWorkflow } from '../QualifyForm';
 
 /**
  * Per-prospect Qualify page — the deep work on one agent (D-023 + Dean
@@ -143,7 +143,7 @@ export default async function QualifyDetailPage({
     targetCount: cfg.get('qualified_target_count') ?? DEFAULT_BANDS.targetCount,
   };
 
-  const workflow: QualifyDetailWorkflow = {
+  const workflow: QualifyFormWorkflow = {
     key: prospectRow.workflow_key,
     name: prospectRow.workflow_name ?? prospectRow.workflow_key,
     accent: prospectRow.accent ?? 'var(--text-faint)',
@@ -218,16 +218,17 @@ export default async function QualifyDetailPage({
               for a server-side recompute.
             </p>
 
-            <QualifyDetailClient
+            <QualifyForm
               prospectId={prospectRow.id}
               workflow={workflow}
-              identity={{
+              initialIdentity={{
                 contactName: prospectRow.contact_name,
                 orgName: prospectRow.org_name,
                 marketArea: prospectRow.market_area,
-                grossVolume: prospectRow.gross_volume === null
-                  ? null
-                  : Number(prospectRow.gross_volume),
+                grossVolume:
+                  prospectRow.gross_volume === null
+                    ? null
+                    : Number(prospectRow.gross_volume),
                 sourceUrl: prospectRow.source_url,
               }}
               initialInputs={prospectRow.rank_inputs ?? {}}

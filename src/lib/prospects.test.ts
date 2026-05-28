@@ -122,8 +122,8 @@ describe('stageForBand — qualify outcome to lifecycle stage', () => {
     expect(stageForBand('borderline')).toBe('researching');
   });
 
-  it('rejects are logged as passed', () => {
-    expect(stageForBand('reject')).toBe('passed');
+  it('rejects are logged as rejected', () => {
+    expect(stageForBand('reject')).toBe('rejected');
   });
 });
 
@@ -140,7 +140,7 @@ describe('STAGE_NEXT — allowed lifecycle moves', () => {
     expect(STAGE_NEXT.client).toEqual([]);
   });
 
-  it('a passed prospect can be reopened as qualified', () => {
-    expect(STAGE_NEXT.passed).toContain('qualified');
+  it('a rejected prospect can be reopened as qualified', () => {
+    expect(STAGE_NEXT.rejected).toContain('qualified');
   });
 });

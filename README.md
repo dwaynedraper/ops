@@ -119,7 +119,7 @@ Week 3 — Quote persistence
 
 Week 4 — PDF output + polish
   [ ] @react-pdf/renderer branded quote                       (Day 22-25)
-  [ ] Send-to-client flow                                     (Day 26-27)
+  [—] Send-to-client flow                                     (discarded — see CHANGELOG)
   [ ] Polish, mobile, real Discovery Hour use                 (Day 28-30)
 ```
 

@@ -22,7 +22,7 @@ export type ProspectStage =
   | 'responded'
   | 'signed'
   | 'client'
-  | 'passed'
+  | 'rejected'
   | 'dormant';
 
 export type RankFactorKind = 'bool' | 'number';
@@ -172,12 +172,12 @@ export function classifyBand(score: number, bands: RankBands): ScoreBand {
  * The lifecycle stage a freshly-researched prospect enters at, by band:
  *   qualified  → 'qualified'    ready for the contact cycle
  *   borderline → 'researching'  a judgment call, parked for review
- *   reject     → 'passed'       logged so it isn't re-researched
+ *   reject     → 'rejected'     logged so it isn't re-researched
  */
 export function stageForBand(band: ScoreBand): ProspectStage {
   if (band === 'qualified') return 'qualified';
   if (band === 'borderline') return 'researching';
-  return 'passed';
+  return 'rejected';
 }
 
 // ─── Lifecycle stage display + transitions ────────────────────────────
@@ -190,7 +190,7 @@ export const STAGE_LABEL: Record<ProspectStage, string> = {
   responded: 'Responded',
   signed: 'Signed',
   client: 'Client',
-  passed: 'Passed',
+  rejected: 'Rejected',
   dormant: 'Dormant',
 };
 
@@ -198,16 +198,16 @@ export const STAGE_LABEL: Record<ProspectStage, string> = {
  * Stage moves a rep can make by hand from the client page. The contact
  * cycle (qualified → contacting → responded) is driven by the tracking
  * page, so those steps are deliberately absent here — this map covers the
- * decisions a person makes: qualifying, signing, passing, reopening.
+ * decisions a person makes: qualifying, signing, rejecting, reopening.
  */
 export const STAGE_NEXT: Record<ProspectStage, ProspectStage[]> = {
-  researching: ['qualified', 'passed'],
-  qualified: ['passed', 'dormant'],
+  researching: ['qualified', 'rejected'],
+  qualified: ['rejected', 'dormant'],
   contacting: ['dormant'],
-  responded: ['signed', 'passed', 'dormant'],
+  responded: ['signed', 'rejected', 'dormant'],
   signed: ['client'],
   client: [],
-  passed: ['qualified'],
+  rejected: ['qualified'],
   dormant: ['qualified'],
 };
 

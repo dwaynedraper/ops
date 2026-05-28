@@ -5,7 +5,7 @@
 > dated history. README.md is the local-dev quickstart; this is the
 > full operating reference.
 
-**Last updated:** 2026-05-26 · Phases A, B, C, D, the quote PDF export, the pre-launch audit + fix batch, and **Phase E (Sourcing + Qualify restructure)** all complete. Open: send-to-client flow, Phase D §9 follow-ups (duplicate-check on Qualify, cross-sell, mobile pass), tutorials for the four non-real-estate workflows. Full Phase E detail in `SOURCING-PLAN.md`. See `LAUNCH-AUDIT.md` for the prior launch-readiness review.
+**Last updated:** 2026-05-26 · Phases A, B, C, D, the quote PDF export, the pre-launch audit + fix batch, and **Phase E (Sourcing + Qualify restructure)** all complete. Open: Phase D §9 follow-ups (duplicate-check on Qualify, cross-sell, mobile pass), tutorials for the four non-real-estate workflows. **Send-to-client flow discarded** as a miscommunication — earlier doc references stay as historical record. Full Phase E detail in `SOURCING-PLAN.md`. See `LAUNCH-AUDIT.md` for the prior launch-readiness review.
 
 > **Heads-up for readers — `/research` is now `/qualify`.** Renamed in
 > Phase E (D-023). Historical references to "Research" or `/research`
@@ -1189,6 +1189,38 @@ a unit; partial slices weren't worth the disruption. New target is
 the old `/research` flow alongside the new one would confuse partners
 and leak technical debt forward. Better to slip a few days and ship
 the restructure clean.
+
+### D-033 · Qualify is one surface, two modes (2026-05-26)
+
+**Decision.** `/qualify` and `/qualify/[id]` render the same shared
+`QualifyForm` component. **Create mode** (no `id`) is the entry form
+for an agent the rep found through non-Sourcing research — identity
+is editable, no breadcrumb. **Edit mode** (with `id`) is the deep
+qualifying surface for an existing prospect — identity is read-only
+with a link to the full record, breadcrumb back to `/sourcing`,
+otherwise identical inputs. Both modes save through
+`upsertSourcingRow`. After a successful create the form redirects
+to `/qualify/[new-id]` so the rep stays on Qualify with the new
+record loaded.
+
+**Rationale.** Phase E's P4.6 shipped two visibly different pages
+for what is conceptually one job — qualifying an in-progress
+profile. Dean called this out (the misalignment after P6/P7): "My
+intent for the qualifier was for this to be a stage that is
+carrying the prospect's info from sourcing to qualify." The
+unification makes Qualify feel like one surface that adapts to
+whether a prospect is in the URL.
+
+**Consequences.**
+- The old `/qualify/[id]/QualifyDetailClient.tsx` and
+  `/qualify/actions.ts` (with `createProspect`) are retired. One
+  server action — `upsertSourcingRow` — handles create and update.
+- The list of recent prospects on `/qualify` now links to
+  `/qualify/[id]` (the deep work) rather than `/prospects/[id]`
+  (the mini-CRM) — keeps the rep in the qualifying flow.
+- D-024 stands. A Sourcing row IS a prospect from row one. "In-
+  progress profile" describes the lifecycle stage (`researching`),
+  not table membership.
 
 ### D-032 · Real-estate scoring math overhaul (2026-05-26)
 

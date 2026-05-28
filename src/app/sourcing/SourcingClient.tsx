@@ -1,25 +1,33 @@
 'use client';
 
 /**
- * Sourcing client — the spreadsheet-style triage surface.
+ * Sourcing client — the V1-close redesign.
  *
- * A rep picks a workflow, then enters rows into a grid: identity, the
- * workflow's intake fields (RealTrends-style sides/volume on
- * real-estate), the hard qualifiers (gates + ≥3pt scoring factors),
- * the source URL, the Qualify / Pass / Undecided status toggle, and a
- * one-line note. Every cell autosaves on blur (D-024). The pre-score
- * badge is advisory (D-028) — the toggle is the rep's call.
+ * Structure (top to bottom):
+ *   1. Workflow picker (which scoring config + column set is active).
+ *   2. Filter bar — status filter chips (All / Undecided / Pursued /
+ *      Qualified / Rejected).
+ *   3. Add-prospect form — name + agency required, everything else
+ *      optional. Single Add button; form state is local until Add
+ *      fires, so there's no foot-gun where typing one letter creates a
+ *      row. After a successful add the form resets.
+ *   4. Sortable table of existing rows — default sort is most recent
+ *      first. Row-level editing: a pencil per row unlocks every cell
+ *      in that row at once; click the green check or click off the row
+ *      to commit. An active-row gutter softens accidental click-offs.
  *
- * State model:
- *   - `rows` is the saved-state cache from the server, keyed by id.
- *   - Each DataRow holds its own local draft state for its inputs and
- *     dispatches `onSave(id, patch)` on cell blur if the draft diverged.
- *   - The bottom DraftRow has no id; first save creates the prospect
- *     and the new row prepends to `rows`.
+ * Lifecycle / status model (D-033 + V1 close):
+ *   - Sourcing toggle is `Pursue / Undecided / Reject`. Pursue does NOT
+ *     promote the lifecycle stage to `qualified` — the rep has to go
+ *     to /qualify/[id] for that. Reject moves stage to `rejected`.
+ *   - The /qualify page's toggle is `Qualify / Undecided / Reject` and
+ *     is the only way to set `stage = qualified`.
+ *   - Both pages share the same `sourcing_status` column; Sourcing
+ *     never writes `qualify`, Qualify never writes `pursue`. Reject
+ *     means the same thing from either side.
  */
 
-import { useCallback, useMemo, useState } from 'react';
-import Link from 'next/link';
+import { useCallback, useMemo, useRef, useState } from 'react';
 import {
   classifyBand,
   type RankBands,
@@ -34,33 +42,48 @@ import {
 import { upsertSourcingRow, type UpsertSourcingRowInput } from './actions';
 
 const OVERRIDE_MIN_CHARS = 20;
+const SCORE_COL_WIDTH = 80;
+const ACTIONS_COL_WIDTH = 56;
 
-/** What the pre-score band recommends — null = no recommendation
- * (borderline). Mirrors the server's `recommendedStatus`. */
-function recommendedStatus(band: ScoreBand): SourcingStatus | null {
-  if (band === 'qualified') return 'qualify';
-  if (band === 'reject') return 'pass';
-  return null;
+const STATUS_LABEL: Record<SourcingStatus, string> = {
+  undecided: '—',
+  pursue: 'Pursue',
+  qualify: 'Qualify',
+  reject: 'Reject',
+};
+
+function isPositive(status: SourcingStatus): boolean {
+  return status === 'pursue' || status === 'qualify';
 }
 
-/** True when the chosen status contradicts the band's recommendation.
- * `undecided` is parking — never counts. */
+/** Mirror of the server-side override rule. */
 function needsOverride(status: SourcingStatus, band: ScoreBand): boolean {
-  const rec = recommendedStatus(band);
-  if (rec === null) return false;
   if (status === 'undecided') return false;
-  return status !== rec;
+  if (band === 'qualified' && status === 'reject') return true;
+  if (band === 'reject' && isPositive(status)) return true;
+  return false;
 }
 
-/** Format a number as USD with no decimal places — used for the locked
- * gross-volume cell. */
 function formatMoney(n: number): string {
   return `$${n.toLocaleString('en-US', { maximumFractionDigits: 0 })}`;
 }
 
-/** Strip scheme and trailing slash for a tidy locked URL display. */
 function prettyUrl(u: string): string {
   return u.replace(/^https?:\/\//, '').replace(/\/$/, '');
+}
+
+function parseIntOrNull(v: string | null | undefined): number | null {
+  if (v === null || v === undefined || v === '') return null;
+  const n = parseInt(String(v), 10);
+  if (!Number.isFinite(n) || n < 0) return null;
+  return n;
+}
+
+function parseFloatOrNull(v: string | null | undefined): number | null {
+  if (v === null || v === undefined || v === '') return null;
+  const n = parseFloat(String(v));
+  if (!Number.isFinite(n) || n < 0) return null;
+  return Math.round(n * 100) / 100;
 }
 
 export interface SourcingWorkflow {
@@ -75,16 +98,8 @@ export interface SourcingWorkflow {
   factors: RankFactor[];
 }
 
-const STATUS_LABEL: Record<SourcingStatus, string> = {
-  qualify: 'Qualify',
-  pass: 'Pass',
-  undecided: '—',
-};
+/* ── Row draft state (used by both the add form and the in-table edit) ── */
 
-/* ── Draft state ─────────────────────────────────────────────────── */
-
-/** Local draft of a row's cells. Mirrors SourcingRow but every column
- * may be staged before it hits the server. */
 interface RowDraft {
   contactName: string;
   orgName: string;
@@ -125,6 +140,24 @@ function emptyDraft(): RowDraft {
   };
 }
 
+/* ── Filters + sorting ────────────────────────────────────────────── */
+
+type StatusFilter = 'all' | SourcingStatus;
+type SortKey =
+  | 'rankScore'
+  | 'contactName'
+  | 'orgName'
+  | 'marketArea'
+  | 'grossVolume'
+  | 'sourcingStatus'
+  | 'createdAt'
+  | string; // also any rank_inputs key (e.g. 'annual_volume')
+
+interface SortState {
+  key: SortKey;
+  dir: 'asc' | 'desc';
+}
+
 /* ── Main component ───────────────────────────────────────────────── */
 
 export function SourcingClient({
@@ -136,12 +169,15 @@ export function SourcingClient({
 }) {
   const [selectedKey, setSelectedKey] = useState(workflows[0]?.key ?? '');
   const [rows, setRows] = useState<SourcingRow[]>(initialRows);
-  const [errors, setErrors] = useState<Record<string, string>>({});
+  const [statusFilter, setStatusFilter] = useState<StatusFilter>('all');
+  const [sort, setSort] = useState<SortState>({ key: 'createdAt', dir: 'desc' });
+  const [activeRowId, setActiveRowId] = useState<string | null>(null);
+  const [rowErrors, setRowErrors] = useState<Record<string, string>>({});
+  const [formError, setFormError] = useState<string | null>(null);
 
   const wf = workflows.find((w) => w.key === selectedKey) ?? workflows[0] ?? null;
 
-  // Helpers usable by row components — wrapped in useCallback so the
-  // child DataRows aren't fighting referential equality.
+  /* Upsert helper used by both the add form and the in-table edit. */
   const handleSave = useCallback(
     async (
       id: string | null,
@@ -149,7 +185,6 @@ export function SourcingClient({
     ): Promise<SourcingRow | null> => {
       const res = await upsertSourcingRow(patch);
       if (res.ok && res.row) {
-        // Update / insert into local cache.
         setRows((prev) => {
           const idx = prev.findIndex((r) => r.id === res.row!.id);
           if (idx === -1) return [res.row!, ...prev];
@@ -157,21 +192,22 @@ export function SourcingClient({
           next[idx] = res.row!;
           return next;
         });
-        // Clear any row-level error.
         if (id) {
-          setErrors((prev) => {
+          setRowErrors((prev) => {
             if (!prev[id]) return prev;
             const next = { ...prev };
             delete next[id];
             return next;
           });
+        } else {
+          setFormError(null);
         }
         return res.row;
       }
       if (id) {
-        setErrors((prev) => ({ ...prev, [id]: res.error ?? 'Could not save.' }));
+        setRowErrors((prev) => ({ ...prev, [id]: res.error ?? 'Could not save.' }));
       } else {
-        setErrors((prev) => ({ ...prev, __draft__: res.error ?? 'Could not save.' }));
+        setFormError(res.error ?? 'Could not add the prospect.');
       }
       return null;
     },
@@ -188,8 +224,12 @@ export function SourcingClient({
     );
   }
 
-  const visibleRows = rows.filter((r) => r.workflowKey === wf.key);
-  const draftError = errors.__draft__;
+  /* Filter + sort, both client-side over the rep's full row set. */
+  const workflowRows = rows.filter((r) => r.workflowKey === wf.key);
+  const filteredRows = workflowRows.filter((r) =>
+    statusFilter === 'all' ? true : r.sourcingStatus === statusFilter,
+  );
+  const visibleRows = sortRows(filteredRows, sort);
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
@@ -230,33 +270,516 @@ export function SourcingClient({
         })}
       </div>
 
-      {/* ─── The grid ─────────────────────────────────────────────── */}
-      <SourcingGrid
+      {/* ─── Add-prospect form ────────────────────────────────────── */}
+      <AddProspectForm
+        key={wf.key}
+        workflow={wf}
+        formError={formError}
+        onAdd={(patch) => handleSave(null, patch)}
+      />
+
+      {/* ─── Filter bar ───────────────────────────────────────────── */}
+      <FilterBar
+        statusFilter={statusFilter}
+        onChange={setStatusFilter}
+        counts={statusCountsFor(workflowRows)}
+      />
+
+      {/* ─── Table ────────────────────────────────────────────────── */}
+      <SourcingTable
         workflow={wf}
         rows={visibleRows}
-        rowErrors={errors}
-        draftError={draftError}
+        sort={sort}
+        onSortChange={setSort}
+        activeRowId={activeRowId}
+        setActiveRowId={setActiveRowId}
+        rowErrors={rowErrors}
         onSave={handleSave}
       />
     </div>
   );
 }
 
-/* ── Grid ─────────────────────────────────────────────────────────── */
+/* ── Add-prospect form ────────────────────────────────────────────── */
 
-const SCORE_COL_WIDTH = 80;
+function AddProspectForm({
+  workflow,
+  formError,
+  onAdd,
+}: {
+  workflow: SourcingWorkflow;
+  formError: string | null;
+  onAdd: (patch: UpsertSourcingRowInput) => Promise<SourcingRow | null>;
+}) {
+  const [draft, setDraft] = useState<RowDraft>(() => emptyDraft());
+  const [adding, setAdding] = useState(false);
+  const addingRef = useRef(false);
 
-function SourcingGrid({
+  const liveScore = computeLiveScore(workflow, draft.rankInputs);
+  const band = classifyBand(liveScore, workflow.bands);
+  const override = needsOverride(draft.sourcingStatus, band);
+  const reasonOk = !override || draft.sourcingNote.trim().length >= OVERRIDE_MIN_CHARS;
+
+  const canAdd =
+    !adding &&
+    reasonOk &&
+    draft.contactName.trim().length > 0 &&
+    draft.orgName.trim().length > 0;
+
+  async function handleAdd() {
+    if (!canAdd) return;
+    if (addingRef.current) return;
+    addingRef.current = true;
+    setAdding(true);
+    try {
+      const patch: UpsertSourcingRowInput = {
+        workflowKey: workflow.key,
+        contactName: draft.contactName,
+        orgName: draft.orgName,
+        marketArea: draft.marketArea || null,
+        sidesCount: parseIntOrNull(draft.sidesCount),
+        grossVolume: parseFloatOrNull(draft.grossVolume),
+        sourceUrl: draft.sourceUrl || null,
+        sourcingStatus: draft.sourcingStatus,
+        sourcingNote: override ? draft.sourcingNote.trim() : null,
+        rankInputPatches: draft.rankInputs,
+      };
+      const created = await onAdd(patch);
+      if (created) setDraft(emptyDraft());
+    } finally {
+      addingRef.current = false;
+      setAdding(false);
+    }
+  }
+
+  const intakeCols = workflow.columns.filter(
+    (c) => c.group === 'intake' && c.key !== 'sourcingStatus',
+  );
+  const qualifierCols = workflow.columns.filter((c) => c.group === 'qualifier');
+
+  return (
+    <div
+      className="surface-tool"
+      style={{
+        display: 'flex',
+        flexDirection: 'column',
+        gap: '0.85rem',
+        padding: '1rem 1.1rem',
+      }}
+    >
+      <div className="eyebrow">Add a {workflow.contactNoun.toLowerCase()}</div>
+
+      {/* Identity + intake */}
+      <div
+        style={{
+          display: 'grid',
+          gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))',
+          gap: '0.75rem',
+        }}
+      >
+        {intakeCols.map((col) => (
+          <FormField
+            key={col.key}
+            column={col}
+            draft={draft}
+            setDraft={setDraft}
+            contactNoun={workflow.contactNoun}
+            orgNoun={workflow.orgNoun}
+          />
+        ))}
+      </div>
+
+      {/* Hard qualifiers — collapsible visual section */}
+      {qualifierCols.length > 0 && (
+        <div
+          style={{
+            display: 'flex',
+            flexDirection: 'column',
+            gap: '0.45rem',
+            paddingTop: '0.4rem',
+            borderTop: '1px solid var(--border)',
+          }}
+        >
+          <div
+            style={{
+              fontSize: '0.62rem',
+              letterSpacing: '0.14em',
+              textTransform: 'uppercase',
+              fontWeight: 700,
+              color: 'var(--accent)',
+            }}
+          >
+            Hard qualifiers (optional now — refine on Qualify)
+          </div>
+          <div
+            style={{
+              display: 'grid',
+              gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))',
+              gap: '0.55rem',
+            }}
+          >
+            {qualifierCols.map((col) => (
+              <QualifierField
+                key={col.key}
+                column={col}
+                factor={workflow.factors.find((f) => f.key === col.key)}
+                draft={draft}
+                setDraft={setDraft}
+              />
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Status toggle + override expansion */}
+      <div
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          gap: '0.75rem',
+          flexWrap: 'wrap',
+          paddingTop: '0.5rem',
+          borderTop: '1px solid var(--border)',
+        }}
+      >
+        <div
+          style={{
+            fontSize: '0.62rem',
+            letterSpacing: '0.14em',
+            textTransform: 'uppercase',
+            fontWeight: 700,
+            color: 'var(--text-faint)',
+          }}
+        >
+          Status
+        </div>
+        <SourcingStatusToggle
+          value={draft.sourcingStatus}
+          onChange={(s) => setDraft((d) => ({ ...d, sourcingStatus: s }))}
+        />
+        <ScorePill score={liveScore} band={band} />
+      </div>
+
+      {override && (
+        <OverrideExpansion
+          status={draft.sourcingStatus}
+          band={band}
+          reason={draft.sourcingNote}
+          setReason={(r) => setDraft((d) => ({ ...d, sourcingNote: r }))}
+        />
+      )}
+
+      {/* Add button */}
+      <div
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          gap: '0.75rem',
+          paddingTop: '0.3rem',
+        }}
+      >
+        <button
+          className="btn-primary"
+          disabled={!canAdd}
+          onClick={handleAdd}
+          style={{ justifyContent: 'center' }}
+        >
+          {adding ? 'Adding…' : `Add ${workflow.contactNoun.toLowerCase()}`}
+        </button>
+        {!canAdd && !adding && (
+          <span style={{ fontSize: '0.74rem', color: 'var(--text-faint)' }}>
+            {draft.contactName.trim() === ''
+              ? 'Name is required.'
+              : draft.orgName.trim() === ''
+                ? `${workflow.orgNoun ?? 'Agency'} is required.`
+                : override && !reasonOk
+                  ? `Override reason needs ${OVERRIDE_MIN_CHARS}+ characters.`
+                  : ''}
+          </span>
+        )}
+        {formError && (
+          <span style={{ fontSize: '0.74rem', color: 'var(--bad)' }}>{formError}</span>
+        )}
+      </div>
+    </div>
+  );
+}
+
+/* Per-column input for the add form (intake columns: identity + sides/volume/sourceUrl). */
+function FormField({
+  column,
+  draft,
+  setDraft,
+  contactNoun,
+  orgNoun,
+}: {
+  column: SourcingColumn;
+  draft: RowDraft;
+  setDraft: React.Dispatch<React.SetStateAction<RowDraft>>;
+  contactNoun: string;
+  orgNoun: string | null;
+}) {
+  const fieldKey = column.key as keyof RowDraft;
+  const current = String(draft[fieldKey] ?? '');
+
+  let label = column.label;
+  if (column.key === 'contactName') label = `${contactNoun} name`;
+  if (column.key === 'orgName' && orgNoun) label = orgNoun;
+
+  const required = column.key === 'contactName' || column.key === 'orgName';
+  const inputType =
+    column.kind === 'integer' || column.kind === 'currency'
+      ? 'number'
+      : column.kind === 'url'
+        ? 'url'
+        : 'text';
+
+  return (
+    <label style={{ display: 'block' }}>
+      <span className="label">
+        {label}
+        {required && (
+          <span style={{ color: 'var(--bad)', marginLeft: '0.2rem' }}>*</span>
+        )}
+      </span>
+      <input
+        className="input"
+        type={inputType}
+        inputMode={
+          column.kind === 'integer'
+            ? 'numeric'
+            : column.kind === 'currency'
+              ? 'decimal'
+              : undefined
+        }
+        step={column.kind === 'currency' ? '0.01' : undefined}
+        min={column.kind === 'integer' || column.kind === 'currency' ? 0 : undefined}
+        value={current}
+        onChange={(e) =>
+          setDraft((d) => ({ ...d, [fieldKey]: e.target.value } as RowDraft))
+        }
+        placeholder={
+          column.key === 'contactName'
+            ? 'Jordan Avery'
+            : column.help
+              ? undefined
+              : undefined
+        }
+      />
+    </label>
+  );
+}
+
+function QualifierField({
+  column,
+  factor,
+  draft,
+  setDraft,
+}: {
+  column: SourcingColumn;
+  factor: RankFactor | undefined;
+  draft: RowDraft;
+  setDraft: React.Dispatch<React.SetStateAction<RowDraft>>;
+}) {
+  if (column.kind === 'bool') {
+    const checked = draft.rankInputs[column.key] === true;
+    return (
+      <label
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          gap: '0.55rem',
+          fontSize: '0.78rem',
+          color: 'var(--text)',
+          padding: '0.5rem 0.6rem',
+          borderRadius: 'var(--radius-sm)',
+          background: checked ? 'var(--accent-dim)' : 'transparent',
+          border: `1px solid ${checked ? 'var(--border-accent)' : 'var(--border)'}`,
+          cursor: 'pointer',
+        }}
+      >
+        <input
+          type="checkbox"
+          checked={checked}
+          onChange={(e) =>
+            setDraft((d) => ({
+              ...d,
+              rankInputs: { ...d.rankInputs, [column.key]: e.target.checked },
+            }))
+          }
+          style={{ accentColor: 'var(--accent)' }}
+        />
+        <span>{column.label}</span>
+      </label>
+    );
+  }
+  // integer
+  const value =
+    typeof draft.rankInputs[column.key] === 'number'
+      ? (draft.rankInputs[column.key] as number)
+      : 0;
+  return (
+    <label style={{ display: 'block', fontSize: '0.78rem' }}>
+      <span className="label">{column.label}</span>
+      <input
+        type="number"
+        min={0}
+        value={value === 0 ? '' : value}
+        onChange={(e) => {
+          const n = parseInt(e.target.value, 10);
+          const clean = Number.isFinite(n) && n > 0 ? Math.floor(n) : 0;
+          setDraft((d) => ({
+            ...d,
+            rankInputs: { ...d.rankInputs, [column.key]: clean },
+          }));
+        }}
+        className="input"
+        placeholder={factor?.maxInput != null ? `≤${factor.maxInput}` : '0'}
+      />
+    </label>
+  );
+}
+
+/* ── Filter bar ───────────────────────────────────────────────────── */
+
+function FilterBar({
+  statusFilter,
+  onChange,
+  counts,
+}: {
+  statusFilter: StatusFilter;
+  onChange: (s: StatusFilter) => void;
+  counts: Record<StatusFilter, number>;
+}) {
+  const opts: { key: StatusFilter; label: string }[] = [
+    { key: 'all', label: 'All' },
+    { key: 'undecided', label: 'Undecided' },
+    { key: 'pursue', label: 'Pursued' },
+    { key: 'qualify', label: 'Qualified' },
+    { key: 'reject', label: 'Rejected' },
+  ];
+
+  return (
+    <div style={{ display: 'flex', gap: '0.4rem', flexWrap: 'wrap', alignItems: 'center' }}>
+      <span
+        style={{
+          fontSize: '0.62rem',
+          letterSpacing: '0.14em',
+          textTransform: 'uppercase',
+          fontWeight: 700,
+          color: 'var(--text-faint)',
+          marginRight: '0.25rem',
+        }}
+      >
+        Filter
+      </span>
+      {opts.map((opt) => {
+        const active = opt.key === statusFilter;
+        const count = counts[opt.key] ?? 0;
+        return (
+          <button
+            key={opt.key}
+            onClick={() => onChange(opt.key)}
+            style={{
+              padding: '0.35rem 0.7rem',
+              borderRadius: 'var(--radius-sm)',
+              border: `1px solid ${active ? 'var(--border-accent)' : 'var(--border)'}`,
+              background: active ? 'var(--accent-dim)' : 'transparent',
+              color: active ? 'var(--text)' : 'var(--text-mid)',
+              fontSize: '0.74rem',
+              fontWeight: 600,
+              cursor: 'pointer',
+            }}
+          >
+            {opt.label}{' '}
+            <span style={{ color: 'var(--text-faint)', fontWeight: 400 }}>· {count}</span>
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+function statusCountsFor(rows: SourcingRow[]): Record<StatusFilter, number> {
+  const out: Record<StatusFilter, number> = {
+    all: rows.length,
+    undecided: 0,
+    pursue: 0,
+    qualify: 0,
+    reject: 0,
+  };
+  for (const r of rows) {
+    out[r.sourcingStatus] = (out[r.sourcingStatus] ?? 0) + 1;
+  }
+  return out;
+}
+
+/* ── Sorting helper ───────────────────────────────────────────────── */
+
+function sortRows(rows: SourcingRow[], sort: SortState): SourcingRow[] {
+  const dir = sort.dir === 'asc' ? 1 : -1;
+  const copy = [...rows];
+  copy.sort((a, b) => {
+    const av = sortValue(a, sort.key);
+    const bv = sortValue(b, sort.key);
+    if (av === null && bv === null) return 0;
+    if (av === null) return 1; // nulls last
+    if (bv === null) return -1;
+    if (typeof av === 'number' && typeof bv === 'number') return (av - bv) * dir;
+    return String(av).localeCompare(String(bv)) * dir;
+  });
+  return copy;
+}
+
+function sortValue(row: SourcingRow, key: SortKey): string | number | null {
+  switch (key) {
+    case 'rankScore':
+      return row.rankScore;
+    case 'contactName':
+      return row.contactName;
+    case 'orgName':
+      return row.orgName;
+    case 'marketArea':
+      return row.marketArea;
+    case 'grossVolume':
+      return row.grossVolume;
+    case 'sourcingStatus':
+      return row.sourcingStatus;
+    case 'createdAt':
+      // SourcingRow doesn't carry createdAt; fall back to id (uuid ordering
+      // isn't time-based — but the parent list comes from the server
+      // pre-sorted by created_at DESC, so the initial position is the
+      // proxy). For now sort by id which is stable.
+      return row.id;
+    default:
+      // rank input — return the value if it's a number, else null
+      const v = row.rankInputs[key];
+      if (typeof v === 'number') return v;
+      if (v === true) return 1;
+      if (v === false) return 0;
+      return null;
+  }
+}
+
+/* ── Table ────────────────────────────────────────────────────────── */
+
+function SourcingTable({
   workflow,
   rows,
+  sort,
+  onSortChange,
+  activeRowId,
+  setActiveRowId,
   rowErrors,
-  draftError,
   onSave,
 }: {
   workflow: SourcingWorkflow;
   rows: SourcingRow[];
+  sort: SortState;
+  onSortChange: (s: SortState) => void;
+  activeRowId: string | null;
+  setActiveRowId: (id: string | null) => void;
   rowErrors: Record<string, string>;
-  draftError: string | undefined;
   onSave: (
     id: string | null,
     patch: UpsertSourcingRowInput,
@@ -264,75 +787,78 @@ function SourcingGrid({
 }) {
   const cols = workflow.columns;
 
-  // Build the CSS grid template — score + each column's width.
-  // P4.6 removed the dedicated "open" column; locked cells become the
-  // row-level click target instead.
   const template = useMemo(() => {
     const parts: string[] = [`${SCORE_COL_WIDTH}px`];
     for (const c of cols) parts.push(`${c.width}px`);
+    parts.push(`${ACTIONS_COL_WIDTH}px`);
     return parts.join(' ');
   }, [cols]);
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: '0.65rem' }}>
-      <div className="surface-tool" style={{ padding: '0.5rem', overflowX: 'auto' }}>
-        <div
-          role="table"
-          aria-label={`${workflow.name} sourcing`}
-          style={{ minWidth: 'min-content' }}
-        >
-          <HeaderRow template={template} columns={cols} />
-          {rows.length === 0 ? (
-            <div
-              role="row"
-              style={{
-                padding: '1rem 0.75rem',
-                fontSize: '0.82rem',
-                color: 'var(--text-muted)',
-              }}
-            >
-              No prospects sourced yet. Type a name into the empty row to start.
-            </div>
-          ) : (
-            rows.map((row) => (
-              <DataRow
-                key={row.id}
-                workflow={workflow}
-                row={row}
-                template={template}
-                onSave={onSave}
-                error={rowErrors[row.id]}
-              />
-            ))
-          )}
-          <DraftRow
-            key={workflow.key}
-            workflow={workflow}
-            template={template}
-            onSave={onSave}
-            error={draftError}
-          />
-        </div>
+    <div className="surface-tool" style={{ padding: '0.5rem', overflowX: 'auto' }}>
+      <div role="table" aria-label={`${workflow.name} sourcing`} style={{ minWidth: 'min-content' }}>
+        <TableHeader template={template} columns={cols} sort={sort} onSortChange={onSortChange} />
+        {rows.length === 0 ? (
+          <div
+            role="row"
+            style={{
+              padding: '1.5rem 0.75rem',
+              fontSize: '0.82rem',
+              color: 'var(--text-muted)',
+              textAlign: 'center',
+            }}
+          >
+            No matching prospects. Add one above or change the filter.
+          </div>
+        ) : (
+          rows.map((row) => (
+            <TableRow
+              key={row.id}
+              workflow={workflow}
+              row={row}
+              template={template}
+              isActive={activeRowId === row.id}
+              onActivate={() => setActiveRowId(row.id)}
+              onDeactivate={() => setActiveRowId(null)}
+              onSave={onSave}
+              error={rowErrors[row.id]}
+              anotherRowIsActive={activeRowId !== null && activeRowId !== row.id}
+            />
+          ))
+        )}
       </div>
     </div>
   );
 }
 
-function HeaderRow({
+function TableHeader({
   template,
   columns,
+  sort,
+  onSortChange,
 }: {
   template: string;
   columns: SourcingColumn[];
+  sort: SortState;
+  onSortChange: (s: SortState) => void;
 }) {
-  const cellStyle: React.CSSProperties = {
+  function toggleSort(key: SortKey) {
+    if (sort.key === key) {
+      onSortChange({ key, dir: sort.dir === 'asc' ? 'desc' : 'asc' });
+    } else {
+      onSortChange({ key, dir: 'desc' });
+    }
+  }
+
+  const cellBase: React.CSSProperties = {
     fontSize: '0.62rem',
     letterSpacing: '0.14em',
     textTransform: 'uppercase',
     fontWeight: 700,
-    color: 'var(--text-faint)',
     padding: '0.55rem 0.65rem',
+    color: 'var(--text-faint)',
   };
+
   return (
     <div
       role="row"
@@ -343,278 +869,245 @@ function HeaderRow({
         borderBottom: '1px solid var(--border)',
       }}
     >
-      <div role="columnheader" style={{ ...cellStyle, textAlign: 'center' }}>
-        Score
+      <SortHeader
+        label="Score"
+        sortKey="rankScore"
+        currentSort={sort}
+        onClick={toggleSort}
+        style={{ ...cellBase, textAlign: 'center' }}
+      />
+      {columns.map((c) => {
+        const sortable = sortableKeyForColumn(c);
+        return sortable ? (
+          <SortHeader
+            key={c.key}
+            label={c.label}
+            sortKey={sortable}
+            currentSort={sort}
+            onClick={toggleSort}
+            style={{
+              ...cellBase,
+              color: c.group === 'qualifier' ? 'var(--accent)' : 'var(--text-faint)',
+            }}
+            maxInput={c.maxInput ?? null}
+            title={c.help ?? undefined}
+          />
+        ) : (
+          <div
+            role="columnheader"
+            key={c.key}
+            style={{
+              ...cellBase,
+              color: c.group === 'qualifier' ? 'var(--accent)' : 'var(--text-faint)',
+            }}
+            title={c.help ?? undefined}
+          >
+            {c.label}
+          </div>
+        );
+      })}
+      <div role="columnheader" style={cellBase} aria-label="Actions">
+        {/* pencil / check column */}
       </div>
-      {columns.map((c) => (
-        <div
-          role="columnheader"
-          key={c.key}
-          style={{
-            ...cellStyle,
-            color: c.group === 'qualifier' ? 'var(--accent)' : 'var(--text-faint)',
-          }}
-          title={c.help ?? undefined}
-        >
-          {c.label}
-          {c.maxInput != null && (
-            <span
-              style={{
-                fontWeight: 400,
-                fontSize: '0.58rem',
-                color: 'var(--text-faint)',
-                letterSpacing: 'normal',
-                textTransform: 'none',
-                marginLeft: '0.25rem',
-              }}
-            >
-              · ≤{c.maxInput}
-            </span>
-          )}
-        </div>
-      ))}
     </div>
   );
 }
 
-/* ── DataRow — an existing prospect ─────────────────────────────────── */
+function sortableKeyForColumn(c: SourcingColumn): SortKey | null {
+  if (c.key === 'sourcingNote') return null;
+  if (c.key === 'sourceUrl') return null;
+  return c.key;
+}
 
-function DataRow({
+function SortHeader({
+  label,
+  sortKey,
+  currentSort,
+  onClick,
+  style,
+  maxInput,
+  title,
+}: {
+  label: string;
+  sortKey: SortKey;
+  currentSort: SortState;
+  onClick: (k: SortKey) => void;
+  style: React.CSSProperties;
+  maxInput?: number | null;
+  title?: string;
+}) {
+  const active = currentSort.key === sortKey;
+  return (
+    <button
+      type="button"
+      onClick={() => onClick(sortKey)}
+      title={title}
+      style={{
+        ...style,
+        background: 'transparent',
+        border: 'none',
+        cursor: 'pointer',
+        textAlign: style.textAlign,
+        color: active ? 'var(--text)' : style.color,
+      }}
+    >
+      {label}
+      {active && (
+        <span aria-hidden style={{ marginLeft: '0.25rem' }}>
+          {currentSort.dir === 'asc' ? '↑' : '↓'}
+        </span>
+      )}
+      {maxInput != null && (
+        <span
+          style={{
+            fontWeight: 400,
+            fontSize: '0.58rem',
+            color: 'var(--text-faint)',
+            letterSpacing: 'normal',
+            textTransform: 'none',
+            marginLeft: '0.25rem',
+          }}
+        >
+          · ≤{maxInput}
+        </span>
+      )}
+    </button>
+  );
+}
+
+/* ── A single row — display or edit mode based on `isActive` ──────── */
+
+function TableRow({
   workflow,
   row,
   template,
+  isActive,
+  onActivate,
+  onDeactivate,
   onSave,
   error,
+  anotherRowIsActive,
 }: {
   workflow: SourcingWorkflow;
   row: SourcingRow;
   template: string;
+  isActive: boolean;
+  onActivate: () => void;
+  onDeactivate: () => void;
   onSave: (
     id: string | null,
     patch: UpsertSourcingRowInput,
   ) => Promise<SourcingRow | null>;
   error?: string;
+  anotherRowIsActive: boolean;
 }) {
-  // Local draft of every cell. Initialized from the server-known
-  // row on mount; we deliberately don't sync back when `row` changes
-  // (the rep's in-progress input wins). The displayed score / band
-  // are read straight from `row`, not from the draft, so they stay
-  // fresh after a save.
+  // Local draft is reset every time the row enters edit mode (see
+  // handleActivate). Between edits, the displayed values come straight
+  // from `row` via renderDisplay — so a server-side score recompute
+  // (from another rep editing the rank-factor config, say) shows up
+  // without needing a draft re-sync here.
   const [draft, setDraft] = useState<RowDraft>(() => draftFromRow(row));
-
-  // Pending override — when the rep clicks a status that disagrees
-  // with the band, we hold the change here until they fill in a reason.
-  // Cancel reverts; Save commits both at once.
-  const [pendingOverride, setPendingOverride] = useState<{
-    status: SourcingStatus;
-    reason: string;
-  } | null>(null);
+  const [busy, setBusy] = useState(false);
 
   const band = classifyBand(row.rankScore, workflow.bands);
+  const override = needsOverride(draft.sourcingStatus, band);
+  const reasonOk = !override || draft.sourcingNote.trim().length >= OVERRIDE_MIN_CHARS;
 
-  const submitPatch = useCallback(
-    async (patch: UpsertSourcingRowInput) => {
-      const merged: UpsertSourcingRowInput = { ...patch, id: row.id };
-      await onSave(row.id, merged);
-    },
-    [onSave, row.id],
-  );
+  const handleActivate = useCallback(() => {
+    setDraft(draftFromRow(row));
+    onActivate();
+  }, [onActivate, row]);
 
-  // Status changes route through this so we can intercept disagreements
-  // with the band and surface the override expansion.
-  const onStatusChange = useCallback(
-    (next: SourcingStatus) => {
-      if (next === row.sourcingStatus) return;
-      if (needsOverride(next, band)) {
-        setPendingOverride({ status: next, reason: row.sourcingNote ?? '' });
-        return;
-      }
-      // Otherwise: optimistic local toggle + save.
-      setDraft((d) => ({ ...d, sourcingStatus: next }));
-      submitPatch({ sourcingStatus: next, sourcingNote: null });
-    },
-    [band, row.sourcingNote, row.sourcingStatus, submitPatch],
-  );
+  const commit = useCallback(async () => {
+    if (busy) return;
+    if (!reasonOk) return;
+    setBusy(true);
+    try {
+      const patch: UpsertSourcingRowInput = {
+        id: row.id,
+        contactName: draft.contactName,
+        orgName: draft.orgName || null,
+        marketArea: draft.marketArea || null,
+        sidesCount: parseIntOrNull(draft.sidesCount),
+        grossVolume: parseFloatOrNull(draft.grossVolume),
+        sourceUrl: draft.sourceUrl || null,
+        sourcingStatus: draft.sourcingStatus,
+        sourcingNote: override ? draft.sourcingNote.trim() : null,
+        rankInputPatches: draft.rankInputs,
+      };
+      await onSave(row.id, patch);
+      onDeactivate();
+    } finally {
+      setBusy(false);
+    }
+  }, [busy, draft, onDeactivate, onSave, override, reasonOk, row.id]);
 
-  const commitOverride = useCallback(async () => {
-    if (!pendingOverride) return;
-    if (pendingOverride.reason.trim().length < OVERRIDE_MIN_CHARS) return;
-    setDraft((d) => ({
-      ...d,
-      sourcingStatus: pendingOverride.status,
-      sourcingNote: pendingOverride.reason.trim(),
-    }));
-    await submitPatch({
-      sourcingStatus: pendingOverride.status,
-      sourcingNote: pendingOverride.reason.trim(),
-    });
-    setPendingOverride(null);
-  }, [pendingOverride, submitPatch]);
+  function handleCancel() {
+    setDraft(draftFromRow(row));
+    onDeactivate();
+  }
 
-  return (
-    <div
-      role="row"
-      style={{
-        display: 'grid',
-        gridTemplateColumns: template,
-        alignItems: 'stretch',
-        borderBottom: '1px solid var(--border)',
-        opacity: row.sourcingStatus === 'pass' ? 0.55 : 1,
-      }}
-    >
-      <ScoreCell row={row} bands={workflow.bands} />
-      {workflow.columns.map((col) => (
-        <Cell
-          key={col.key}
-          column={col}
-          factor={
-            col.isRankInput ? workflow.factors.find((f) => f.key === col.key) : undefined
-          }
-          draft={draft}
-          setDraft={setDraft}
-          row={row}
-          prospectId={row.id}
-          submit={submitPatch}
-          onStatusChange={onStatusChange}
-        />
-      ))}
-      {pendingOverride && (
-        <OverrideExpansion
-          pending={pendingOverride}
-          band={band}
-          setReason={(r) =>
-            setPendingOverride((prev) => (prev ? { ...prev, reason: r } : prev))
-          }
-          onCommit={commitOverride}
-          onCancel={() => setPendingOverride(null)}
-        />
-      )}
-      {error && (
-        <div
-          role="alert"
-          style={{
-            gridColumn: '1 / -1',
-            fontSize: '0.74rem',
-            color: 'var(--bad)',
-            padding: '0.3rem 0.65rem 0.55rem',
-          }}
-        >
-          {error}
-        </div>
-      )}
-    </div>
-  );
-}
-
-/* ── DraftRow — the empty bottom row ────────────────────────────────── */
-
-function DraftRow({
-  workflow,
-  template,
-  onSave,
-  error,
-}: {
-  workflow: SourcingWorkflow;
-  template: string;
-  onSave: (
-    id: string | null,
-    patch: UpsertSourcingRowInput,
-  ) => Promise<SourcingRow | null>;
-  error?: string;
-}) {
-  // A fresh empty draft each time the workflow changes — the row is
-  // workflow-bound. The parent passes `key={workflow.key}` so we get
-  // a clean mount per workflow switch, avoiding the "sync state from
-  // props" anti-pattern.
-  const [draft, setDraft] = useState<RowDraft>(() => emptyDraft());
-  const [creating, setCreating] = useState(false);
-
-  const submit = useCallback(
-    async (patch: UpsertSourcingRowInput) => {
-      // Only save once a name's been typed. Other cells before name
-      // are stored locally and submitted as part of the create.
-      const haveName =
-        (patch.contactName ?? draft.contactName).trim().length > 0;
-      if (!haveName) return;
-
-      setCreating(true);
-      try {
-        // Build a full payload from the current draft (server treats
-        // undefined as "no change," so we send everything as a create).
-        const fullPatch: UpsertSourcingRowInput = {
-          workflowKey: workflow.key,
-          contactName: patch.contactName ?? draft.contactName,
-          orgName: patch.orgName !== undefined ? patch.orgName : draft.orgName,
-          marketArea:
-            patch.marketArea !== undefined ? patch.marketArea : draft.marketArea,
-          sidesCount:
-            patch.sidesCount !== undefined ? patch.sidesCount : parseIntOrNull(draft.sidesCount),
-          grossVolume:
-            patch.grossVolume !== undefined
-              ? patch.grossVolume
-              : parseFloatOrNull(draft.grossVolume),
-          sourceUrl:
-            patch.sourceUrl !== undefined ? patch.sourceUrl : draft.sourceUrl,
-          sourcingStatus:
-            patch.sourcingStatus !== undefined
-              ? patch.sourcingStatus
-              : draft.sourcingStatus,
-          sourcingNote:
-            patch.sourcingNote !== undefined ? patch.sourcingNote : draft.sourcingNote,
-          rankInputPatches: { ...draft.rankInputs, ...(patch.rankInputPatches ?? {}) },
-        };
-        const created = await onSave(null, fullPatch);
-        if (created) setDraft(emptyDraft());
-      } finally {
-        setCreating(false);
-      }
-    },
-    [draft, onSave, workflow.key],
-  );
-
-  return (
-    <div
-      role="row"
-      style={{
-        display: 'grid',
-        gridTemplateColumns: template,
-        alignItems: 'stretch',
+  /* Row styling — gutter above/below when active, plus a soft background
+     tint so clicking off feels intentional. */
+  const rowStyle: React.CSSProperties = {
+    display: 'grid',
+    gridTemplateColumns: template,
+    alignItems: 'stretch',
+    borderBottom: '1px solid var(--border)',
+    opacity: row.sourcingStatus === 'reject' && !isActive ? 0.55 : 1,
+  };
+  const wrapperStyle: React.CSSProperties = isActive
+    ? {
+        padding: '10px 0',
         background: 'var(--steel-dim)',
-        borderTop: '1px dashed var(--border)',
-      }}
-    >
-      {/* Score column — empty placeholder */}
-      <div
-        role="cell"
-        style={{
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          fontSize: '0.7rem',
-          color: 'var(--text-faint)',
-        }}
-      >
-        {creating ? 'saving…' : 'new'}
-      </div>
-      {workflow.columns.map((col) => (
-        <Cell
-          key={col.key}
-          column={col}
-          factor={
-            col.isRankInput ? workflow.factors.find((f) => f.key === col.key) : undefined
-          }
-          draft={draft}
-          setDraft={setDraft}
-          row={null}
-          prospectId={null}
-          submit={submit}
+        borderRadius: 'var(--radius-sm)',
+        margin: '4px 0',
+        border: '1px solid var(--border-accent)',
+      }
+    : {};
+
+  return (
+    <div style={wrapperStyle}>
+      <div role="row" style={rowStyle}>
+        <ScoreCell row={row} bands={workflow.bands} />
+        {workflow.columns.map((col) => (
+          <RowCell
+            key={col.key}
+            column={col}
+            factor={
+              col.isRankInput ? workflow.factors.find((f) => f.key === col.key) : undefined
+            }
+            row={row}
+            draft={draft}
+            setDraft={setDraft}
+            isActive={isActive}
+            onActivate={handleActivate}
+            anotherRowIsActive={anotherRowIsActive}
+          />
+        ))}
+        <ActionsCell
+          isActive={isActive}
+          busy={busy}
+          canSave={reasonOk}
+          onEdit={handleActivate}
+          onSave={commit}
+          onCancel={handleCancel}
         />
-      ))}
+      </div>
+      {isActive && override && (
+        <div style={{ padding: '0.4rem 0.6rem' }}>
+          <OverrideExpansion
+            status={draft.sourcingStatus}
+            band={band}
+            reason={draft.sourcingNote}
+            setReason={(r) => setDraft((d) => ({ ...d, sourcingNote: r }))}
+          />
+        </div>
+      )}
       {error && (
         <div
           role="alert"
           style={{
-            gridColumn: '1 / -1',
             fontSize: '0.74rem',
             color: 'var(--bad)',
             padding: '0.3rem 0.65rem 0.55rem',
@@ -627,56 +1120,74 @@ function DraftRow({
   );
 }
 
-/* ── Cell — dispatch on column kind, with lock-after-blur for text/
-   number/url cells. Boolean rank-inputs (gates) and the Status toggle
-   stay always-interactive (no lock makes sense for a checkbox). ── */
-
-function Cell({
+/* Per-cell rendering — read-only display when row isn't active,
+   input when row is active. */
+function RowCell({
   column,
   factor,
+  row,
   draft,
   setDraft,
-  row,
-  prospectId,
-  submit,
-  onStatusChange,
+  isActive,
+  onActivate,
+  anotherRowIsActive,
 }: {
   column: SourcingColumn;
   factor: RankFactor | undefined;
+  row: SourcingRow;
   draft: RowDraft;
   setDraft: React.Dispatch<React.SetStateAction<RowDraft>>;
-  row: SourcingRow | null;
-  prospectId: string | null;
-  submit: (patch: UpsertSourcingRowInput) => void | Promise<void>;
-  onStatusChange?: (next: SourcingStatus) => void;
+  isActive: boolean;
+  onActivate: () => void;
+  anotherRowIsActive: boolean;
 }) {
-  // ── Status cell — three-state toggle ──────────────────────────
+  // Status cell renders as toggle when active, label-pill when locked.
   if (column.key === 'sourcingStatus') {
+    if (!isActive) {
+      return (
+        <div
+          role="cell"
+          style={{ display: 'flex', alignItems: 'center', padding: '0.55rem 0.5rem' }}
+        >
+          <StatusPill value={row.sourcingStatus} />
+        </div>
+      );
+    }
     return (
       <div
         role="cell"
         style={{ display: 'flex', alignItems: 'center', padding: '0.3rem 0.4rem' }}
       >
-        <StatusToggle
+        <SourcingStatusToggle
           value={draft.sourcingStatus}
-          onChange={(s) => {
-            if (onStatusChange) {
-              // Existing row — DataRow handles override flow.
-              onStatusChange(s);
-              return;
-            }
-            // Draft row — local-only until create.
-            setDraft((d) => ({ ...d, sourcingStatus: s }));
-            submit({ sourcingStatus: s });
-          }}
+          onChange={(s) => setDraft((d) => ({ ...d, sourcingStatus: s }))}
         />
       </div>
     );
   }
 
-  // ── Bool (rank input) — always interactive, no lock ───────────
+  // Bool rank-input cell: checkbox when active, ✓/— when locked.
   if (column.isRankInput && column.kind === 'bool') {
-    const checked = draft.rankInputs[column.key] === true;
+    const liveChecked = isActive
+      ? draft.rankInputs[column.key] === true
+      : row.rankInputs[column.key] === true;
+    if (!isActive) {
+      return (
+        <div
+          role="cell"
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            padding: '0.55rem 0.4rem',
+            color: liveChecked ? 'var(--good)' : 'var(--text-faint)',
+            fontSize: '0.95rem',
+          }}
+        >
+          {liveChecked ? '✓' : '—'}
+        </div>
+      );
+    }
     return (
       <div
         role="cell"
@@ -689,14 +1200,13 @@ function Cell({
       >
         <input
           type="checkbox"
-          checked={checked}
+          checked={liveChecked}
           onChange={(e) => {
             const next = e.target.checked;
             setDraft((d) => ({
               ...d,
               rankInputs: { ...d.rankInputs, [column.key]: next },
             }));
-            submit({ rankInputPatches: { [column.key]: next } });
           }}
           aria-label={column.label}
           style={{ width: 16, height: 16, accentColor: 'var(--accent)' }}
@@ -705,89 +1215,60 @@ function Cell({
     );
   }
 
-  // ── Integer (rank input) cell — lock-after-blur ──────────────
+  // Integer rank-input cell.
   if (column.isRankInput && column.kind === 'integer') {
-    const value =
-      typeof draft.rankInputs[column.key] === 'number'
+    const liveValue = isActive
+      ? typeof draft.rankInputs[column.key] === 'number'
         ? (draft.rankInputs[column.key] as number)
+        : 0
+      : typeof row.rankInputs[column.key] === 'number'
+        ? (row.rankInputs[column.key] as number)
         : 0;
-    const displayValue = value > 0 ? String(value) : '';
+    if (!isActive) {
+      return (
+        <DisplayCell
+          onClick={anotherRowIsActive ? undefined : onActivate}
+          align="right"
+        >
+          {liveValue > 0 ? String(liveValue) : <Dim>—</Dim>}
+        </DisplayCell>
+      );
+    }
     return (
-      <LockableCell
-        column={column}
-        prospectId={prospectId}
-        rowExists={row !== null}
-        rawValue={displayValue}
-        renderDisplay={() => value > 0 ? String(value) : <DimDash />}
-        renderEdit={(focus, onBlur) => (
-          <input
-            ref={focus}
-            type="number"
-            min={0}
-            value={value === 0 ? '' : value}
-            onChange={(e) => {
-              const next = parseInt(e.target.value, 10);
-              const clean = Number.isFinite(next) && next > 0 ? Math.floor(next) : 0;
-              setDraft((d) => ({
-                ...d,
-                rankInputs: { ...d.rankInputs, [column.key]: clean },
-              }));
-            }}
-            onBlur={() => {
-              const v = draft.rankInputs[column.key];
-              const num = typeof v === 'number' ? v : 0;
-              const wasSaved =
-                row && (row.rankInputs[column.key] as number | undefined) === num;
-              if (!row || !wasSaved) {
-                submit({ rankInputPatches: { [column.key]: num } });
-              }
-              onBlur();
-            }}
-            className="input"
-            aria-label={column.label}
-            placeholder={factor?.maxInput != null ? `≤${factor.maxInput}` : '0'}
-            style={cellInputStyle}
-          />
-        )}
-      />
+      <div role="cell" style={{ padding: '0.3rem 0.4rem' }}>
+        <input
+          type="number"
+          min={0}
+          value={liveValue === 0 ? '' : liveValue}
+          onChange={(e) => {
+            const n = parseInt(e.target.value, 10);
+            const clean = Number.isFinite(n) && n > 0 ? Math.floor(n) : 0;
+            setDraft((d) => ({
+              ...d,
+              rankInputs: { ...d.rankInputs, [column.key]: clean },
+            }));
+          }}
+          className="input"
+          aria-label={column.label}
+          placeholder={factor?.maxInput != null ? `≤${factor.maxInput}` : '0'}
+          style={cellInputStyle}
+        />
+      </div>
     );
   }
 
-  // ── First-class text / number / currency / url cell — lock-after-blur ───
+  // First-class text / number / currency / url cell.
   const fieldKey = column.key as keyof RowDraft;
-  const currentDraft = String(draft[fieldKey] ?? '');
+  const liveValue = isActive ? String(draft[fieldKey] ?? '') : '';
+  const displayValue = renderDisplay(column, row);
 
-  const onCommit = (next: string) => {
-    const trimmed = next.trim();
-    const patch: UpsertSourcingRowInput = {};
-    switch (column.key) {
-      case 'contactName':
-        patch.contactName = trimmed;
-        break;
-      case 'orgName':
-        patch.orgName = trimmed === '' ? null : trimmed;
-        break;
-      case 'marketArea':
-        patch.marketArea = trimmed === '' ? null : trimmed;
-        break;
-      case 'sourceUrl':
-        patch.sourceUrl = trimmed === '' ? null : trimmed;
-        break;
-      case 'sourcingNote':
-        patch.sourcingNote = trimmed === '' ? null : trimmed;
-        break;
-      case 'sidesCount':
-        patch.sidesCount = parseIntOrNull(trimmed);
-        break;
-      case 'grossVolume':
-        patch.grossVolume = parseFloatOrNull(trimmed);
-        break;
-      default:
-        return;
-    }
-    if (!shouldCommit(column, row, trimmed)) return;
-    submit(patch);
-  };
+  if (!isActive) {
+    return (
+      <DisplayCell onClick={anotherRowIsActive ? undefined : onActivate}>
+        {displayValue}
+      </DisplayCell>
+    );
+  }
 
   const inputType =
     column.kind === 'integer' || column.kind === 'currency'
@@ -796,188 +1277,72 @@ function Cell({
         ? 'url'
         : 'text';
 
-  const renderLockedDisplay = (): React.ReactNode => {
-    if (currentDraft.trim() === '') return <DimDash />;
-    if (column.kind === 'currency') {
-      const n = parseFloatOrNull(currentDraft);
-      return n === null ? currentDraft : formatMoney(n);
-    }
-    if (column.kind === 'url') return prettyUrl(currentDraft);
-    return currentDraft;
-  };
-
   return (
-    <LockableCell
-      column={column}
-      prospectId={prospectId}
-      rowExists={row !== null}
-      rawValue={currentDraft}
-      renderDisplay={renderLockedDisplay}
-      renderEdit={(focus, onBlur) => (
-        <input
-          ref={focus}
-          type={inputType}
-          inputMode={
-            column.kind === 'integer'
-              ? 'numeric'
-              : column.kind === 'currency'
-                ? 'decimal'
-                : undefined
-          }
-          step={column.kind === 'currency' ? '0.01' : undefined}
-          min={column.kind === 'integer' || column.kind === 'currency' ? 0 : undefined}
-          value={currentDraft}
-          onChange={(e) => {
-            const v = e.target.value;
-            setDraft((d) => ({ ...d, [fieldKey]: v } as RowDraft));
-          }}
-          onBlur={(e) => {
-            onCommit(e.target.value);
-            onBlur();
-          }}
-          placeholder={column.isPrimary ? 'Jordan Avery' : undefined}
-          aria-label={column.label}
-          className="input"
-          style={cellInputStyle}
-        />
-      )}
-    />
+    <div role="cell" style={{ padding: '0.3rem 0.4rem' }}>
+      <input
+        type={inputType}
+        inputMode={
+          column.kind === 'integer'
+            ? 'numeric'
+            : column.kind === 'currency'
+              ? 'decimal'
+              : undefined
+        }
+        step={column.kind === 'currency' ? '0.01' : undefined}
+        min={column.kind === 'integer' || column.kind === 'currency' ? 0 : undefined}
+        value={liveValue}
+        onChange={(e) =>
+          setDraft((d) => ({ ...d, [fieldKey]: e.target.value } as RowDraft))
+        }
+        aria-label={column.label}
+        className="input"
+        style={cellInputStyle}
+      />
+    </div>
   );
 }
 
-function CellWrapper({ children }: { children: React.ReactNode }) {
+function renderDisplay(column: SourcingColumn, row: SourcingRow): React.ReactNode {
+  const fieldKey = column.key as keyof SourcingRow;
+  const value = row[fieldKey];
+  if (value === null || value === undefined || value === '') return <Dim>—</Dim>;
+  if (column.kind === 'currency' && typeof value === 'number') return formatMoney(value);
+  if (column.kind === 'url' && typeof value === 'string') return prettyUrl(value);
+  return String(value);
+}
+
+function DisplayCell({
+  children,
+  onClick,
+  align,
+}: {
+  children: React.ReactNode;
+  onClick?: () => void;
+  align?: 'left' | 'right';
+}) {
   return (
-    <div role="cell" style={{ padding: '0.3rem 0.4rem' }}>
+    <div
+      role="cell"
+      onClick={onClick}
+      style={{
+        padding: '0.55rem 0.65rem',
+        fontSize: '0.82rem',
+        color: 'var(--text)',
+        cursor: onClick ? 'pointer' : 'default',
+        textAlign: align ?? 'left',
+        whiteSpace: 'nowrap',
+        overflow: 'hidden',
+        textOverflow: 'ellipsis',
+        lineHeight: 1.3,
+      }}
+    >
       {children}
     </div>
   );
 }
 
-/* ── LockableCell — wraps a value with edit/display modes.
-   On display: clickable area that opens /qualify/[id] (if row exists)
-   + a tiny pencil to unlock. On edit: the actual input rendered by
-   `renderEdit`. ── */
-
-function LockableCell({
-  column,
-  prospectId,
-  rowExists,
-  rawValue,
-  renderDisplay,
-  renderEdit,
-}: {
-  column: SourcingColumn;
-  prospectId: string | null;
-  rowExists: boolean;
-  rawValue: string;
-  renderDisplay: () => React.ReactNode;
-  renderEdit: (
-    focus: (el: HTMLInputElement | null) => void,
-    onBlur: () => void,
-  ) => React.ReactNode;
-}) {
-  // Lock applies only once a row has been saved AND there's a value
-  // in the cell. Empty cells stay editable so the rep can type into
-  // them; draft (unsaved) rows also stay editable on every cell.
-  const lockable = rowExists && rawValue.trim() !== '' && prospectId !== null;
-  const [editing, setEditing] = useState(() => !lockable);
-
-  // If the column transitions from lockable to non-lockable (e.g. value
-  // is cleared elsewhere), we want to surface the input again.
-  // Cheapest check: if the row hasn't been saved or value is empty,
-  // force editing back on. This runs on every render — fine, no
-  // dependency loop.
-  if (editing === false && !lockable) {
-    return (
-      <CellWrapper>
-        {renderEdit(
-          (el) => el?.focus(),
-          () => {
-            /* nothing to lock back into */
-          },
-        )}
-      </CellWrapper>
-    );
-  }
-
-  if (editing) {
-    return (
-      <CellWrapper>
-        {renderEdit(
-          (el) => el?.focus(),
-          () => {
-            // Only lock if the value will be non-empty and a row id
-            // exists. Otherwise stay in edit mode.
-            if (lockable) setEditing(false);
-          },
-        )}
-      </CellWrapper>
-    );
-  }
-
-  // Locked: clickable to navigate, pencil to unlock.
-  const href = `/qualify/${prospectId}`;
-  return (
-    <div role="cell" style={{ padding: 0, position: 'relative' }}>
-      <Link
-        href={href}
-        title={column.label}
-        style={{
-          display: 'flex',
-          alignItems: 'center',
-          padding: '0.55rem 1.55rem 0.55rem 0.55rem',
-          fontSize: '0.82rem',
-          color: 'var(--text)',
-          textDecoration: 'none',
-          minHeight: '2rem',
-          lineHeight: 1.3,
-          whiteSpace: 'nowrap',
-          overflow: 'hidden',
-          textOverflow: 'ellipsis',
-          transition: 'background 0.12s',
-        }}
-        onMouseEnter={(e) => {
-          (e.currentTarget as HTMLElement).style.background = 'var(--steel-dim)';
-        }}
-        onMouseLeave={(e) => {
-          (e.currentTarget as HTMLElement).style.background = 'transparent';
-        }}
-      >
-        {renderDisplay()}
-      </Link>
-      <button
-        type="button"
-        aria-label={`Edit ${column.label}`}
-        onClick={(e) => {
-          e.preventDefault();
-          e.stopPropagation();
-          setEditing(true);
-        }}
-        style={{
-          position: 'absolute',
-          top: 2,
-          right: 2,
-          width: 18,
-          height: 18,
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          background: 'transparent',
-          border: 'none',
-          cursor: 'pointer',
-          color: 'var(--text-faint)',
-          padding: 0,
-          fontSize: '0.7rem',
-        }}
-      >
-        ✎
-      </button>
-    </div>
-  );
-}
-
-function DimDash() {
-  return <span style={{ color: 'var(--text-faint)' }}>—</span>;
+function Dim({ children }: { children: React.ReactNode }) {
+  return <span style={{ color: 'var(--text-faint)' }}>{children}</span>;
 }
 
 const cellInputStyle: React.CSSProperties = {
@@ -986,15 +1351,105 @@ const cellInputStyle: React.CSSProperties = {
   fontSize: '0.82rem',
 };
 
+/* ── Pencil / check column ───────────────────────────────────────── */
+
+function ActionsCell({
+  isActive,
+  busy,
+  canSave,
+  onEdit,
+  onSave,
+  onCancel,
+}: {
+  isActive: boolean;
+  busy: boolean;
+  canSave: boolean;
+  onEdit: () => void;
+  onSave: () => void;
+  onCancel: () => void;
+}) {
+  return (
+    <div
+      role="cell"
+      style={{
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        gap: '0.25rem',
+        padding: '0.3rem',
+      }}
+    >
+      {isActive ? (
+        <>
+          <button
+            type="button"
+            onClick={onSave}
+            disabled={busy || !canSave}
+            aria-label="Save row"
+            title="Save"
+            style={{
+              width: 26,
+              height: 26,
+              border: 'none',
+              borderRadius: 'var(--radius-sm)',
+              background: canSave ? 'var(--good)' : 'var(--steel-dim)',
+              color: canSave ? 'white' : 'var(--text-faint)',
+              cursor: canSave ? 'pointer' : 'not-allowed',
+              fontSize: '0.85rem',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+            }}
+          >
+            ✓
+          </button>
+          <button
+            type="button"
+            onClick={onCancel}
+            disabled={busy}
+            aria-label="Cancel edits"
+            title="Cancel"
+            style={{
+              width: 22,
+              height: 22,
+              border: '1px solid var(--border)',
+              borderRadius: 'var(--radius-sm)',
+              background: 'transparent',
+              color: 'var(--text-faint)',
+              cursor: 'pointer',
+              fontSize: '0.7rem',
+            }}
+          >
+            ✕
+          </button>
+        </>
+      ) : (
+        <button
+          type="button"
+          onClick={onEdit}
+          aria-label="Edit row"
+          title="Edit"
+          style={{
+            width: 24,
+            height: 24,
+            border: '1px solid var(--border)',
+            borderRadius: 'var(--radius-sm)',
+            background: 'transparent',
+            color: 'var(--text-mid)',
+            cursor: 'pointer',
+            fontSize: '0.74rem',
+          }}
+        >
+          ✎
+        </button>
+      )}
+    </div>
+  );
+}
+
 /* ── Score cell ───────────────────────────────────────────────────── */
 
-function ScoreCell({
-  row,
-  bands,
-}: {
-  row: SourcingRow;
-  bands: RankBands;
-}) {
+function ScoreCell({ row, bands }: { row: SourcingRow; bands: RankBands }) {
   const band = classifyBand(row.rankScore, bands);
   const color =
     band === 'qualified'
@@ -1009,7 +1464,7 @@ function ScoreCell({
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'center',
-        padding: '0.3rem',
+        padding: '0.55rem 0.3rem',
         position: 'relative',
       }}
       title={
@@ -1020,11 +1475,7 @@ function ScoreCell({
     >
       <span
         className="money"
-        style={{
-          fontSize: '1.05rem',
-          color,
-          fontWeight: 600,
-        }}
+        style={{ fontSize: '1.05rem', color, fontWeight: 600 }}
       >
         {row.rankScore.toFixed(1)}
       </span>
@@ -1047,118 +1498,46 @@ function ScoreCell({
   );
 }
 
-/* ── Open cell ────────────────────────────────────────────────────── */
+/* ── Status pill (locked rows) + Status toggle (active rows + form) ── */
 
-/* ── OverrideExpansion — inline reason input when status disagrees
-   with the band. Spans the full row width. ── */
-
-function OverrideExpansion({
-  pending,
-  band,
-  setReason,
-  onCommit,
-  onCancel,
-}: {
-  pending: { status: SourcingStatus; reason: string };
-  band: ScoreBand;
-  setReason: (r: string) => void;
-  onCommit: () => void;
-  onCancel: () => void;
-}) {
-  const reasonOk = pending.reason.trim().length >= OVERRIDE_MIN_CHARS;
-  const bandLabel =
-    band === 'qualified' ? 'Qualified' : band === 'reject' ? 'Below the bar' : 'Borderline';
-  const statusLabel = pending.status === 'qualify' ? 'Qualify' : 'Pass';
+function StatusPill({ value }: { value: SourcingStatus }) {
+  const color =
+    value === 'pursue' || value === 'qualify'
+      ? 'var(--good)'
+      : value === 'reject'
+        ? 'var(--bad)'
+        : 'var(--text-faint)';
   return (
-    <div
-      role="region"
-      aria-label="Override reason"
+    <span
       style={{
-        gridColumn: '1 / -1',
-        padding: '0.7rem',
-        background: 'var(--steel-dim)',
-        borderTop: '1px dashed var(--border-accent)',
-        display: 'flex',
-        flexDirection: 'column',
-        gap: '0.55rem',
+        fontSize: '0.68rem',
+        fontWeight: 700,
+        letterSpacing: '0.1em',
+        textTransform: 'uppercase',
+        padding: '0.25rem 0.55rem',
+        border: `1px solid ${color}`,
+        borderRadius: 'var(--radius-sm)',
+        color,
+        background: `${color}11`,
       }}
     >
-      <p style={{ fontSize: '0.76rem', color: 'var(--warn)', margin: 0 }}>
-        Pre-score band is <strong>{bandLabel}</strong>. You picked <strong>{statusLabel}</strong>.
-        Drop a reason — at least {OVERRIDE_MIN_CHARS} characters.
-      </p>
-      <textarea
-        value={pending.reason}
-        onChange={(e) => setReason(e.target.value)}
-        rows={2}
-        placeholder="What I saw that the numbers didn't catch."
-        className="input"
-        style={{
-          width: '100%',
-          padding: '0.45rem',
-          fontFamily: 'var(--font-montserrat), system-ui, sans-serif',
-          fontSize: '0.82rem',
-          lineHeight: 1.4,
-          resize: 'vertical',
-        }}
-        aria-label="Override reason"
-      />
-      <div
-        style={{
-          display: 'flex',
-          alignItems: 'center',
-          gap: '0.6rem',
-          justifyContent: 'space-between',
-        }}
-      >
-        <span
-          style={{
-            fontSize: '0.7rem',
-            color: reasonOk ? 'var(--text-faint)' : 'var(--warn)',
-          }}
-        >
-          {pending.reason.trim().length} chars
-          {reasonOk
-            ? ' · enough'
-            : ` · ${OVERRIDE_MIN_CHARS - pending.reason.trim().length} more`}
-        </span>
-        <div style={{ display: 'flex', gap: '0.4rem' }}>
-          <button
-            type="button"
-            onClick={onCancel}
-            className="btn-ghost"
-            style={{ padding: '0.35rem 0.6rem', fontSize: '0.74rem' }}
-          >
-            Cancel
-          </button>
-          <button
-            type="button"
-            onClick={onCommit}
-            disabled={!reasonOk}
-            className={reasonOk ? 'btn-primary' : 'btn-outline'}
-            style={{ padding: '0.35rem 0.7rem', fontSize: '0.74rem' }}
-          >
-            Save override
-          </button>
-        </div>
-      </div>
-    </div>
+      {STATUS_LABEL[value]}
+    </span>
   );
 }
 
-// (The old "Open" column was removed in P4.6 — locked cells are the
-// click target now.)
-
-/* ── StatusToggle ─────────────────────────────────────────────────── */
-
-function StatusToggle({
+function SourcingStatusToggle({
   value,
   onChange,
 }: {
   value: SourcingStatus;
-  onChange: (next: SourcingStatus) => void;
+  onChange: (s: SourcingStatus) => void;
 }) {
-  const opts: SourcingStatus[] = ['qualify', 'undecided', 'pass'];
+  /* Sourcing exposes Pursue / Undecided / Reject — never `qualify`,
+     which is reserved for the /qualify page. If a row's current value
+     is 'qualify' (set from /qualify), show none of the Sourcing buttons
+     as active and let the rep pick a fresh sourcing call if they want. */
+  const opts: SourcingStatus[] = ['pursue', 'undecided', 'reject'];
   return (
     <div
       role="group"
@@ -1174,9 +1553,9 @@ function StatusToggle({
       {opts.map((opt) => {
         const active = opt === value;
         const color =
-          opt === 'qualify'
+          opt === 'pursue'
             ? 'var(--good)'
-            : opt === 'pass'
+            : opt === 'reject'
               ? 'var(--bad)'
               : 'var(--text-faint)';
         return (
@@ -1190,7 +1569,7 @@ function StatusToggle({
               fontWeight: 700,
               letterSpacing: '0.1em',
               textTransform: 'uppercase',
-              padding: '0.3rem 0.5rem',
+              padding: '0.3rem 0.55rem',
               border: 'none',
               borderRadius: 'var(--radius-sm)',
               background: active ? `${color}22` : 'transparent',
@@ -1206,52 +1585,125 @@ function StatusToggle({
   );
 }
 
-/* ── Pure parsers ──────────────────────────────────────────────────── */
-
-function parseIntOrNull(v: string | null | undefined): number | null {
-  if (v === null || v === undefined || v === '') return null;
-  const n = parseInt(String(v), 10);
-  if (!Number.isFinite(n) || n < 0) return null;
-  return n;
+function ScorePill({ score, band }: { score: number; band: ScoreBand }) {
+  const color =
+    band === 'qualified'
+      ? 'var(--good)'
+      : band === 'borderline'
+        ? 'var(--warn)'
+        : 'var(--text-faint)';
+  return (
+    <span
+      style={{
+        fontSize: '0.7rem',
+        fontWeight: 600,
+        color,
+        padding: '0.2rem 0.55rem',
+        borderRadius: 'var(--radius-sm)',
+        background: `${color}11`,
+        border: `1px solid ${color}33`,
+      }}
+    >
+      <span className="money" style={{ fontWeight: 700 }}>
+        {score.toFixed(1)}
+      </span>
+      <span style={{ color: 'var(--text-faint)', marginLeft: '0.3rem' }}>
+        / 10
+      </span>
+    </span>
+  );
 }
 
-function parseFloatOrNull(v: string | null | undefined): number | null {
-  if (v === null || v === undefined || v === '') return null;
-  const n = parseFloat(String(v));
-  if (!Number.isFinite(n) || n < 0) return null;
-  return Math.round(n * 100) / 100;
+/* ── Override expansion ──────────────────────────────────────────── */
+
+function OverrideExpansion({
+  status,
+  band,
+  reason,
+  setReason,
+}: {
+  status: SourcingStatus;
+  band: ScoreBand;
+  reason: string;
+  setReason: (r: string) => void;
+}) {
+  const reasonOk = reason.trim().length >= OVERRIDE_MIN_CHARS;
+  const bandLabel =
+    band === 'qualified' ? 'Qualified' : band === 'reject' ? 'Below the bar' : 'Borderline';
+  const statusLabel = STATUS_LABEL[status];
+  return (
+    <div
+      role="region"
+      aria-label="Override reason"
+      style={{
+        padding: '0.7rem',
+        background: 'var(--steel-dim)',
+        borderRadius: 'var(--radius-sm)',
+        border: '1px dashed var(--border-accent)',
+        display: 'flex',
+        flexDirection: 'column',
+        gap: '0.45rem',
+      }}
+    >
+      <p style={{ fontSize: '0.76rem', color: 'var(--warn)', margin: 0 }}>
+        Pre-score band is <strong>{bandLabel}</strong>. You picked{' '}
+        <strong>{statusLabel}</strong>. Drop a reason — at least{' '}
+        {OVERRIDE_MIN_CHARS} characters.
+      </p>
+      <textarea
+        value={reason}
+        onChange={(e) => setReason(e.target.value)}
+        rows={2}
+        placeholder="What I saw that the numbers didn't catch."
+        className="input"
+        style={{
+          width: '100%',
+          padding: '0.45rem',
+          fontFamily: 'var(--font-montserrat), system-ui, sans-serif',
+          fontSize: '0.82rem',
+          lineHeight: 1.4,
+          resize: 'vertical',
+        }}
+      />
+      <div style={{ fontSize: '0.7rem', color: reasonOk ? 'var(--text-faint)' : 'var(--warn)' }}>
+        {reason.trim().length} chars
+        {reasonOk
+          ? ' · enough'
+          : ` · ${OVERRIDE_MIN_CHARS - reason.trim().length} more`}
+      </div>
+    </div>
+  );
 }
 
-/** Avoid firing a save when the blurred cell didn't actually change
- * from the server-known value. */
-function shouldCommit(
-  column: SourcingColumn,
-  row: SourcingRow | null,
-  next: string,
-): boolean {
-  if (!row) return true; // drafts always commit on first save attempt
-  const trimmed = next.trim();
+/* ── Live score helper (matches scoreProspect math; client-side preview). ── */
 
-  switch (column.key) {
-    case 'contactName':
-      return trimmed !== row.contactName;
-    case 'orgName':
-      return trimmed !== (row.orgName ?? '');
-    case 'marketArea':
-      return trimmed !== (row.marketArea ?? '');
-    case 'sourceUrl':
-      return trimmed !== (row.sourceUrl ?? '');
-    case 'sourcingNote':
-      return trimmed !== (row.sourcingNote ?? '');
-    case 'sidesCount': {
-      const parsed = parseIntOrNull(trimmed);
-      return parsed !== row.sidesCount;
+function computeLiveScore(
+  workflow: SourcingWorkflow,
+  inputs: Record<string, boolean | number>,
+): number {
+  let total = 0;
+  for (const f of workflow.factors) {
+    if (f.kind === 'bool') {
+      if (inputs[f.key] === true) total += f.weight;
+    } else {
+      const v = typeof inputs[f.key] === 'number' ? (inputs[f.key] as number) : 0;
+      if (f.key === 'annual_volume') {
+        // Mirror lib/prospects.ts PIECEWISE_CURVES.annual_volume.
+        if (v <= 0) total += 0;
+        else if (v <= 10) total += (v / 10) * 2;
+        else if (v <= 30) total += 2 + (v - 10) / 20;
+        else total += 3;
+      } else {
+        const max = f.maxInput ?? 0;
+        if (max > 0) {
+          const clamped = Math.min(Math.max(v, 0), max);
+          total += f.weight * (clamped / max);
+        }
+      }
     }
-    case 'grossVolume': {
-      const parsed = parseFloatOrNull(trimmed);
-      return parsed !== row.grossVolume;
-    }
-    default:
-      return true;
   }
+  // Normalize to 0-10 (mirrors scoreProspect).
+  const totalWeight = workflow.factors.reduce((s, f) => s + f.weight, 0);
+  if (totalWeight <= 0) return 0;
+  return Math.round((total / totalWeight) * 10 * 10) / 10;
 }

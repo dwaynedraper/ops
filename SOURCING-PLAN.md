@@ -269,6 +269,17 @@ page; pre-fills from Sourcing's `rank_inputs`; saves route through
 
 ### Phase 7 — Verify + finalize CHANGELOG ✓
 
+### Phase 8 — Qualify unification (D-033) ✓ — post-launch refinement
+
+`/qualify` (no id) and `/qualify/[id]` were two distinct pages
+after P4.6, which read as two different surfaces for what is
+conceptually one job. The unification merges them into a single
+`QualifyForm` component with create-mode and edit-mode variants.
+The old `QualifyDetailClient` and the standalone `createProspect`
+server action are retired; `upsertSourcingRow` handles both modes.
+The recent-prospects list on `/qualify` now links into
+`/qualify/[id]` so the rep stays in the qualifying flow.
+
 - `tsc --noEmit` clean.
 - `eslint src` clean.
 - Manual walk through the full new flow: source a prospect, qualify
