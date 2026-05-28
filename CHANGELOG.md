@@ -144,14 +144,41 @@ Per Dean's review of P4, applied D-032 and trimmed two Sourcing columns:
   pass). Schema columns (`sides_count`, `sourcing_note`) retained
   in case either is reinstated.
 
-### Not yet (P4.5 cont'd + P5–P7)
-- Lock-after-blur cells on Sourcing + pencil to re-edit (next pass).
-- Drop the `→` arrow column; the whole locked row area becomes the
-  click target.
-- Build the new `/qualify/[id]` route — dedicated per-agent
-  qualifying form, sourcing inputs pre-filled.
-- Override-with-reason inline expansion when status disagrees with
-  the pre-score band (20-char minimum).
+### Added — P4.6 (Sourcing UX surgery + /qualify/[id])
+
+- **`/qualify/[id]` — new dedicated per-agent qualifying page.**
+  Server component owner-checks (D-019) and pre-fills every rank
+  input from whatever the rep already entered on Sourcing. The
+  interactive client (`QualifyDetailClient`) renders the entry
+  gates and scoring factors with a live score panel; saving routes
+  through the same `upsertSourcingRow` server action Sourcing uses,
+  so the two surfaces stay in sync. Identity edits link out to
+  the existing `/prospects/[id]` mini-CRM.
+- **Lock-after-blur on every text / number / URL cell in Sourcing.**
+  `LockableCell` wraps the input. Saved cells display as text with
+  a tiny `✎` pencil top-right to re-enter edit mode; clicking the
+  locked area (anywhere except the pencil) opens the row's
+  `/qualify/[id]`. Empty cells and draft rows stay in edit mode.
+  Boolean rank-inputs (gates) and the Status toggle stay
+  always-interactive — checkboxes are their own lock state.
+- **Dropped the `→` open column.** Locked cells are the click
+  target now; clicking the locked area of any text/number/url cell
+  in a saved row navigates to `/qualify/[id]`.
+- **Override-with-reason inline expansion.** When the rep clicks a
+  status that disagrees with the pre-score band's recommendation
+  (Qualified band → recommends Qualify; Below the bar →
+  recommends Pass; Borderline → no recommendation), an expansion
+  drops below the row with a textarea for the reason. ≥20 chars
+  required; Save commits status + reason together; Cancel reverts.
+  Server-side `upsertSourcingRow` enforces the same rule so the
+  invariant holds even if the client is bypassed.
+- **Server validates the override rule.** `validateOverride`
+  checks every patch that touches `sourcingStatus`. Reasons are
+  cleared automatically when the status no longer constitutes an
+  override (so an old override note doesn't linger as ambient
+  metadata).
+
+### Not yet (P5–P7)
 - `<HelpBox>` component + per-field help on `/qualify` (P5).
 - `/tutorials` section (P6).
 - Verify + promote this placeholder to a finalized entry (P7).

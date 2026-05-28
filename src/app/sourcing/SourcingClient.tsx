@@ -20,13 +20,48 @@
 
 import { useCallback, useMemo, useState } from 'react';
 import Link from 'next/link';
-import { classifyBand, type RankBands, type RankFactor } from '@/lib/prospects';
+import {
+  classifyBand,
+  type RankBands,
+  type RankFactor,
+  type ScoreBand,
+} from '@/lib/prospects';
 import {
   type SourcingColumn,
   type SourcingRow,
   type SourcingStatus,
 } from '@/lib/sourcing';
 import { upsertSourcingRow, type UpsertSourcingRowInput } from './actions';
+
+const OVERRIDE_MIN_CHARS = 20;
+
+/** What the pre-score band recommends — null = no recommendation
+ * (borderline). Mirrors the server's `recommendedStatus`. */
+function recommendedStatus(band: ScoreBand): SourcingStatus | null {
+  if (band === 'qualified') return 'qualify';
+  if (band === 'reject') return 'pass';
+  return null;
+}
+
+/** True when the chosen status contradicts the band's recommendation.
+ * `undecided` is parking — never counts. */
+function needsOverride(status: SourcingStatus, band: ScoreBand): boolean {
+  const rec = recommendedStatus(band);
+  if (rec === null) return false;
+  if (status === 'undecided') return false;
+  return status !== rec;
+}
+
+/** Format a number as USD with no decimal places — used for the locked
+ * gross-volume cell. */
+function formatMoney(n: number): string {
+  return `$${n.toLocaleString('en-US', { maximumFractionDigits: 0 })}`;
+}
+
+/** Strip scheme and trailing slash for a tidy locked URL display. */
+function prettyUrl(u: string): string {
+  return u.replace(/^https?:\/\//, '').replace(/\/$/, '');
+}
 
 export interface SourcingWorkflow {
   key: string;
@@ -210,7 +245,6 @@ export function SourcingClient({
 /* ── Grid ─────────────────────────────────────────────────────────── */
 
 const SCORE_COL_WIDTH = 80;
-const OPEN_COL_WIDTH = 56;
 
 function SourcingGrid({
   workflow,
@@ -230,11 +264,12 @@ function SourcingGrid({
 }) {
   const cols = workflow.columns;
 
-  // Build the CSS grid template — score + open + each column's width.
+  // Build the CSS grid template — score + each column's width.
+  // P4.6 removed the dedicated "open" column; locked cells become the
+  // row-level click target instead.
   const template = useMemo(() => {
     const parts: string[] = [`${SCORE_COL_WIDTH}px`];
     for (const c of cols) parts.push(`${c.width}px`);
-    parts.push(`${OPEN_COL_WIDTH}px`);
     return parts.join(' ');
   }, [cols]);
 
@@ -338,9 +373,6 @@ function HeaderRow({
           )}
         </div>
       ))}
-      <div role="columnheader" style={cellStyle} aria-label="Open">
-        {/* spacer / open-link column */}
-      </div>
     </div>
   );
 }
@@ -370,6 +402,16 @@ function DataRow({
   // fresh after a save.
   const [draft, setDraft] = useState<RowDraft>(() => draftFromRow(row));
 
+  // Pending override — when the rep clicks a status that disagrees
+  // with the band, we hold the change here until they fill in a reason.
+  // Cancel reverts; Save commits both at once.
+  const [pendingOverride, setPendingOverride] = useState<{
+    status: SourcingStatus;
+    reason: string;
+  } | null>(null);
+
+  const band = classifyBand(row.rankScore, workflow.bands);
+
   const submitPatch = useCallback(
     async (patch: UpsertSourcingRowInput) => {
       const merged: UpsertSourcingRowInput = { ...patch, id: row.id };
@@ -377,6 +419,37 @@ function DataRow({
     },
     [onSave, row.id],
   );
+
+  // Status changes route through this so we can intercept disagreements
+  // with the band and surface the override expansion.
+  const onStatusChange = useCallback(
+    (next: SourcingStatus) => {
+      if (next === row.sourcingStatus) return;
+      if (needsOverride(next, band)) {
+        setPendingOverride({ status: next, reason: row.sourcingNote ?? '' });
+        return;
+      }
+      // Otherwise: optimistic local toggle + save.
+      setDraft((d) => ({ ...d, sourcingStatus: next }));
+      submitPatch({ sourcingStatus: next, sourcingNote: null });
+    },
+    [band, row.sourcingNote, row.sourcingStatus, submitPatch],
+  );
+
+  const commitOverride = useCallback(async () => {
+    if (!pendingOverride) return;
+    if (pendingOverride.reason.trim().length < OVERRIDE_MIN_CHARS) return;
+    setDraft((d) => ({
+      ...d,
+      sourcingStatus: pendingOverride.status,
+      sourcingNote: pendingOverride.reason.trim(),
+    }));
+    await submitPatch({
+      sourcingStatus: pendingOverride.status,
+      sourcingNote: pendingOverride.reason.trim(),
+    });
+    setPendingOverride(null);
+  }, [pendingOverride, submitPatch]);
 
   return (
     <div
@@ -400,10 +473,22 @@ function DataRow({
           draft={draft}
           setDraft={setDraft}
           row={row}
+          prospectId={row.id}
           submit={submitPatch}
+          onStatusChange={onStatusChange}
         />
       ))}
-      <OpenCell prospectId={row.id} />
+      {pendingOverride && (
+        <OverrideExpansion
+          pending={pendingOverride}
+          band={band}
+          setReason={(r) =>
+            setPendingOverride((prev) => (prev ? { ...prev, reason: r } : prev))
+          }
+          onCommit={commitOverride}
+          onCancel={() => setPendingOverride(null)}
+        />
+      )}
       {error && (
         <div
           role="alert"
@@ -521,11 +606,10 @@ function DraftRow({
           draft={draft}
           setDraft={setDraft}
           row={null}
+          prospectId={null}
           submit={submit}
         />
       ))}
-      {/* No "Open" link for an unsaved row */}
-      <div role="cell" />
       {error && (
         <div
           role="alert"
@@ -543,7 +627,9 @@ function DraftRow({
   );
 }
 
-/* ── Cell — renders one of: text / integer / currency / url / bool / status / note ── */
+/* ── Cell — dispatch on column kind, with lock-after-blur for text/
+   number/url cells. Boolean rank-inputs (gates) and the Status toggle
+   stay always-interactive (no lock makes sense for a checkbox). ── */
 
 function Cell({
   column,
@@ -551,14 +637,18 @@ function Cell({
   draft,
   setDraft,
   row,
+  prospectId,
   submit,
+  onStatusChange,
 }: {
   column: SourcingColumn;
   factor: RankFactor | undefined;
   draft: RowDraft;
   setDraft: React.Dispatch<React.SetStateAction<RowDraft>>;
   row: SourcingRow | null;
+  prospectId: string | null;
   submit: (patch: UpsertSourcingRowInput) => void | Promise<void>;
+  onStatusChange?: (next: SourcingStatus) => void;
 }) {
   // ── Status cell — three-state toggle ──────────────────────────
   if (column.key === 'sourcingStatus') {
@@ -570,6 +660,12 @@ function Cell({
         <StatusToggle
           value={draft.sourcingStatus}
           onChange={(s) => {
+            if (onStatusChange) {
+              // Existing row — DataRow handles override flow.
+              onStatusChange(s);
+              return;
+            }
+            // Draft row — local-only until create.
             setDraft((d) => ({ ...d, sourcingStatus: s }));
             submit({ sourcingStatus: s });
           }}
@@ -578,7 +674,7 @@ function Cell({
     );
   }
 
-  // ── Bool (rank input) cell ────────────────────────────────────
+  // ── Bool (rank input) — always interactive, no lock ───────────
   if (column.isRankInput && column.kind === 'bool') {
     const checked = draft.rankInputs[column.key] === true;
     return (
@@ -609,44 +705,55 @@ function Cell({
     );
   }
 
-  // ── Integer (rank input) cell ─────────────────────────────────
+  // ── Integer (rank input) cell — lock-after-blur ──────────────
   if (column.isRankInput && column.kind === 'integer') {
-    const value = typeof draft.rankInputs[column.key] === 'number'
-      ? (draft.rankInputs[column.key] as number)
-      : 0;
+    const value =
+      typeof draft.rankInputs[column.key] === 'number'
+        ? (draft.rankInputs[column.key] as number)
+        : 0;
+    const displayValue = value > 0 ? String(value) : '';
     return (
-      <CellWrapper>
-        <input
-          type="number"
-          min={0}
-          value={value === 0 ? '' : value}
-          onChange={(e) => {
-            const next = parseInt(e.target.value, 10);
-            const clean = Number.isFinite(next) && next > 0 ? Math.floor(next) : 0;
-            setDraft((d) => ({
-              ...d,
-              rankInputs: { ...d.rankInputs, [column.key]: clean },
-            }));
-          }}
-          onBlur={() => {
-            const v = draft.rankInputs[column.key];
-            const num = typeof v === 'number' ? v : 0;
-            const wasSaved =
-              row && (row.rankInputs[column.key] as number | undefined) === num;
-            if (!row || !wasSaved) {
-              submit({ rankInputPatches: { [column.key]: num } });
-            }
-          }}
-          className="input"
-          aria-label={column.label}
-          placeholder={factor?.maxInput != null ? `≤${factor.maxInput}` : '0'}
-          style={cellInputStyle}
-        />
-      </CellWrapper>
+      <LockableCell
+        column={column}
+        prospectId={prospectId}
+        rowExists={row !== null}
+        rawValue={displayValue}
+        renderDisplay={() => value > 0 ? String(value) : <DimDash />}
+        renderEdit={(focus, onBlur) => (
+          <input
+            ref={focus}
+            type="number"
+            min={0}
+            value={value === 0 ? '' : value}
+            onChange={(e) => {
+              const next = parseInt(e.target.value, 10);
+              const clean = Number.isFinite(next) && next > 0 ? Math.floor(next) : 0;
+              setDraft((d) => ({
+                ...d,
+                rankInputs: { ...d.rankInputs, [column.key]: clean },
+              }));
+            }}
+            onBlur={() => {
+              const v = draft.rankInputs[column.key];
+              const num = typeof v === 'number' ? v : 0;
+              const wasSaved =
+                row && (row.rankInputs[column.key] as number | undefined) === num;
+              if (!row || !wasSaved) {
+                submit({ rankInputPatches: { [column.key]: num } });
+              }
+              onBlur();
+            }}
+            className="input"
+            aria-label={column.label}
+            placeholder={factor?.maxInput != null ? `≤${factor.maxInput}` : '0'}
+            style={cellInputStyle}
+          />
+        )}
+      />
     );
   }
 
-  // ── First-class text / number / currency / url cell ────────────
+  // ── First-class text / number / currency / url cell — lock-after-blur ───
   const fieldKey = column.key as keyof RowDraft;
   const currentDraft = String(draft[fieldKey] ?? '');
 
@@ -689,31 +796,52 @@ function Cell({
         ? 'url'
         : 'text';
 
+  const renderLockedDisplay = (): React.ReactNode => {
+    if (currentDraft.trim() === '') return <DimDash />;
+    if (column.kind === 'currency') {
+      const n = parseFloatOrNull(currentDraft);
+      return n === null ? currentDraft : formatMoney(n);
+    }
+    if (column.kind === 'url') return prettyUrl(currentDraft);
+    return currentDraft;
+  };
+
   return (
-    <CellWrapper>
-      <input
-        type={inputType}
-        inputMode={
-          column.kind === 'integer'
-            ? 'numeric'
-            : column.kind === 'currency'
-              ? 'decimal'
-              : undefined
-        }
-        step={column.kind === 'currency' ? '0.01' : undefined}
-        min={column.kind === 'integer' || column.kind === 'currency' ? 0 : undefined}
-        value={currentDraft}
-        onChange={(e) => {
-          const v = e.target.value;
-          setDraft((d) => ({ ...d, [fieldKey]: v } as RowDraft));
-        }}
-        onBlur={(e) => onCommit(e.target.value)}
-        placeholder={column.isPrimary ? 'Jordan Avery' : undefined}
-        aria-label={column.label}
-        className="input"
-        style={cellInputStyle}
-      />
-    </CellWrapper>
+    <LockableCell
+      column={column}
+      prospectId={prospectId}
+      rowExists={row !== null}
+      rawValue={currentDraft}
+      renderDisplay={renderLockedDisplay}
+      renderEdit={(focus, onBlur) => (
+        <input
+          ref={focus}
+          type={inputType}
+          inputMode={
+            column.kind === 'integer'
+              ? 'numeric'
+              : column.kind === 'currency'
+                ? 'decimal'
+                : undefined
+          }
+          step={column.kind === 'currency' ? '0.01' : undefined}
+          min={column.kind === 'integer' || column.kind === 'currency' ? 0 : undefined}
+          value={currentDraft}
+          onChange={(e) => {
+            const v = e.target.value;
+            setDraft((d) => ({ ...d, [fieldKey]: v } as RowDraft));
+          }}
+          onBlur={(e) => {
+            onCommit(e.target.value);
+            onBlur();
+          }}
+          placeholder={column.isPrimary ? 'Jordan Avery' : undefined}
+          aria-label={column.label}
+          className="input"
+          style={cellInputStyle}
+        />
+      )}
+    />
   );
 }
 
@@ -723,6 +851,133 @@ function CellWrapper({ children }: { children: React.ReactNode }) {
       {children}
     </div>
   );
+}
+
+/* ── LockableCell — wraps a value with edit/display modes.
+   On display: clickable area that opens /qualify/[id] (if row exists)
+   + a tiny pencil to unlock. On edit: the actual input rendered by
+   `renderEdit`. ── */
+
+function LockableCell({
+  column,
+  prospectId,
+  rowExists,
+  rawValue,
+  renderDisplay,
+  renderEdit,
+}: {
+  column: SourcingColumn;
+  prospectId: string | null;
+  rowExists: boolean;
+  rawValue: string;
+  renderDisplay: () => React.ReactNode;
+  renderEdit: (
+    focus: (el: HTMLInputElement | null) => void,
+    onBlur: () => void,
+  ) => React.ReactNode;
+}) {
+  // Lock applies only once a row has been saved AND there's a value
+  // in the cell. Empty cells stay editable so the rep can type into
+  // them; draft (unsaved) rows also stay editable on every cell.
+  const lockable = rowExists && rawValue.trim() !== '' && prospectId !== null;
+  const [editing, setEditing] = useState(() => !lockable);
+
+  // If the column transitions from lockable to non-lockable (e.g. value
+  // is cleared elsewhere), we want to surface the input again.
+  // Cheapest check: if the row hasn't been saved or value is empty,
+  // force editing back on. This runs on every render — fine, no
+  // dependency loop.
+  if (editing === false && !lockable) {
+    return (
+      <CellWrapper>
+        {renderEdit(
+          (el) => el?.focus(),
+          () => {
+            /* nothing to lock back into */
+          },
+        )}
+      </CellWrapper>
+    );
+  }
+
+  if (editing) {
+    return (
+      <CellWrapper>
+        {renderEdit(
+          (el) => el?.focus(),
+          () => {
+            // Only lock if the value will be non-empty and a row id
+            // exists. Otherwise stay in edit mode.
+            if (lockable) setEditing(false);
+          },
+        )}
+      </CellWrapper>
+    );
+  }
+
+  // Locked: clickable to navigate, pencil to unlock.
+  const href = `/qualify/${prospectId}`;
+  return (
+    <div role="cell" style={{ padding: 0, position: 'relative' }}>
+      <Link
+        href={href}
+        title={column.label}
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          padding: '0.55rem 1.55rem 0.55rem 0.55rem',
+          fontSize: '0.82rem',
+          color: 'var(--text)',
+          textDecoration: 'none',
+          minHeight: '2rem',
+          lineHeight: 1.3,
+          whiteSpace: 'nowrap',
+          overflow: 'hidden',
+          textOverflow: 'ellipsis',
+          transition: 'background 0.12s',
+        }}
+        onMouseEnter={(e) => {
+          (e.currentTarget as HTMLElement).style.background = 'var(--steel-dim)';
+        }}
+        onMouseLeave={(e) => {
+          (e.currentTarget as HTMLElement).style.background = 'transparent';
+        }}
+      >
+        {renderDisplay()}
+      </Link>
+      <button
+        type="button"
+        aria-label={`Edit ${column.label}`}
+        onClick={(e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          setEditing(true);
+        }}
+        style={{
+          position: 'absolute',
+          top: 2,
+          right: 2,
+          width: 18,
+          height: 18,
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          background: 'transparent',
+          border: 'none',
+          cursor: 'pointer',
+          color: 'var(--text-faint)',
+          padding: 0,
+          fontSize: '0.7rem',
+        }}
+      >
+        ✎
+      </button>
+    </div>
+  );
+}
+
+function DimDash() {
+  return <span style={{ color: 'var(--text-faint)' }}>—</span>;
 }
 
 const cellInputStyle: React.CSSProperties = {
@@ -794,34 +1049,105 @@ function ScoreCell({
 
 /* ── Open cell ────────────────────────────────────────────────────── */
 
-function OpenCell({ prospectId }: { prospectId: string }) {
+/* ── OverrideExpansion — inline reason input when status disagrees
+   with the band. Spans the full row width. ── */
+
+function OverrideExpansion({
+  pending,
+  band,
+  setReason,
+  onCommit,
+  onCancel,
+}: {
+  pending: { status: SourcingStatus; reason: string };
+  band: ScoreBand;
+  setReason: (r: string) => void;
+  onCommit: () => void;
+  onCancel: () => void;
+}) {
+  const reasonOk = pending.reason.trim().length >= OVERRIDE_MIN_CHARS;
+  const bandLabel =
+    band === 'qualified' ? 'Qualified' : band === 'reject' ? 'Below the bar' : 'Borderline';
+  const statusLabel = pending.status === 'qualify' ? 'Qualify' : 'Pass';
   return (
     <div
-      role="cell"
+      role="region"
+      aria-label="Override reason"
       style={{
+        gridColumn: '1 / -1',
+        padding: '0.7rem',
+        background: 'var(--steel-dim)',
+        borderTop: '1px dashed var(--border-accent)',
         display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        padding: '0.3rem',
+        flexDirection: 'column',
+        gap: '0.55rem',
       }}
     >
-      <Link
-        href={`/prospects/${prospectId}`}
-        aria-label="Open prospect"
+      <p style={{ fontSize: '0.76rem', color: 'var(--warn)', margin: 0 }}>
+        Pre-score band is <strong>{bandLabel}</strong>. You picked <strong>{statusLabel}</strong>.
+        Drop a reason — at least {OVERRIDE_MIN_CHARS} characters.
+      </p>
+      <textarea
+        value={pending.reason}
+        onChange={(e) => setReason(e.target.value)}
+        rows={2}
+        placeholder="What I saw that the numbers didn't catch."
+        className="input"
         style={{
-          fontSize: '0.75rem',
-          color: 'var(--text-mid)',
-          textDecoration: 'none',
-          padding: '0.3rem 0.5rem',
-          border: '1px solid var(--border)',
-          borderRadius: 'var(--radius-sm)',
+          width: '100%',
+          padding: '0.45rem',
+          fontFamily: 'var(--font-montserrat), system-ui, sans-serif',
+          fontSize: '0.82rem',
+          lineHeight: 1.4,
+          resize: 'vertical',
+        }}
+        aria-label="Override reason"
+      />
+      <div
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          gap: '0.6rem',
+          justifyContent: 'space-between',
         }}
       >
-        →
-      </Link>
+        <span
+          style={{
+            fontSize: '0.7rem',
+            color: reasonOk ? 'var(--text-faint)' : 'var(--warn)',
+          }}
+        >
+          {pending.reason.trim().length} chars
+          {reasonOk
+            ? ' · enough'
+            : ` · ${OVERRIDE_MIN_CHARS - pending.reason.trim().length} more`}
+        </span>
+        <div style={{ display: 'flex', gap: '0.4rem' }}>
+          <button
+            type="button"
+            onClick={onCancel}
+            className="btn-ghost"
+            style={{ padding: '0.35rem 0.6rem', fontSize: '0.74rem' }}
+          >
+            Cancel
+          </button>
+          <button
+            type="button"
+            onClick={onCommit}
+            disabled={!reasonOk}
+            className={reasonOk ? 'btn-primary' : 'btn-outline'}
+            style={{ padding: '0.35rem 0.7rem', fontSize: '0.74rem' }}
+          >
+            Save override
+          </button>
+        </div>
+      </div>
     </div>
   );
 }
+
+// (The old "Open" column was removed in P4.6 — locked cells are the
+// click target now.)
 
 /* ── StatusToggle ─────────────────────────────────────────────────── */
 

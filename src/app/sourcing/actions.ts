@@ -27,8 +27,11 @@ import { loadOwnedProspect } from '@/lib/prospect-access';
 import {
   scoreProspect,
   classifyBand,
+  DEFAULT_BANDS,
   type RankFactor,
   type RankInputs,
+  type RankBands,
+  type ScoreBand,
   type ProspectStage,
 } from '@/lib/prospects';
 import {
@@ -36,6 +39,26 @@ import {
   type SourcingStatus,
   type SourcingRow,
 } from '@/lib/sourcing';
+
+const OVERRIDE_MIN_CHARS = 20;
+
+/** What the pre-score band recommends — null = no recommendation
+ * (borderline). Mirrors the client's `recommendedStatus`. */
+function recommendedStatus(band: ScoreBand): SourcingStatus | null {
+  if (band === 'qualified') return 'qualify';
+  if (band === 'reject') return 'pass';
+  return null;
+}
+
+/** Per D-028 + Dean's P4.6 review: when the rep's toggle disagrees
+ * with the band's recommendation, a ≥20-char reason is required.
+ * `undecided` is parking — never counts as a disagreement. */
+function needsOverride(status: SourcingStatus, band: ScoreBand): boolean {
+  const rec = recommendedStatus(band);
+  if (rec === null) return false;
+  if (status === 'undecided') return false;
+  return status !== rec;
+}
 
 /* ── Input + result ────────────────────────────────────────────────── */
 
@@ -154,6 +177,40 @@ function hardQualifierKeys(factors: RankFactor[]): string[] {
   return factors.filter((f) => f.isGate || f.weight >= 3).map((f) => f.key);
 }
 
+/** Load the band thresholds for one workflow. */
+async function loadWorkflowBands(workflowKey: string): Promise<RankBands> {
+  const rows = await sql<{ key: string; value: string }>`
+    SELECT key, value FROM rank_config WHERE workflow_key = ${workflowKey}`;
+  const cfg = new Map(rows.map((r) => [r.key, Number(r.value)]));
+  return {
+    qualifiedMin: cfg.get('qualified_min') ?? DEFAULT_BANDS.qualifiedMin,
+    borderlineMin: cfg.get('borderline_min') ?? DEFAULT_BANDS.borderlineMin,
+    targetCount: cfg.get('qualified_target_count') ?? DEFAULT_BANDS.targetCount,
+  };
+}
+
+/** Validate the override-with-reason rule. Returns an error message if
+ * the input is invalid (status disagrees with band but no/short reason);
+ * returns null if the input is OK or no validation needed.
+ *
+ * Only triggers when the caller is actively patching sourcingStatus —
+ * if the rep is just editing rank inputs without touching status, the
+ * existing status carries forward even if the new score has shifted
+ * the band. Status changes are the trigger for the reason rule. */
+function validateOverride(
+  patchedStatus: SourcingStatus | undefined,
+  band: ScoreBand,
+  reasonInput: string | null | undefined,
+): string | null {
+  if (patchedStatus === undefined) return null;
+  if (!needsOverride(patchedStatus, band)) return null;
+  const trimmed = (reasonInput ?? '').trim();
+  if (trimmed.length < OVERRIDE_MIN_CHARS) {
+    return `Your call disagrees with the pre-score band. Add a reason of at least ${OVERRIDE_MIN_CHARS} characters.`;
+  }
+  return null;
+}
+
 /* ── upsertSourcingRow ────────────────────────────────────────────── */
 
 export async function upsertSourcingRow(
@@ -213,15 +270,29 @@ async function createRow(
     return { ok: false, error: 'That workflow is no longer available.' };
   }
 
-  const factors = await loadWorkflowFactors(input.workflowKey);
+  const [factors, bands] = await Promise.all([
+    loadWorkflowFactors(input.workflowKey),
+    loadWorkflowBands(input.workflowKey),
+  ]);
   const rankInputs = mergeRankInputs({}, input.rankInputPatches, factors);
   // D-032: gates contribute to the score, same as any other factor.
   const { score } = scoreProspect(factors, rankInputs);
+  const band = classifyBand(score, bands);
 
   const status = isSourcingStatus(input.sourcingStatus)
     ? input.sourcingStatus
     : 'undecided';
   const stage = stageForSourcingStatus(status, 'researching');
+
+  // P4.6 override rule: if the caller is patching status into a value
+  // that disagrees with the band, require a ≥20-char reason.
+  const overrideError = validateOverride(input.sourcingStatus, band, input.sourcingNote);
+  if (overrideError) return { ok: false, error: overrideError };
+
+  // Reason is meaningful only when overriding; clear it otherwise.
+  const finalNote = needsOverride(status, band)
+    ? trimOrNull(input.sourcingNote)
+    : null;
 
   const inserted = await sqlOne<ExistingRow>`
     INSERT INTO prospects (
@@ -236,7 +307,7 @@ async function createRow(
       ${contactName}, ${trimOrNull(input.orgName)}, ${trimOrNull(input.marketArea)},
       ${clampInt(input.sidesCount)}, ${clampMoney(input.grossVolume)},
       ${trimOrNull(input.sourceUrl)},
-      ${status}, ${trimOrNull(input.sourcingNote)},
+      ${status}, ${finalNote},
       ${JSON.stringify(rankInputs)}, ${score}, ${stage}
     )
     RETURNING id, workflow_key, contact_name, org_name, market_area,
@@ -268,7 +339,10 @@ async function updateRow(
     FROM prospects WHERE id = ${prospect.id}`;
   if (!existing) return { ok: false, error: 'That prospect is no longer in the pipeline.' };
 
-  const factors = await loadWorkflowFactors(existing.workflow_key);
+  const [factors, bands] = await Promise.all([
+    loadWorkflowFactors(existing.workflow_key),
+    loadWorkflowBands(existing.workflow_key),
+  ]);
 
   // First-class column updates. `undefined` keeps the existing value.
   const newContactName =
@@ -289,10 +363,6 @@ async function updateRow(
         : Number(existing.gross_volume);
   const newSourceUrl =
     input.sourceUrl !== undefined ? trimOrNull(input.sourceUrl) : existing.source_url;
-  const newSourcingNote =
-    input.sourcingNote !== undefined
-      ? trimOrNull(input.sourcingNote)
-      : existing.sourcing_note;
 
   // Sourcing status — drives the lifecycle stage update.
   let newSourcingStatus: SourcingStatus = existing.sourcing_status;
@@ -308,13 +378,31 @@ async function updateRow(
       : existing.stage;
 
   // Rank inputs — merge patches into the existing JSONB, recompute score.
+  // D-032: gates contribute to the score, same as any other factor.
   const newRankInputs = mergeRankInputs(
     existing.rank_inputs ?? {},
     input.rankInputPatches,
     factors,
   );
-  const scoringFactors = factors.filter((f) => !f.isGate);
-  const { score: newScore } = scoreProspect(scoringFactors, newRankInputs);
+  const { score: newScore } = scoreProspect(factors, newRankInputs);
+  const newBand = classifyBand(newScore, bands);
+
+  // P4.6 override rule: when status is being patched into a value that
+  // disagrees with the new band, require a ≥20-char reason. If the rep
+  // is only editing rank inputs (status untouched), existing status
+  // carries forward even if the band shifted.
+  const overrideError = validateOverride(input.sourcingStatus, newBand, input.sourcingNote);
+  if (overrideError) return { ok: false, error: overrideError };
+
+  // Note carries weight only when overriding. If the current state
+  // doesn't constitute an override, drop the note. Otherwise honor the
+  // input (if patched) or keep whatever's on the row.
+  const isOverride = needsOverride(newSourcingStatus, newBand);
+  const newSourcingNote = !isOverride
+    ? null
+    : input.sourcingNote !== undefined
+      ? trimOrNull(input.sourcingNote)
+      : existing.sourcing_note;
 
   const updated = await sqlOne<ExistingRow>`
     UPDATE prospects SET
