@@ -620,6 +620,59 @@ END;
 $$ LANGUAGE plpgsql;
 
 -- ────────────────────────────────────────────────────────────────────
+-- daily_metric_snapshot — Phase R (D-070)
+--
+-- One row per (snapshot_date, rep_id, workflow_key, stage). Written
+-- nightly by /api/cron/snapshot from the live event tables above. The
+-- /reports surface is the only consumer — every dashboard card reads
+-- from this table, never from prospect_stage_events / prospect_contacts
+-- / quotes directly. Re-runs for the same date are safe: the rollup
+-- DELETEs the day's rows in a transaction and re-INSERTs.
+--
+-- Per-prospect detail stays in the live tables; this is strictly an
+-- aggregate, capped at ~5 reps × 5 workflows × 8 stages × 365 days ≈
+-- 73K rows/year. Trivial for Neon's free tier.
+-- ────────────────────────────────────────────────────────────────────
+CREATE TABLE IF NOT EXISTS daily_metric_snapshot (
+  snapshot_date   DATE   NOT NULL,
+  rep_id          UUID   NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  workflow_key    TEXT   NOT NULL REFERENCES workflows(workflow_key) ON DELETE CASCADE,
+  stage           TEXT   NOT NULL,
+
+  -- End-of-day state + same-day transitions
+  prospects_in_stage      INTEGER NOT NULL DEFAULT 0,
+  entered_stage_today     INTEGER NOT NULL DEFAULT 0,
+  exited_stage_today      INTEGER NOT NULL DEFAULT 0,
+
+  -- Activity (only meaningful for some stages; safe defaults elsewhere)
+  contacts_sent_today     INTEGER NOT NULL DEFAULT 0,
+  responses_today         INTEGER NOT NULL DEFAULT 0,
+
+  -- Score distribution (sum + count → avg deferred to query time)
+  sum_rank_score          NUMERIC(10,2) NOT NULL DEFAULT 0,
+
+  -- Revenue (only populated for prospects whose 'client' stage was
+  -- reached today; sums accepted quotes' total_price)
+  revenue_closed_today    NUMERIC(12,2) NOT NULL DEFAULT 0,
+  quotes_accepted_today   INTEGER NOT NULL DEFAULT 0,
+
+  -- Cycle-time helper (in days; NULL when no transitions happened)
+  avg_cycle_days_into_stage NUMERIC(6,2),
+
+  -- Audit
+  computed_at     TIMESTAMPTZ NOT NULL DEFAULT now(),
+
+  PRIMARY KEY (snapshot_date, rep_id, workflow_key, stage)
+);
+
+CREATE INDEX IF NOT EXISTS daily_metric_snapshot_date_idx
+  ON daily_metric_snapshot(snapshot_date);
+CREATE INDEX IF NOT EXISTS daily_metric_snapshot_rep_idx
+  ON daily_metric_snapshot(rep_id, snapshot_date);
+CREATE INDEX IF NOT EXISTS daily_metric_snapshot_workflow_idx
+  ON daily_metric_snapshot(workflow_key, snapshot_date);
+
+-- ────────────────────────────────────────────────────────────────────
 -- updated_at trigger — single function, reused by every table that has
 -- an updated_at column. Cleaner than defining one trigger per table.
 -- ────────────────────────────────────────────────────────────────────

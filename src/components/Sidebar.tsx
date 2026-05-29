@@ -45,6 +45,7 @@ const SALES_LINKS: NavLink[] = [
 // Pricing & Admin — super_admin only (also re-checked server-side on
 // each of these routes; the gate is not just menu-level).
 const ADMIN_LINKS: NavLink[] = [
+  { href: '/reports', label: 'Reports', gated: 'super_admin' },
   { href: '/rates', label: 'Rates & Globals', gated: 'super_admin' },
   { href: '/packages', label: 'Packages', gated: 'super_admin' },
   { href: '/corporate', label: 'Corporate', gated: 'super_admin' },
