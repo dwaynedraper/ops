@@ -469,6 +469,66 @@ h1, h2, h3, h4, h5, h6 {
   }
 }
 
+/* ─── Mobile pass (F11 / D-061) ───────────────────────────────────────── */
+/* V2 ships responsive layouts for Dashboard + Clients ONLY — the surfaces
+   a rep needs to glance at on their phone to answer "do I need to open a
+   laptop today?". Sourcing batch entry, Qualify deep work, and Contact
+   cycle messaging stay desktop-optimized by design. The classes below are
+   opt-in via `className`, so adding mobile responsiveness to a row or
+   filter bar is one class on the existing inline-styled element.
+
+   `.list-row-responsive` — used on the Link card rows in the Dashboard
+       follow-up list and the Clients row list. Below 600px it allows
+       the right-aligned badge to wrap underneath the name/metadata.
+   `.filter-bar-responsive` — used on the /clients filter row. Below
+       600px tightens gaps so the toggles, dropdown, search, and count
+       still read on a 380px viewport.
+   `.touch-target` — minimum 44px tap height for buttons inside the
+       mobile-aware regions. Browsers and platform guidance both point
+       at ~44px as the minimum reliable tap target.
+*/
+@media (max-width: 600px) {
+  /* Tighter outer padding inside the app shell — phones can't spare
+     the 1.5rem the desktop layout gets. */
+  .app-shell-main {
+    padding: 1rem 0.85rem;
+  }
+
+  /* Row cards (Dashboard follow-ups, Clients list, Qualify list).
+     The desktop layout is a single flex row; on a phone the right-
+     aligned status/stage badges wrap to a second line under the
+     name + workflow metadata. */
+  .list-row-responsive {
+    flex-wrap: wrap;
+    row-gap: 0.35rem;
+  }
+  .list-row-responsive > .list-row-trail {
+    /* The trailing column (status badge + date on /clients) gets
+       its own line and aligns left to make room for the badge. */
+    flex-basis: 100%;
+    justify-content: flex-start;
+    padding-left: calc(2.4rem + 0.85rem);
+  }
+
+  /* Filter bar — the dropdown + search + toggle stack vertically. */
+  .filter-bar-responsive {
+    gap: 0.45rem;
+  }
+  .filter-bar-responsive > .input,
+  .filter-bar-responsive > .select {
+    flex-basis: 100%;
+    min-width: 0;
+  }
+
+  /* Touch target floor. Targets the button + label children of the
+     mobile-aware regions, not every button site-wide. */
+  .touch-target,
+  .list-row-responsive button,
+  .filter-bar-responsive button {
+    min-height: 44px;
+  }
+}
+
 /* ─── Custom hover tooltips (D-040, restyled F2.8.2) ──────────────────── */
 /* Attribute-driven, CSS-only, no JS. Drop `data-tooltip="…"` on any
    element and a small label appears near it on hover. The label is

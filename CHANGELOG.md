@@ -622,6 +622,49 @@ Registry update
   ready-card for `real_estate` + `corporate`, coming-soon for
   `story_portraits` / `saga` / `ten_percent`.
 
+### F11 — Mobile pass (D-061)
+
+Limited mobile pass on **Dashboard + Clients only**. Other
+surfaces (Sourcing, Qualify, Contact, the admin tools) stay
+desktop-optimized by design — a rep doing real work belongs at
+a keyboard. The goal here is the phone glance: *"do I need to
+open a laptop today?"*
+
+Approach: three opt-in CSS classes in `globals.css`, applied
+to the two surfaces. Inline styles stay; the classes layer the
+responsive behavior on top.
+
+- **`.list-row-responsive`** — used on Dashboard's follow-up
+  list rows and Clients' row cards. Below 600px, the trailing
+  badge column wraps to a second line, padded under the
+  name+metadata so the visual hierarchy stays intact.
+- **`.list-row-trail`** — marks the trailing column on those
+  rows. Mobile CSS gives it `flex-basis: 100%`, drops it
+  underneath the main column, and pads it to line up with the
+  name column. The Clients row trail wraps three sub-elements
+  (workflow pill + stage badge + date) so they fall together.
+- **`.filter-bar-responsive`** — used on Clients' filter row.
+  Below 600px the select + search input stretch to full
+  width, and inter-control gap tightens.
+
+Plus a tighter `.app-shell-main` padding at narrow widths
+(`1rem 0.85rem` instead of `1.5rem`), and a 44px min-height
+floor on buttons inside the mobile-aware regions.
+
+The Dashboard's pipeline-by-workflow section already used
+`grid-template-columns: repeat(auto-fit, minmax(110px, 1fr))`
+so the stage tiles wrap cleanly without further work.
+
+Out of scope (intentional)
+- /sourcing — batch entry needs a wide table; a phone is the
+  wrong tool for it.
+- /qualify — the deep-work surface needs the side-by-side
+  layout to hold the live score panel next to the form.
+- /contact — the cycle composer needs the desktop layout to
+  keep the copyable subject + body legible.
+- /tutorials, /rates, /packages, /scripts, etc. — admin tools
+  + read-heavy content. Not worth the mobile work in V2.
+
 ### Pricing & Admin gating — verified, not changed
 - Sidebar already gates the admin section to `super_admin` via
   `role === 'super_admin'` filtering. Every admin route
@@ -667,6 +710,10 @@ Registry update
   V2 merges, the same migration runs against prod via the next
   deploy. Walk the workflow tabs on Sourcing / Qualify / Contact
   to confirm the new palette reads right.
+- F11: no migration — pure CSS + small wrapping. Pull up
+  `/` and `/clients` on a phone (or a narrow browser window).
+  Confirm rows stack cleanly, the filter bar on Clients
+  doesn't crowd, and buttons feel large enough to tap.
 - F10: no migration — content-only. Walk both tutorials at
   `/tutorials/real_estate` and `/tutorials/corporate`. The
   real-estate one should read familiar but with more breathing

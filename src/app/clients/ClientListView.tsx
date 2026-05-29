@@ -210,7 +210,10 @@ export function ClientListView({
       </div>
 
       {/* Stage + search */}
-      <div style={{ display: 'flex', gap: '0.75rem', flexWrap: 'wrap', alignItems: 'center' }}>
+      <div
+        className="filter-bar-responsive"
+        style={{ display: 'flex', gap: '0.75rem', flexWrap: 'wrap', alignItems: 'center' }}
+      >
         <select
           className="select"
           value={stage}
@@ -296,6 +299,7 @@ export function ClientListView({
               <Link
                 key={r.id}
                 href={`/prospects/${r.id}`}
+                className="list-row-responsive"
                 style={{
                   position: 'relative',
                   display: 'flex',
@@ -382,50 +386,58 @@ export function ClientListView({
                   </span>
                 </span>
 
+                {/* Trailing trio — workflow pill + stage badge + date.
+                    Wrapped so the F11 mobile pass can drop the whole
+                    cluster to a second line cleanly. */}
                 <span
+                  className="list-row-trail"
                   style={{
-                    fontSize: '0.64rem',
-                    fontWeight: 700,
-                    color: accent,
-                    border: `1px solid ${accent}`,
-                    borderRadius: 'var(--radius-sm)',
-                    padding: '0.18rem 0.45rem',
-                    flexShrink: 0,
-                    whiteSpace: 'nowrap',
-                  }}
-                >
-                  {wfName.get(r.workflowKey) ?? r.workflowKey}
-                </span>
-
-                <span
-                  style={{
-                    fontSize: '0.62rem',
-                    letterSpacing: '0.12em',
-                    textTransform: 'uppercase',
-                    fontWeight: 700,
-                    color: TONE_COLOR[STAGE_TONE[r.stage]],
-                    border: `1px solid ${TONE_COLOR[STAGE_TONE[r.stage]]}`,
-                    borderRadius: 'var(--radius-sm)',
-                    padding: '0.2rem 0.5rem',
-                    flexShrink: 0,
-                  }}
-                >
-                  {STAGE_LABEL[r.stage]}
-                </span>
-
-                <span
-                  style={{
-                    fontSize: '0.72rem',
-                    color: 'var(--text-faint)',
-                    minWidth: '3.2rem',
-                    textAlign: 'right',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '0.6rem',
                     flexShrink: 0,
                     // The corner badge eats into the right edge — give
-                    // the date a touch of room on inactive rows.
+                    // the trail a touch of room on inactive rows.
                     paddingTop: isInactive ? '0.55rem' : 0,
                   }}
                 >
-                  {r.updatedAtLabel}
+                  <span
+                    style={{
+                      fontSize: '0.64rem',
+                      fontWeight: 700,
+                      color: accent,
+                      border: `1px solid ${accent}`,
+                      borderRadius: 'var(--radius-sm)',
+                      padding: '0.18rem 0.45rem',
+                      whiteSpace: 'nowrap',
+                    }}
+                  >
+                    {wfName.get(r.workflowKey) ?? r.workflowKey}
+                  </span>
+                  <span
+                    style={{
+                      fontSize: '0.62rem',
+                      letterSpacing: '0.12em',
+                      textTransform: 'uppercase',
+                      fontWeight: 700,
+                      color: TONE_COLOR[STAGE_TONE[r.stage]],
+                      border: `1px solid ${TONE_COLOR[STAGE_TONE[r.stage]]}`,
+                      borderRadius: 'var(--radius-sm)',
+                      padding: '0.2rem 0.5rem',
+                    }}
+                  >
+                    {STAGE_LABEL[r.stage]}
+                  </span>
+                  <span
+                    style={{
+                      fontSize: '0.72rem',
+                      color: 'var(--text-faint)',
+                      minWidth: '3.2rem',
+                      textAlign: 'right',
+                    }}
+                  >
+                    {r.updatedAtLabel}
+                  </span>
                 </span>
               </Link>
             );

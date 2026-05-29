@@ -263,7 +263,7 @@ export default async function Dashboard() {
                       <Link
                         key={f.id}
                         href="/contact"
-                        className="surface-tool"
+                        className="surface-tool list-row-responsive"
                         style={{
                           display: 'flex',
                           alignItems: 'center',
@@ -322,6 +322,7 @@ export default async function Dashboard() {
                           </span>
                         </span>
                         <span
+                          className="list-row-trail"
                           style={{
                             fontSize: '0.62rem',
                             letterSpacing: '0.12em',
@@ -329,6 +330,8 @@ export default async function Dashboard() {
                             fontWeight: 700,
                             color: f.status === 'due' ? 'var(--warn)' : 'var(--accent)',
                             flexShrink: 0,
+                            display: 'flex',
+                            alignItems: 'center',
                           }}
                         >
                           {f.status === 'due' ? 'Due' : 'Ready'} · {f.nextLabel}
