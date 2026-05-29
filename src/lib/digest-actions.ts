@@ -1,8 +1,11 @@
 'use server';
 
 /**
- * Today-page server actions. The only one so far: the per-rep opt-in
- * for the morning digest email (ops_profiles.digest_email).
+ * Digest preference server action. F12 moved this out of
+ * `/today/actions.ts` when `/today` merged into the Dashboard
+ * (D-063). The action itself didn't change; only its location did.
+ * The page-level `revalidatePath` now points at `/` instead of
+ * `/today`.
  */
 
 import { revalidatePath } from 'next/cache';
@@ -25,7 +28,7 @@ export async function setDigestOptIn(enabled: boolean): Promise<ActionResult> {
     await sql`
       UPDATE ops_profiles SET digest_email = ${enabled}
       WHERE user_id = ${user.id}`;
-    revalidatePath('/today');
+    revalidatePath('/');
     return { ok: true };
   } catch (err) {
     return {

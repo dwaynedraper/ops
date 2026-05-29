@@ -6,8 +6,9 @@ import { digestEmailHtml, digestEmailText } from '@/lib/digest-email';
 import { sendEmail, emailConfigured } from '@/lib/mailer';
 
 /**
- * Morning digest cron — emails the /today brief to every active rep who
- * opted in (ops_profiles.digest_email).
+ * Morning digest cron — emails the Dashboard brief to every active rep
+ * who opted in (ops_profiles.digest_email). (V2 F12 / D-063 folded the
+ * old `/today` route into the Dashboard; the cron path didn't change.)
  *
  * Triggered by a Vercel Cron entry (vercel.json) once each morning.
  * Vercel sends `Authorization: Bearer <CRON_SECRET>` on a scheduled

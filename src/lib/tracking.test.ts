@@ -178,3 +178,103 @@ describe('nextScript — step ordering', () => {
     ).toBeNull();
   });
 });
+
+// ─── D-051 urgency — Contact card status dot ─────────────────────────
+
+/**
+ * The urgency field came in with F5 / D-051. Locks the four buckets:
+ *   now      — needs action right now (replied / ready / due ≤ 24h)
+ *   soon     — due within 24h (waiting, dueInDays === 1)
+ *   overdue  — > 24h past due
+ *   idle     — waiting > 1 day or cycle done
+ */
+describe('computeCycle — D-051 urgency', () => {
+  const DAY1_T1 = new Date('2026-04-01T10:00:00Z'); // a fixed sent date
+
+  it('replied → urgency=now (green)', () => {
+    const cycle = computeCycle(SCRIPTS, [], 'responded', DAY1_T1);
+    expect(cycle.urgency).toBe('now');
+  });
+
+  it('ready (qualified, no touch yet) → urgency=now', () => {
+    const cycle = computeCycle(SCRIPTS, [], 'qualified', DAY1_T1);
+    expect(cycle.status).toBe('ready');
+    expect(cycle.urgency).toBe('now');
+  });
+
+  it('waiting with dueInDays > 1 → urgency=idle', () => {
+    // Sent today; follow-up due in 3 days. Look at "now + 1 hour" — still 3 days out.
+    const cycle = computeCycle(
+      SCRIPTS,
+      [{ stepKey: 'first_touch', sentAt: DAY1_T1, responseReceived: false }],
+      'contacting',
+      new Date(DAY1_T1.getTime() + 60 * 60 * 1000),
+    );
+    expect(cycle.status).toBe('waiting');
+    expect(cycle.dueInDays).toBeGreaterThan(1);
+    expect(cycle.urgency).toBe('idle');
+  });
+
+  it('waiting with dueInDays === 1 → urgency=soon (yellow)', () => {
+    // Follow-up after 3 days; check 2 days + 1 hour after send — 1 day left.
+    const checkAt = new Date(DAY1_T1.getTime() + (2 * 24 + 1) * 60 * 60 * 1000);
+    const cycle = computeCycle(
+      SCRIPTS,
+      [{ stepKey: 'first_touch', sentAt: DAY1_T1, responseReceived: false }],
+      'contacting',
+      checkAt,
+    );
+    expect(cycle.status).toBe('waiting');
+    expect(cycle.dueInDays).toBe(1);
+    expect(cycle.urgency).toBe('soon');
+  });
+
+  it('due, within 24h of becoming due → urgency=now (green)', () => {
+    // Follow-up after 3 days; check at exactly day 3 (just became due).
+    const checkAt = new Date(DAY1_T1.getTime() + 3 * 24 * 60 * 60 * 1000);
+    const cycle = computeCycle(
+      SCRIPTS,
+      [{ stepKey: 'first_touch', sentAt: DAY1_T1, responseReceived: false }],
+      'contacting',
+      checkAt,
+    );
+    expect(cycle.status).toBe('due');
+    expect(cycle.urgency).toBe('now');
+  });
+
+  it('due, more than 24h past due → urgency=overdue (red)', () => {
+    // Day 5 (2 days past the 3-day follow-up window).
+    const checkAt = new Date(DAY1_T1.getTime() + 5 * 24 * 60 * 60 * 1000);
+    const cycle = computeCycle(
+      SCRIPTS,
+      [{ stepKey: 'first_touch', sentAt: DAY1_T1, responseReceived: false }],
+      'contacting',
+      checkAt,
+    );
+    expect(cycle.status).toBe('due');
+    expect(cycle.urgency).toBe('overdue');
+  });
+
+  it('cycle_done → urgency=idle (no dot color)', () => {
+    // Send final touch (0-day follow-up); cycle exhausts.
+    const final = {
+      stepKey: 'final',
+      sentAt: DAY1_T1,
+      responseReceived: false,
+    };
+    const cycle = computeCycle(SCRIPTS, [final], 'contacting', DAY1_T1);
+    expect(cycle.status).toBe('cycle_done');
+    expect(cycle.urgency).toBe('idle');
+  });
+
+  it('the 24h boundary between now and overdue is exactly day + 1', () => {
+    // Window: 3 days. Just under 24h overdue → now. Just over → overdue.
+    const justUnder = new Date(DAY1_T1.getTime() + (3 * 24 + 23) * 60 * 60 * 1000);
+    const justOver = new Date(DAY1_T1.getTime() + (4 * 24 + 1) * 60 * 60 * 1000);
+    const contacts = [
+      { stepKey: 'first_touch', sentAt: DAY1_T1, responseReceived: false },
+    ];
+    expect(computeCycle(SCRIPTS, contacts, 'contacting', justUnder).urgency).toBe('now');
+    expect(computeCycle(SCRIPTS, contacts, 'contacting', justOver).urgency).toBe('overdue');
+  });
+});

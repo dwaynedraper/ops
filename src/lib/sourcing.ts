@@ -13,7 +13,7 @@
  * status/notes. Smaller 1–2 point supporting items live on Qualify.
  */
 
-import type { RankFactor, ProspectStage } from './prospects';
+import type { RankFactor, ProspectStage, ScoreBand } from './prospects';
 
 /**
  * Sourcing's status enum holds the rep's "what should happen with this
@@ -63,11 +63,18 @@ export interface SourcingRow {
    * filled in. The badge tone depends on the band, but the partial
    * indicator on the badge reflects this. */
   hasPartialScore: boolean;
+  /** ISO timestamp of `prospects.created_at`. Surfaced so the
+   * Sourcing client can sort newest-first by default — newly-added
+   * prospects land on top, instead of relying on the server's
+   * pre-sort which UUID order alone wouldn't preserve once the
+   * client re-sorts on any other column and then back. (D-035.) */
+  createdAt: string;
 }
 
 /** Empty row template — what an "add a new prospect" row looks like
- * before any cells have been touched. */
-export const EMPTY_SOURCING_ROW: Omit<SourcingRow, 'id' | 'workflowKey'> = {
+ * before any cells have been touched. `id`, `workflowKey`, and
+ * `createdAt` are all server-assigned. */
+export const EMPTY_SOURCING_ROW: Omit<SourcingRow, 'id' | 'workflowKey' | 'createdAt'> = {
   contactName: '',
   orgName: null,
   marketArea: null,
@@ -212,6 +219,10 @@ export function buildColumnConfig(
   });
 
   // ── Triage — status ──────────────────────────────────────────────
+  // Width sized to fit the three-button Pursue/—/Reject toggle without
+  // clipping under any state. The toggle is interactive even in display
+  // mode (D-037), so the column always has to fit the controls, not
+  // just the pill. (D-038.)
   cols.push({
     key: 'sourcingStatus',
     label: 'Status',
@@ -219,7 +230,7 @@ export function buildColumnConfig(
     group: 'triage',
     isRankInput: false,
     isPrimary: false,
-    width: 150,
+    width: 200,
   });
 
   // sourcing_note is intentionally NOT a default column anymore. It's
@@ -266,5 +277,58 @@ export function hasAnyHardQualifierFilled(
     if (v === true) return true;
     if (typeof v === 'number' && v > 0) return true;
   }
+  return false;
+}
+
+/** "Positive" sourcing decision — either Sourcing's `pursue` (worth
+ * qualifying) or Qualify's `qualify` (this IS qualified). Both count
+ * for the band-disagreement override rule. */
+function isPositiveStatus(status: SourcingStatus): boolean {
+  return status === 'pursue' || status === 'qualify';
+}
+
+/** Whether the rep's call disagrees with the pre-score band hard enough
+ * to require a ≥20-char written reason (D-028).
+ *
+ * - band='qualified' + status='reject'             → override
+ * - band='reject'    + status is positive          → override
+ * - band='borderline' or status='undecided'         → no override
+ *
+ * D-045 — "skip when empty": if the row has no qualifier inputs filled
+ * at all (every factor key is false/0/missing), band='reject' (score 0)
+ * is meaningless and no override is required. Pass `options` with the
+ * rank inputs + the factor keys to enable this carve-out; if `options`
+ * is omitted, the bare rule applies. The carve-out re-engages the
+ * moment any qualifier is set.
+ *
+ * Lives in lib/sourcing because both /sourcing and /qualify import it
+ * (and the server validator on `upsertSourcingRow` does too) — one
+ * source of truth for the rule. */
+export function needsOverride(
+  status: SourcingStatus,
+  band: ScoreBand,
+  options?: {
+    rankInputs: Record<string, boolean | number>;
+    factorKeys: string[];
+  },
+): boolean {
+  if (status === 'undecided') return false;
+  if (band === 'borderline') return false;
+
+  // D-045 carve-out.
+  if (options) {
+    let any = false;
+    for (const k of options.factorKeys) {
+      const v = options.rankInputs[k];
+      if (v === true || (typeof v === 'number' && v > 0)) {
+        any = true;
+        break;
+      }
+    }
+    if (!any) return false;
+  }
+
+  if (band === 'qualified' && status === 'reject') return true;
+  if (band === 'reject' && isPositiveStatus(status)) return true;
   return false;
 }

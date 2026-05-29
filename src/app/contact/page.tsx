@@ -14,18 +14,24 @@ import {
   type HandoffLink,
   type TrackingCard,
 } from '@/lib/tracking';
-import { TrackingClient, type TrackingWorkflow } from './TrackingClient';
+import { ContactClient, type ContactWorkflow } from './ContactClient';
 
 /**
- * Tracking route — the contact cycle, multi-workflow.
+ * Contact route (was `/tracking` pre-F3 / D-046) — the contact cycle,
+ * multi-workflow.
  *
  * Server component: loads every active workflow's scripts and every
  * owner-scoped prospect in a cycle stage. Each prospect's cycle is
  * computed against its own workflow's scripts.
+ *
+ * Note: the supporting library still lives at `@/lib/tracking` and its
+ * types still read `TrackingCard` / `TrackingStatus` / `TrackingWorkflow`
+ * — the V2-PLAN F3 scope is the route folder + URL references only.
+ * A lib-side rename can land as a follow-up.
  */
 export const dynamic = 'force-dynamic';
 
-export const metadata = { title: 'Tracking' };
+export const metadata = { title: 'Contact' };
 
 interface WorkflowRow {
   workflow_key: string;
@@ -61,6 +67,8 @@ interface ContactRow {
   channel: string;
   sent_at: Date;
   response_received: boolean;
+  filled_subject: string | null;
+  filled_body: string | null;
 }
 interface LinkRow {
   workflow_key: string;
@@ -72,10 +80,10 @@ interface LinkRow {
 const DATE_FMT = new Intl.DateTimeFormat('en-US', { month: 'short', day: 'numeric' });
 const CYCLE_STAGES = ['qualified', 'contacting', 'responded'] as const;
 
-export default async function TrackingPage() {
+export default async function ContactPage() {
   const session = await auth();
   const user = session?.user;
-  if (!user) redirect('/signin?callbackUrl=/tracking');
+  if (!user) redirect('/signin?callbackUrl=/contact');
 
   const role = user.role ?? 'partner';
   const isAdmin = role === 'super_admin';
@@ -141,7 +149,8 @@ export default async function TrackingPage() {
   const contactRows =
     prospectIds.length > 0
       ? await sql<ContactRow>`
-          SELECT id, prospect_id, step_key, channel, sent_at, response_received
+          SELECT id, prospect_id, step_key, channel, sent_at, response_received,
+                 filled_subject, filled_body
           FROM prospect_contacts
           WHERE prospect_id = ANY(${prospectIds})
           ORDER BY sent_at ASC`
@@ -172,6 +181,8 @@ export default async function TrackingPage() {
       channel: c.channel,
       sentAtLabel: DATE_FMT.format(new Date(c.sent_at)),
       responseReceived: c.response_received,
+      filledSubject: c.filled_subject,
+      filledBody: c.filled_body,
     }));
     return {
       prospect: {
@@ -189,6 +200,7 @@ export default async function TrackingPage() {
       status: cycle.status,
       nextStepKey: cycle.nextScript?.stageKey ?? null,
       dueInDays: cycle.dueInDays,
+      urgency: cycle.urgency,
     };
   });
 
@@ -202,7 +214,7 @@ export default async function TrackingPage() {
     return b.prospect.rankScore - a.prospect.rankScore;
   });
 
-  const workflows: TrackingWorkflow[] = workflowRows.map((w) => ({
+  const workflows: ContactWorkflow[] = workflowRows.map((w) => ({
     key: w.workflow_key,
     name: w.name,
     accent: w.accent,
@@ -216,7 +228,7 @@ export default async function TrackingPage() {
         <main className="app-shell-main" style={{ flex: 1 }}>
           <div style={{ maxWidth: 1100, margin: '0 auto' }}>
             <div className="eyebrow" style={{ marginBottom: '0.5rem' }}>
-              Tracking
+              Contact
             </div>
             <h1
               style={{
@@ -234,7 +246,7 @@ export default async function TrackingPage() {
               who needs you next. Each one runs its own workflow&apos;s scripts.
             </p>
 
-            <TrackingClient
+            <ContactClient
               cards={cards}
               workflows={workflows}
               scriptsByWorkflow={scriptsByWorkflow}

@@ -14,20 +14,32 @@
  */
 
 import { useEffect, useId, useMemo, useState } from 'react';
-import { getHelpEntry, type HelpBlock, type HelpEntry } from '@/lib/help-content';
+import { renderInline } from '@/lib/inline-markdown';
+import {
+  getHelpEntry,
+  type HelpBlock,
+  type HelpEntry,
+  type HelpMode,
+} from '@/lib/help-content';
 
 export function HelpBox({
   workflowKey,
   factorKey,
   label = 'Where do I find this?',
+  mode = 'qualify',
 }: {
   workflowKey: string;
   factorKey: string;
   label?: string;
+  /** Which content angle to load — qualify-time (deep read of one
+   * prospect, default) or sourcing-time (batch triage). Different
+   * entries live under different keys; missing entries render no
+   * trigger. (D-041.) */
+  mode?: HelpMode;
 }) {
   const entry = useMemo(
-    () => getHelpEntry(workflowKey, factorKey),
-    [workflowKey, factorKey],
+    () => getHelpEntry(workflowKey, factorKey, mode),
+    [workflowKey, factorKey, mode],
   );
   const [open, setOpen] = useState(false);
 
@@ -353,6 +365,10 @@ function BlockList({ blocks }: { blocks: HelpBlock[] }) {
   );
 }
 
+// D-058 inline-markdown parser lives in `lib/inline-markdown.tsx` so
+// both this renderer and the unit test can pull from the same source.
+// (Import is at the top of the file.)
+
 function Block({ block }: { block: HelpBlock }) {
   if (block.kind === 'paragraph') {
     return (
@@ -364,8 +380,29 @@ function Block({ block }: { block: HelpBlock }) {
           margin: 0,
         }}
       >
-        {block.text}
+        {renderInline(block.text)}
       </p>
+    );
+  }
+  if (block.kind === 'heading') {
+    // Level 2 default; level 3 reads as a sub-beat.
+    const level = block.level ?? 2;
+    const isLevel3 = level === 3;
+    const Tag = isLevel3 ? 'h4' : 'h3';
+    return (
+      <Tag
+        style={{
+          fontFamily: 'var(--font-playfair), serif',
+          fontWeight: 500,
+          margin: 0,
+          fontSize: isLevel3 ? '0.95rem' : '1.05rem',
+          color: 'var(--text)',
+          letterSpacing: '-0.005em',
+          marginTop: '0.25rem',
+        }}
+      >
+        {block.text}
+      </Tag>
     );
   }
   if (block.kind === 'list') {
@@ -380,7 +417,7 @@ function Block({ block }: { block: HelpBlock }) {
               color: 'var(--text)',
             }}
           >
-            {it}
+            {renderInline(it)}
           </li>
         ))}
       </ul>
@@ -398,7 +435,7 @@ function Block({ block }: { block: HelpBlock }) {
               color: 'var(--text)',
             }}
           >
-            {it}
+            {renderInline(it)}
           </li>
         ))}
       </ol>
@@ -418,7 +455,7 @@ function Block({ block }: { block: HelpBlock }) {
           color: 'var(--text-mid)',
         }}
       >
-        {block.text}
+        {renderInline(block.text)}
       </div>
     );
   }

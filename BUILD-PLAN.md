@@ -1299,6 +1299,354 @@ schema overhead yet. The migration in `schema.sql` is conditional on
 the old default values so a rep who's already used `/rank-factors` to
 customize isn't clobbered.
 
+### V2 batch (D-035 → D-067, 2026-05-28)
+
+V2 was a polish-and-fit pass on the surfaces V1 had exercised in real
+use. The decisions below carry the full reasoning in `V2-PLAN.md §3`
+and the implementation detail in `CHANGELOG.md`'s V2 section. Logged
+here as one-liners so the §10 record stays scannable.
+
+D-052 intentionally skipped — the workflow-color decision condensed
+into a single D-053 rather than splitting into two, but the numbering
+stays aligned with the V2-PLAN list.
+
+### D-035 · Sourcing add-prospect sorts to top by created_at (2026-05-28)
+
+**Decision.** `SourcingRow` carries `createdAt` (ISO timestamp); the
+default sort is `createdAt` desc. A newly-saved row lands on top
+regardless of how the rep had the table sorted before — independent
+of any other column toggle. Replaces V1's fallback that sorted by
+`id` (UUID-lex order isn't time-based).
+
+### D-036 · Sortable column header ↕ indicator (2026-05-28)
+
+**Decision.** Every sortable Sourcing header renders a glyph: ↑/↓ on
+the active column, ↕ at 40% opacity on inactive sortable columns. The
+click-to-sort affordance reads at a glance.
+
+### D-037 · Sourcing checkboxes + status always interactive (2026-05-28)
+
+**Decision.** Hard-qualifier checkboxes and the Pursue/Undecided/Reject
+toggle are interactive at all times on Sourcing rows — display mode
+and edit mode both. Clicking commits immediately via `upsertSourcingRow`
+with a minimal patch. Edit mode (now triggered by row body click, see
+D-039 superseded by F2.8.1) only unlocks the other cells.
+
+### D-038 · Status column widens to fit toggle (2026-05-28)
+
+**Decision.** Sourcing's `sourcingStatus` column went 150 → 200px; the
+status toggle's padding tightened. Pursue / — / Reject fit cleanly in
+the always-visible toggle, never clipped under any state.
+
+### D-039 · Row body navigation, superseded by F2.8.1 click-to-edit (2026-05-28)
+
+**Decision.** Originally: Sourcing row body click → `/qualify/[id]`,
+pencil → edit in place. Dean walked it and reversed: row body click
+returns to edit-in-place (spreadsheet expectation); a new **leftmost
+Qualify column** holds a `→` button per row that navigates to
+`/qualify/[id]`; the Name cell is a second navigation exception
+(dotted-underline accent link). The pencil comes out of the row.
+
+**Rationale.** Click-to-edit-on-row matches the spreadsheet mental
+model; the explicit Qualify button removes ambiguity about what
+clicking the row actually does.
+
+### D-040 · Custom CSS hover tooltips (2026-05-28)
+
+**Decision.** Attribute-driven, CSS-only tooltips via `data-tooltip="…"`
+on any element. Instant on hover (no fade/delay). Positions above by
+default; `data-tooltip-pos="below"` for top-of-viewport elements.
+
+**Restyle (F2.8.2).** Initial tooltip read as a small button (border +
+shadow + surface-3 background). Lightened to a flat cursor-hint: no
+shadow, no border, smaller font, `surface-tool-2` background.
+
+### D-041 · Sourcing help boxes (batch-oriented content) (2026-05-28)
+
+**Decision.** Sourcing gets help boxes on the add-prospect form (per
+field) and on the table headers (per column), with batch-sourcing
+content that's a different angle from V1's qualify-time help. HelpBox
+gains a `mode: 'qualify' | 'sourcing'` parameter; the registry keys
+sourcing-time entries as `sourcing.{workflow}.{factor}`.
+
+**Plus F2.8.4 inline:** a "Where to start" strip between the workflow
+tabs and the form, opening a three-step onboarding guide modal.
+
+### D-042 · One-click Qualify button at score ≥ 7 (2026-05-28)
+
+**Decision.** The score panel on `/qualify` shows a prominent "Qualify
+this prospect" button whenever every gate is clear, score ≥ 7, and
+the rep hasn't already set `status='qualify'`. Clicking commits
+`sourcing_status='qualify'` (advances stage to `qualified`). The
+three-button toggle stays for explicit choices.
+
+### D-043 · Qualify list filter (default pursue + undecided; toggle pursue-only) (2026-05-28)
+
+**Decision.** The "Your prospects" list on `/qualify` hides
+`sourcing_status='qualify'` (already in pipeline) and `'reject'`
+(Sourcing said no) by default. A "Pursued only" toggle narrows to
+pursue alone. Hidden-count badge shows what's suppressed.
+
+**F7-b inline:** the list became cross-workflow with the
+currently-selected workflow's rows floated to the top — Dean called
+out the scroll-pick-scroll thrash while walking F7.
+
+### D-044 · Qualify direct-entry defaults to pursue (2026-05-28)
+
+**Decision.** Direct entry on `/qualify` defaults `sourcing_status =
+'pursue'` (was `'undecided'`). A rep adding a prospect straight on
+Qualify is there because they want to qualify, so the row appears in
+the default Qualify list immediately. Toggle still overrides.
+
+### D-045 · Override-with-reason skips when no qualifiers filled (2026-05-28)
+
+**Decision.** The override-with-reason rule (status disagrees with band
+→ ≥20-char reason required) carves out an exception: when no qualifier
+inputs are filled at all, `band='reject'` (score 0) isn't meaningful
+and no reason is required. Re-engages the moment any qualifier is set.
+`needsOverride` consolidated into `lib/sourcing.ts` as the single
+source of truth — applied client + server.
+
+### D-046 · Tracking → Contact app-wide rename (2026-05-28)
+
+**Decision.** Folder `src/app/tracking/` → `src/app/contact/`;
+`TrackingClient` → `ContactClient`; `TrackingWorkflow` →
+`ContactWorkflow`; page H1 + `metadata.title` flip; every URL
+reference (Sidebar, Dashboard, today digest, tutorials) updated.
+
+**Out of scope (intentional).** `src/lib/tracking.ts` keeps its
+filename, and in-lib types (`TrackingCard`, `TrackingStatus`) stay
+as-is. The V2-PLAN wording was "folder rename + URL sweep"; a lib-side
+rename can land as a small follow-up.
+
+### D-047 · Email first-touch wording overhaul (2026-05-28)
+
+**Decision.** The real-estate first-touch sales-pitch paragraph swaps
+"I shoot real estate media in the 121 corridor — …" for **"Sharp
+Sighted Media shoots real estate media in the 121 corridor, from
+Allen to Southlake. The base package delivers stills, aerial, floor
+plan, twilight, and a vertical reel, all delivered within 24 hours.
+One shoot, five deliverables, MLS-ready."** Brand-agnostic phrasing
+since reps send it.
+
+### D-048 · Standard signature block on every script (2026-05-28)
+
+**Decision.** Every script across every workflow closes with:
+
+```
+Regards,
+{{rep_name}} • Sharp Sighted Branch
+https://sharpsighted.branch
+
+Stay Sharp. Stay Seen. Stay Human.
+```
+
+Tagline is the absolute last line. Branch per workflow: `real_estate`
+→ Media, `corporate` / `story_portraits` / `saga` → Photos,
+`ten_percent` → Studio. Updates land in `db-seed.mjs` and via an
+idempotent `REPLACE()` migration in `schema.sql` (preserves manual
+edits).
+
+### D-049 · Cycle-step tabs all navigable with inactive-step badges (2026-05-28)
+
+**Decision.** Contact's cycle pills (First touch / Follow-up 1 /
+Follow-up 2 / Final touch) are real buttons. Clicking a past step
+shows the message as it actually went out (filled placeholders) +
+green "Already sent · {date}" badge. Clicking a future step shows the
+template + yellow "Send {prevLabel} first" badge. The current step
+keeps the live composer.
+
+**Schema.** Required surfacing `filled_subject` + `filled_body` from
+`prospect_contacts` through `ContactLog` and the page query — they
+were in the DB but not in the client payload until now.
+
+### D-050 · 20s undo gains "Commit now" button (2026-05-28)
+
+**Decision.** `UndoProvider` gains a `commitNow(id)` callback that
+cancels the wait timer and fires the action immediately, reusing the
+existing commit path. Toast renders a btn-primary "Commit now" next to
+Undo. Lifecycle moves still get the safety window by default; the rep
+is never blocked when they're sure.
+
+### D-051 · Contact card workflow-color + urgency dot (2026-05-28)
+
+**Decision.** Contact card list redesigned:
+- 4px workflow-accent left-stripe + 10%-tinted background.
+- Left-side urgency dot:
+  - **green** (`now`): reply waiting / first touch ready / due ≤ 24h
+  - **yellow** (`soon`): waiting, due within next 24h
+  - **red** (`overdue`): > 24h past due
+  - **faint** (`idle`): waiting > 1 day / cycle done
+
+Urgency is computed server-side in `computeCycle` via a new
+`CycleUrgency` type. Surfaced via `CycleState.urgency` and
+`TrackingCard.urgency`.
+
+### D-053 · App-wide workflow color palette (2026-05-28)
+
+**Decision.** Five workflow accent hex values, applied everywhere a
+workflow is named or distinguished:
+
+| Workflow | Hex | Note |
+| --- | --- | --- |
+| RE Media | `#c9922a` | brand gold — Sharp pillar's Media accent |
+| Corp HS | `#8b5cf6` | violet |
+| Story Portraits | `#38bdf8` | brand cyan — the Photos pillar (Seen) |
+| The Saga | `#dc2626` | dramatic red |
+| The 10% Rule | `#ec4899` | fuchsia |
+
+Updates: `workflows.accent` seed values; idempotent
+`schema.sql` migration block guarded by the V1 default hex on each
+row (preserves manual edits). Every consumer reads
+`workflow.accent` from the DB, so the colors propagate to every
+surface automatically.
+
+### D-054 · Clients cards use workflow color (2026-05-28)
+
+**Decision.** Every row on `/clients` carries the workflow accent —
+4px left-stripe + 5% tinted background. Same dialect as the Contact
+card list so the surfaces read as a family.
+
+### D-055 · Rejected = fade + REJECTED badge (workflow color preserved) (2026-05-28)
+
+**Decision.** Rows where `stage='rejected'` render at 55% opacity with
+a small red "Rejected" corner badge (top-right). `stage='dormant'` gets
+the same fade with a muted "Dormant" badge. The workflow accent stays
+visible through the fade so a rejected Saga still reads as a Saga, not
+a generic inactive row.
+
+### D-056 · "Show inactive" toggle on Clients (default off) (2026-05-28)
+
+**Decision.** New checkbox in the `/clients` filter row. Default off —
+`rejected` + `dormant` are filtered out so the working list stays
+focused on live prospects. Bypassed when the rep picks `rejected` or
+`dormant` explicitly from the stage dropdown. When off, the label
+reads "Show inactive (N hidden)."
+
+### D-057 · Duplicate-check on add-prospect, within owner only (2026-05-28)
+
+**Decision.** On create, the server holds the upsert when it spots a
+name match (`lower(contact_name)`) within the rep's own prospects
+(owner-scoped, preserves D-019). Returns `{ ok: false, duplicates: […] }`
+with the matched prospects' workflow + stage. The client surfaces a
+non-blocking warning panel (`src/components/DuplicateWarning.tsx`,
+shared by Sourcing and Qualify); the rep either backs out (Cancel) or
+re-submits with `acknowledgeDuplicates: true` (Continue anyway).
+
+### D-058 · Inline markdown + heading block type in HelpBlock (2026-05-28)
+
+**Decision.** Two additions to the shared `HelpBlock` renderer:
+
+1. **`{ kind: 'heading'; text: string; level?: 2 | 3 }`** — short
+   Playfair h3/h4 inside a section's body. Authors use this to break
+   long sections into named beats without a new `HelpSection`.
+2. **Inline markdown** in paragraph / list / steps / callout text:
+   `**bold**` → `<strong>`; `[label](url)` → external link with
+   dotted-accent underline. Tiny no-library parser walks the input
+   left-to-right.
+
+Every existing `HelpBlockList` consumer (HelpBox modals + the
+tutorial detail page) picks both up for free.
+
+### D-059 · Real-estate tutorial revised with mixed blocks (2026-05-28)
+
+**Decision.** The real-estate walkthrough at `/tutorials/real_estate`
+revised with the F9 block variety — heading sub-beats inside each
+step ("Working a row, top to bottom," "The 20-second window," etc.),
+bold on action verbs + threshold numbers, inline links to every
+ops route. Reads more like a manual, less like a wall of text. Also
+updated to match the V2 surface (row-click-to-edit, navigable cycle
+tabs, Commit-now button, urgency-dot legend, one-click Qualify).
+
+### D-060 · Corp HS tutorial drafted; Story / Saga / 10% backlog (2026-05-28)
+
+**Decision.** New `/tutorials/corporate` entry alongside real-estate.
+Six sections mirroring real-estate's structure (overview → source →
+qualify → contact → email → next). Source angle is non-RealTrends
+(LinkedIn, Dallas Business Journal, walking-radius, referrals). Branch
+attribution reads "Sharp Sighted Photos" throughout. Closes by
+explicitly flagging Story Portraits, Saga, and 10% walkthroughs as
+**post-V2 backlog**.
+
+### D-061 · Mobile pass: Dashboard + Clients only (2026-05-28)
+
+**Decision.** Responsive CSS on `/` (Dashboard) and `/clients` only.
+Other surfaces stay desktop-optimized by design. Goal: a rep on their
+phone can answer "do I need to open a laptop today?"; anything that
+requires real work (Sourcing batch entry, Qualify deep work, Contact
+cycle messaging) stays on the laptop.
+
+**Implementation.** Three opt-in CSS utility classes
+(`.list-row-responsive`, `.list-row-trail`,
+`.filter-bar-responsive`) applied to the two surfaces. Plus tighter
+`.app-shell-main` padding at narrow widths and a 44px min-height
+floor on buttons inside the mobile-aware regions.
+
+### D-062 · Dashboard work happens last (2026-05-28)
+
+**Decision.** The Dashboard rebuild (F12) lands AFTER the source
+surfaces (Sourcing, Qualify, Contact, Clients) have been redesigned.
+Aggregates can only read right if the things being aggregated are
+correct. No repetition with the source surfaces — the Dashboard's job
+is the cross-surface overview.
+
+### D-063 · `/today` merges into Dashboard as a panel (2026-05-28)
+
+**Decision.** The standalone `/today` route is removed; its digest
+panels (replies waiting, follow-ups due, close-outs, all-clear, in-
+motion) fold into the Dashboard at `/`. The digest computation in
+`lib/digest.ts` is unchanged — it still powers both the page and the
+Resend morning-email cron at `/api/cron/digest`, so page + email
+always agree. URL labels in the morning email flip from "Open Today" →
+"Open Dashboard"; the schema's `ops_profiles.digest_email` comment is
+updated to match.
+
+### D-064 · Second Neon project for testing DB (2026-05-28)
+
+**Decision.** Local development on the `v2` branch points at a second
+Neon project, separate from production. Same migration scripts work
+on both. Documented in `README.md` "Testing database (V2 onward)";
+one-time Dean task per stand-up.
+
+### D-065 · Print packages → v2.1 (2026-05-28)
+
+**Decision.** Story Portraits and Saga print packages — Gift, Fine
+Art, Heirloom, framed sets, museum editions — are deferred to **v2.1**,
+landing as the first thing after V2 merges. They're calculator and
+quote-builder work; the V2 scope is operational polish on what V1
+already shipped.
+
+### D-066 · Sidebar sectioned layout + display-label renames (2026-05-28)
+
+**Decision.** Sidebar restructured into four sections separated by
+section headers with top-border rules:
+
+- **Dashboard** (single link, no header)
+- **TOOLS** — Quote Calculator (renamed from Calculator), Tutorials
+- **SALES** — Sourcing, Qualify, Contact, Client List (renamed from
+  Clients)
+- **PRICING & ADMIN** — super-admin only (Rates & Globals, Packages,
+  Corporate, Rank Factors, Scripts, Team)
+
+Renames are display labels only — URLs stay `/calculator` and
+`/clients`; routes don't move.
+
+### D-067 · Sidebar sticky positioning + internal scroll with pinned bottom controls (2026-05-28)
+
+**Decision.** The sidebar uses `position: sticky; top: 0; height:
+100vh; align-self: start` via a new `.app-shell-aside` class. The
+page scrolls normally (so the footer follows content), but the aside
+stays pinned at the top of the viewport — wordmark, scrollable nav,
+and the theme toggle + sign-out at the bottom are always visible.
+
+**Implementation note.** A first attempt used
+`.app-shell { height: 100vh; overflow: hidden }` to lock the whole
+shell. The inner main+footer column wasn't height-constrained, so the
+page scrolled anyway and the toggle/sign-out dropped below the fold.
+Sticky-aside also avoids the trap where shell-level `overflow: hidden`
+silently disables `position: sticky` for every nested side panel
+(calculator summary, qualify score, tracking list).
+
 ---
 
 *Stay Sharp. Stay Seen. Stay Human.*

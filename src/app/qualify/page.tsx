@@ -62,6 +62,7 @@ interface ProspectRow {
   rank_score: string;
   stage: ProspectStage;
   created_at: Date;
+  sourcing_status: 'undecided' | 'pursue' | 'qualify' | 'reject';
 }
 
 const DATE_FMT = new Intl.DateTimeFormat('en-US', { month: 'short', day: 'numeric' });
@@ -90,7 +91,7 @@ export default async function QualifyPage() {
       sql<ConfigRow>`SELECT workflow_key, key, value FROM rank_config`,
       sql<ProspectRow>`
         SELECT id, workflow_key, contact_name, org_name, market_area,
-               rank_score, stage, created_at
+               rank_score, stage, created_at, sourcing_status
         FROM prospects
         WHERE owner_id = ${user.id}
         ORDER BY created_at DESC
@@ -157,6 +158,7 @@ export default async function QualifyPage() {
     rankScore: Number(p.rank_score),
     stage: p.stage,
     createdAt: DATE_FMT.format(new Date(p.created_at)),
+    sourcingStatus: p.sourcing_status,
   }));
 
   return (

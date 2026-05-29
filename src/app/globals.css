@@ -348,6 +348,17 @@ h1, h2, h3, h4, h5, h6 {
 }
 
 /* ─── App shell layout ────────────────────────────────────────────────── */
+/* On desktop (≥769px), the sidebar is `position: sticky` at the top of
+   the viewport and stays put while the page scrolls underneath. The
+   page itself scrolls normally (so the footer follows content), but
+   the sidebar's wordmark, nav, and the theme/sign-out controls are
+   always visible. (D-067.) We keep the shell at `min-height: 100vh`
+   without forcing the whole document into a fixed viewport box —
+   `overflow: hidden` would silently disable `position: sticky` for
+   every nested side panel (calculator summary, qualify score,
+   tracking list), which is why we went with sticky-aside instead.
+   On mobile, the shell falls back to a single-column stacked layout
+   that scrolls normally; the full mobile pass lands in V2 phase F11. */
 .app-shell {
   display: grid;
   grid-template-columns: 220px 1fr;
@@ -360,13 +371,30 @@ h1, h2, h3, h4, h5, h6 {
   }
 }
 
+/* Sidebar — sticks to the top of the viewport on desktop. `align-self:
+   start` is critical: without it, CSS Grid's default `stretch` makes
+   the aside the full row height, which defeats sticky positioning. */
+.app-shell-aside {
+  position: sticky;
+  top: 0;
+  height: 100vh;
+  align-self: start;
+}
+
+@media (max-width: 768px) {
+  .app-shell-aside {
+    position: static;
+    height: auto;
+  }
+}
+
 .app-shell-main {
   background: var(--bg);
   padding: 1.5rem;
   /* `clip` contains stray horizontal overflow WITHOUT becoming a scroll
      container — unlike `hidden`, which silently disables `position: sticky`
      for every descendant (the qualify/calculator side panels, the
-     tracking board). */
+     contact board). */
   overflow-x: clip;
 }
 
@@ -439,6 +467,106 @@ h1, h2, h3, h4, h5, h6 {
     max-height: calc(100vh - 3rem);
     overflow-y: auto;
   }
+}
+
+/* ─── Mobile pass (F11 / D-061) ───────────────────────────────────────── */
+/* V2 ships responsive layouts for Dashboard + Clients ONLY — the surfaces
+   a rep needs to glance at on their phone to answer "do I need to open a
+   laptop today?". Sourcing batch entry, Qualify deep work, and Contact
+   cycle messaging stay desktop-optimized by design. The classes below are
+   opt-in via `className`, so adding mobile responsiveness to a row or
+   filter bar is one class on the existing inline-styled element.
+
+   `.list-row-responsive` — used on the Link card rows in the Dashboard
+       follow-up list and the Clients row list. Below 600px it allows
+       the right-aligned badge to wrap underneath the name/metadata.
+   `.filter-bar-responsive` — used on the /clients filter row. Below
+       600px tightens gaps so the toggles, dropdown, search, and count
+       still read on a 380px viewport.
+   `.touch-target` — minimum 44px tap height for buttons inside the
+       mobile-aware regions. Browsers and platform guidance both point
+       at ~44px as the minimum reliable tap target.
+*/
+@media (max-width: 600px) {
+  /* Tighter outer padding inside the app shell — phones can't spare
+     the 1.5rem the desktop layout gets. */
+  .app-shell-main {
+    padding: 1rem 0.85rem;
+  }
+
+  /* Row cards (Dashboard follow-ups, Clients list, Qualify list).
+     The desktop layout is a single flex row; on a phone the right-
+     aligned status/stage badges wrap to a second line under the
+     name + workflow metadata. */
+  .list-row-responsive {
+    flex-wrap: wrap;
+    row-gap: 0.35rem;
+  }
+  .list-row-responsive > .list-row-trail {
+    /* The trailing column (status badge + date on /clients) gets
+       its own line and aligns left to make room for the badge. */
+    flex-basis: 100%;
+    justify-content: flex-start;
+    padding-left: calc(2.4rem + 0.85rem);
+  }
+
+  /* Filter bar — the dropdown + search + toggle stack vertically. */
+  .filter-bar-responsive {
+    gap: 0.45rem;
+  }
+  .filter-bar-responsive > .input,
+  .filter-bar-responsive > .select {
+    flex-basis: 100%;
+    min-width: 0;
+  }
+
+  /* Touch target floor. Targets the button + label children of the
+     mobile-aware regions, not every button site-wide. */
+  .touch-target,
+  .list-row-responsive button,
+  .filter-bar-responsive button {
+    min-height: 44px;
+  }
+}
+
+/* ─── Custom hover tooltips (D-040, restyled F2.8.2) ──────────────────── */
+/* Attribute-driven, CSS-only, no JS. Drop `data-tooltip="…"` on any
+   element and a small label appears near it on hover. The label is
+   instant — no fade or delay — because reps on Sourcing are clicking
+   things rapidly and a tooltip that hesitates is worse than none.
+   Position defaults to above; set `data-tooltip-pos="below"` for
+   elements near the top of the viewport. Whitespace stays on one line;
+   tooltip text should be short ("Open in Qualify", "Click to edit").
+   Visual weight is deliberately LOW — no shadow, no border, soft
+   background — so it reads as cursor-following hint, not a button. */
+[data-tooltip] {
+  position: relative;
+}
+
+[data-tooltip]:hover::after,
+[data-tooltip]:focus-visible::after {
+  content: attr(data-tooltip);
+  position: absolute;
+  left: 50%;
+  transform: translateX(-50%);
+  bottom: calc(100% + 4px);
+  padding: 0.18rem 0.4rem;
+  background: var(--surface-tool-2);
+  color: var(--text-mid);
+  border-radius: var(--radius-sm);
+  font-size: 0.65rem;
+  font-weight: 500;
+  letter-spacing: 0.01em;
+  white-space: nowrap;
+  pointer-events: none;
+  z-index: 50;
+  opacity: 0.96;
+}
+
+[data-tooltip][data-tooltip-pos='below']:hover::after,
+[data-tooltip][data-tooltip-pos='below']:focus-visible::after {
+  bottom: auto;
+  top: calc(100% + 4px);
 }
 
 /* ─── Container for centered narrow content (auth, marketing) ─────────── */

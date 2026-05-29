@@ -17,7 +17,13 @@ export type HelpBlock =
   | { kind: 'list'; items: string[] }
   | { kind: 'callout'; tone: 'info' | 'warn'; text: string }
   | { kind: 'steps'; items: string[] }
-  | { kind: 'link'; url: string; label: string };
+  | { kind: 'link'; url: string; label: string }
+  /** D-058 — short H2/H3-style header inside a section's body. Default
+   * level is 2; level 3 renders smaller. Authors use this to break up
+   * long sections into named beats without having to introduce a new
+   * top-level HelpSection. Inline markdown isn't parsed on heading
+   * text — keep it short and literal. */
+  | { kind: 'heading'; text: string; level?: 2 | 3 };
 
 export interface HelpSection {
   /** Stable id used by the ToC. */
@@ -385,6 +391,365 @@ const realEstate: Record<string, HelpEntry> = {
   },
 };
 
+/* ── Sourcing-time content (D-041) ───────────────────────────────────
+ *
+ * A SECOND pass of help content, written for the batch-triage mindset
+ * on /sourcing — different angle from the qualify-time entries above.
+ * Qualify is a deep read of one prospect; Sourcing is fifty rows in
+ * one sitting from a public ranking. The voice here is "you've got 50
+ * names, spend 30 seconds, defer the deep stuff to Qualify."
+ *
+ * Keys are the same as the qualify-time set (`has_target_listing`,
+ * `annual_volume`, etc.) plus first-class intake fields that earn a
+ * help blurb (`gross_volume`, `source_url`). HelpBox is looked up with
+ * `mode='sourcing'` from the table headers and the add-prospect form;
+ * fields without a sourcing-mode entry render no help link.
+ */
+
+const sourcingRealEstate: Record<string, HelpEntry> = {
+  start: {
+    title: 'Where to start',
+    subtitle:
+      "First time sourcing real estate, or coming back after a break? Three steps from a public ranking to a populated row.",
+    sections: [
+      {
+        id: 'get-the-list',
+        title: '1. Get the list',
+        body: [
+          {
+            kind: 'paragraph',
+            text: "Sourcing is fastest when you work off a public ranking. RealTrends publishes them by city — pick the corridor city you're targeting and the page gives you the top producers, sorted by sides or volume.",
+          },
+          {
+            kind: 'steps',
+            items: [
+              "Open the RealTrends ranking for your target city (link below).",
+              "Stay on the by-sides ranking — sides is the count that maps to our hard qualifier.",
+              'Skim the top 30–50 names. Keep the tab open; you\'ll reference it as you fill rows.',
+            ],
+          },
+          {
+            kind: 'link',
+            url: 'https://www.realtrends.com/ranking/best-real-estate-agents-southlake-texas/individuals-by-sides/',
+            label: 'RealTrends rankings (example: Southlake)',
+          },
+          {
+            kind: 'callout',
+            tone: 'info',
+            text: "Don't have a ranking in front of you? A brokerage's agent page works too — Compass, Briggs Freeman, Allie Beth — just pull the top producers and start filling rows.",
+          },
+        ],
+      },
+      {
+        id: 'fill-each-row',
+        title: '2. Fill each row',
+        body: [
+          {
+            kind: 'paragraph',
+            text: "Paste the agent's name, their agency, and the market they work. Fill the hard qualifiers as you can — every column has a per-field help link that explains what to look for in 30 seconds or less.",
+          },
+          {
+            kind: 'list',
+            items: [
+              '**Name** — required. Paste exactly as it appears.',
+              '**Agency** — required. Pulls in from the ranking too.',
+              '**Market** — the city or corridor. "Southlake," "121 Corridor," etc.',
+              '**Gross volume** — the dollar figure from RealTrends. Strip the $ and commas.',
+              '**Source URL** — paste the RealTrends page (or wherever you found them). Future-you will thank you.',
+              '**Hard qualifiers** — fill what you can see fast. Defer the rest to Qualify.',
+            ],
+          },
+          {
+            kind: 'paragraph',
+            text: 'Then set the **status** — Pursue / Undecided / Reject. Pursue lands the row in the Qualify queue. The pre-score badge is advisory, not binding.',
+          },
+        ],
+      },
+      {
+        id: 'keep-moving',
+        title: '3. Keep moving',
+        body: [
+          {
+            kind: 'paragraph',
+            text: "Sourcing is a rapid-fire surface. Aim for 30 seconds per row — 60 if a qualifier needs a click. Anything that takes longer than that belongs on Qualify, where you do the deep read of the prospects you actually committed to pursue.",
+          },
+          {
+            kind: 'callout',
+            tone: 'info',
+            text: "If you find yourself reading a Zillow profile for two minutes, stop. Save what you have, toggle Pursue (or Undecided if you're not sure), and move on. The whole list will take 45–90 minutes if you keep the cadence.",
+          },
+        ],
+      },
+    ],
+  },
+
+  gross_volume: {
+    title: 'Gross volume',
+    subtitle:
+      "The total sales volume from the source list — the headline number on RealTrends. Not commission.",
+    sections: [
+      {
+        id: 'what-to-paste',
+        title: 'What to paste',
+        body: [
+          {
+            kind: 'paragraph',
+            text: "Paste the agent's total sales volume for the period the list covers — the dollar figure RealTrends puts next to the name.",
+          },
+          {
+            kind: 'list',
+            items: [
+              'Total volume — the homes sold × the prices. Big number.',
+              "Not GCI, not commission, not net. The headline figure.",
+              'Strip the dollar sign and commas. The cell takes raw numbers.',
+            ],
+          },
+          {
+            kind: 'callout',
+            tone: 'info',
+            text: 'This is a triage cue, not the qualifier. The hard qualifier "annual volume" lives in its own column and is the one that actually scores the row.',
+          },
+        ],
+      },
+      {
+        id: 'when-blank',
+        title: "When to leave it blank",
+        body: [
+          {
+            kind: 'paragraph',
+            text: "If the source list doesn't break out a per-agent volume — team rankings sometimes pool it — leave the cell blank. You'll backfill from Realtor.com or the brokerage page on Qualify.",
+          },
+        ],
+      },
+    ],
+  },
+
+  source_url: {
+    title: 'Source URL',
+    subtitle:
+      "Where the name came from. Link discipline now saves you twenty minutes later on Qualify.",
+    sections: [
+      {
+        id: 'why-it-matters',
+        title: 'Why this earns its column',
+        body: [
+          {
+            kind: 'paragraph',
+            text: "Two days from now you're on Qualify, looking at a row, asking yourself: why did I add this person? The source URL answers that in one click.",
+          },
+          {
+            kind: 'list',
+            items: [
+              "The RealTrends page for this agent's segment.",
+              "The brokerage profile if you scraped from there.",
+              "An Instagram post that flagged them.",
+            ],
+          },
+        ],
+      },
+      {
+        id: 'rapid-discipline',
+        title: 'Rapid discipline',
+        body: [
+          {
+            kind: 'steps',
+            items: [
+              'Open the source page in a tab.',
+              'Copy the URL of THAT specific page (not the parent ranking) when you can.',
+              'Paste, hit add, move on.',
+            ],
+          },
+          {
+            kind: 'callout',
+            tone: 'info',
+            text: "Cell takes any URL. Don't fuss with whether it's the canonical page; just save your future self the re-search.",
+          },
+        ],
+      },
+    ],
+  },
+
+  has_target_listing: {
+    title: 'Has a current target listing',
+    subtitle:
+      "Yes/no triage call. Thirty-second skim — depth comes on Qualify.",
+    sections: [
+      {
+        id: 'the-30-second-read',
+        title: 'The 30-second read',
+        body: [
+          {
+            kind: 'paragraph',
+            text: "On Sourcing you're answering a yes/no, not building the case. Look once at their active listings page — Zillow or Realtor.com profile, brokerage site — and decide.",
+          },
+          {
+            kind: 'steps',
+            items: [
+              "Search the name + 'realtor' on Google.",
+              'Open the first profile that loads in <5 seconds.',
+              "Eyeball the active listings. Anything in the $500K–$2M range? Check the box. Nothing in band? Leave it.",
+              "Don't read the listing. Don't price-check. Just yes or no.",
+            ],
+          },
+        ],
+      },
+      {
+        id: 'when-to-skip',
+        title: 'When to skip the check entirely',
+        body: [
+          {
+            kind: 'paragraph',
+            text: "If the agent's profile takes more than 30 seconds to find, leave this blank and move on. A row with a great volume number but no target listing yet still belongs on the list — they'll get one. The check resolves on Qualify when you do the real read.",
+          },
+          {
+            kind: 'callout',
+            tone: 'info',
+            text: 'Blank ≠ no. Blank means "deferred." Reject is reserved for active listings you saw and ruled out.',
+          },
+        ],
+      },
+    ],
+  },
+
+  annual_volume: {
+    title: 'Listings per year ($500K–$2M)',
+    subtitle:
+      "Count of homes the agent closes in our target price band per year. Not dollars — the listings count.",
+    sections: [
+      {
+        id: 'the-rapid-read',
+        title: 'The rapid read',
+        body: [
+          {
+            kind: 'paragraph',
+            text: "RealTrends ranks agents by total sides — that's the count we want, restricted to the $500K–$2M band. The cell takes a whole number: 10, 22, 30.",
+          },
+          {
+            kind: 'list',
+            items: [
+              '10 listings/yr ≈ growth-phase agent, retainer fits.',
+              '20+/yr ≈ a known producer in the band.',
+              '30+/yr ≈ full-volume relationship; the Visibility Retainer makes the most sense.',
+            ],
+          },
+          {
+            kind: 'callout',
+            tone: 'info',
+            text: "The score curve gives full credit at 30+, partial credit between 10 and 30, and zero below 10. Entering 30 lands the row in the top band on volume alone.",
+          },
+        ],
+      },
+      {
+        id: 'estimating-the-in-band-share',
+        title: 'Estimating the $500K–$2M share',
+        body: [
+          {
+            kind: 'paragraph',
+            text: "RealTrends reports TOTAL sides — all price bands combined. You need the in-band fraction, not the total. Eyeball it from their Past Sales on Zillow.",
+          },
+          {
+            kind: 'steps',
+            items: [
+              "Note the RealTrends total sides for the year.",
+              "Open the agent's Zillow profile, scroll Past Sales.",
+              "Glance at the price column for the most recent ~20 closings — what fraction sits between $500K and $2M?",
+              'Multiply: total sides × in-band fraction = the number you enter. Round.',
+            ],
+          },
+          {
+            kind: 'callout',
+            tone: 'warn',
+            text: "Don't deep-research this on Sourcing. A close-enough estimate is what the cell wants. The exact count gets refined on Qualify.",
+          },
+        ],
+      },
+      {
+        id: 'when-to-defer',
+        title: "When to leave it blank",
+        body: [
+          {
+            kind: 'paragraph',
+            text: "If the agent isn't on RealTrends and Zillow Past Sales is thin, leave the cell at 0 and let the row ride on the other qualifiers. The deep count happens on Qualify when you can pull MLS or do a longer Zillow scan.",
+          },
+        ],
+      },
+    ],
+  },
+
+  pro_website: {
+    title: 'Has a real personal site',
+    subtitle: "Five-second visual judgment. Modern personal site beats brokerage template, every time.",
+    sections: [
+      {
+        id: 'how-to-decide',
+        title: 'How to decide in five seconds',
+        body: [
+          {
+            kind: 'paragraph',
+            text: "Click the agent's website (their bio link on Realtor.com / Zillow, or the URL on their card). Look at it for five seconds. Decide.",
+          },
+          {
+            kind: 'list',
+            items: [
+              "Yes: own domain, modern type, real photography, distinct personality. They invested.",
+              "Yes: lives on a brokerage subdomain BUT clearly custom — their own visual language, not the template.",
+              "No: bare brokerage template with their headshot dropped in. Cookie-cutter.",
+              "No: link is broken / 404s / loads in 30 seconds. Treat as no.",
+            ],
+          },
+        ],
+      },
+      {
+        id: 'why-this-matters',
+        title: 'Why this matters in batch',
+        body: [
+          {
+            kind: 'paragraph',
+            text: "An agent who paid for a real site is the same agent who'll pay for real photography. This factor disqualifies a stunning number of high-volume but low-investment producers.",
+          },
+        ],
+      },
+    ],
+  },
+
+  uses_video: {
+    title: 'Already uses video',
+    subtitle: "If they're posting reels or 3D tours, they're already half-sold on what we do.",
+    sections: [
+      {
+        id: 'where-to-look',
+        title: 'Where to look in 30 seconds',
+        body: [
+          {
+            kind: 'steps',
+            items: [
+              "Pull up their last 3-4 listings on Zillow or Realtor.com.",
+              "Look at the listing media — is there a 3D walkthrough, a property video, or a vertical reel?",
+              "If yes on any: check the box.",
+              "If you can't tell in 30 seconds, leave it blank — defer to Qualify.",
+            ],
+          },
+        ],
+      },
+      {
+        id: 'the-instagram-tell',
+        title: 'The Instagram tell',
+        body: [
+          {
+            kind: 'paragraph',
+            text: "Search their name on Instagram. If they're posting reels OF their own listings, that's a yes regardless of what's on Zillow. Reels of *their* properties are the highest-intent signal there is.",
+          },
+          {
+            kind: 'callout',
+            tone: 'info',
+            text: "Generic content reels (selfies, market updates) don't count. The signal is reels of THEIR listings — meaning they know video sells homes.",
+          },
+        ],
+      },
+    ],
+  },
+};
+
 /* ── The combined registry ───────────────────────────────────────── */
 
 export const HELP_CONTENT: Record<string, HelpEntry> = {
@@ -394,15 +759,30 @@ export const HELP_CONTENT: Record<string, HelpEntry> = {
       entry,
     ]),
   ),
+  ...Object.fromEntries(
+    Object.entries(sourcingRealEstate).map(([factorKey, entry]) => [
+      `sourcing.real_estate.${factorKey}`,
+      entry,
+    ]),
+  ),
   // Other workflows can land their entries here as their sources
   // emerge. For now, missing keys render no help link.
 };
 
-/** Look up a help entry by workflow + factor. Returns `null` if no
- * content exists yet for that combination. */
+export type HelpMode = 'qualify' | 'sourcing';
+
+/** Look up a help entry by workflow + factor. The `mode` param picks
+ * between the qualify-time and sourcing-time content — different
+ * angles for the same factor key. Defaults to `qualify` so existing
+ * callers (the /qualify page) keep working without changes. Returns
+ * `null` if no content exists for that combination. */
 export function getHelpEntry(
   workflowKey: string,
   factorKey: string,
+  mode: HelpMode = 'qualify',
 ): HelpEntry | null {
+  if (mode === 'sourcing') {
+    return HELP_CONTENT[`sourcing.${workflowKey}.${factorKey}`] ?? null;
+  }
   return HELP_CONTENT[`${workflowKey}.${factorKey}`] ?? null;
 }

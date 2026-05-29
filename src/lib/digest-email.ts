@@ -79,7 +79,7 @@ export function digestEmailHtml(data: DigestData, p: DigestEmailParams): string 
           .map((i) =>
             itemRow(
               i,
-              `${base}/tracking`,
+              `${base}/contact`,
               `${i.status === 'due' ? 'Due' : 'Ready'} · ${i.nextLabel}`,
               i.status === 'due' ? WARN : RUST,
             ),
@@ -93,7 +93,7 @@ export function digestEmailHtml(data: DigestData, p: DigestEmailParams): string 
       section(
         'Ready to close out',
         data.closeOuts
-          .map((i) => itemRow(i, `${base}/tracking`, 'No reply', FAINT))
+          .map((i) => itemRow(i, `${base}/contact`, 'No reply', FAINT))
           .join(''),
       ),
     );
@@ -124,7 +124,7 @@ export function digestEmailHtml(data: DigestData, p: DigestEmailParams): string 
 
   const body = data.allClear
     ? `<tr><td style="padding:6px 36px 0 36px;">
-        <a href="${esc(base)}/today" style="font-family:Helvetica,Arial,sans-serif;font-size:13px;color:${RUST};">Open Today &rarr;</a>
+        <a href="${esc(base)}/" style="font-family:Helvetica,Arial,sans-serif;font-size:13px;color:${RUST};">Open Dashboard &rarr;</a>
       </td></tr>`
     : sections.join('');
 
@@ -150,9 +150,9 @@ export function digestEmailHtml(data: DigestData, p: DigestEmailParams): string 
         ${waitingLine}
         <tr><td style="padding:24px 36px 30px 36px;border-top:1px solid rgba(255,255,255,0.08);margin-top:20px;">
           <p style="margin:0 0 10px 0;font-family:Helvetica,Arial,sans-serif;font-size:11px;color:${FAINT};">
-            <a href="${esc(base)}/today" style="color:${FAINT};">Open Today</a>
+            <a href="${esc(base)}/" style="color:${FAINT};">Open Dashboard</a>
             &nbsp;&middot;&nbsp;
-            <a href="${esc(base)}/today" style="color:${FAINT};">Turn this email off</a>
+            <a href="${esc(base)}/" style="color:${FAINT};">Turn this email off</a>
           </p>
           <p style="margin:0;font-family:Georgia,'Times New Roman',serif;font-style:italic;font-size:13px;color:#38bdf8;">
             Stay Sharp. Stay Seen. Stay Human.
@@ -198,6 +198,6 @@ export function digestEmailText(data: DigestData, p: DigestEmailParams): string 
     );
   }
 
-  lines.push(`Open Today: ${base}/today`, '', '—', 'Stay Sharp. Stay Seen. Stay Human.');
+  lines.push(`Open Dashboard: ${base}/`, '', '—', 'Stay Sharp. Stay Seen. Stay Human.');
   return lines.join('\n');
 }

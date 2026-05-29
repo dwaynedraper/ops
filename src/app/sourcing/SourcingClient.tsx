@@ -28,6 +28,7 @@
  */
 
 import { useCallback, useMemo, useRef, useState } from 'react';
+import { useRouter } from 'next/navigation';
 import {
   classifyBand,
   type RankBands,
@@ -35,13 +36,35 @@ import {
   type ScoreBand,
 } from '@/lib/prospects';
 import {
+  needsOverride,
   type SourcingColumn,
   type SourcingRow,
   type SourcingStatus,
 } from '@/lib/sourcing';
-import { upsertSourcingRow, type UpsertSourcingRowInput } from './actions';
+import { HelpBox } from '@/components/HelpBox';
+import { DuplicateWarning } from '@/components/DuplicateWarning';
+import { getHelpEntry } from '@/lib/help-content';
+import {
+  upsertSourcingRow,
+  type DuplicateProspect,
+  type UpsertSourcingRowInput,
+  type UpsertSourcingRowResult,
+} from './actions';
+
+/** Map a sourcing column key to the help-content factor key. Column
+ * keys for first-class intake fields use camelCase (`grossVolume`);
+ * help-content keys use snake_case (`gross_volume`). Hard-qualifier
+ * column keys already match factor keys, so the mapping is identity
+ * for them. HelpBox renders nothing when no entry exists for a key,
+ * so passing every column through is safe. (D-041.) */
+function helpKeyForColumn(columnKey: string): string {
+  if (columnKey === 'grossVolume') return 'gross_volume';
+  if (columnKey === 'sourceUrl') return 'source_url';
+  return columnKey;
+}
 
 const OVERRIDE_MIN_CHARS = 20;
+const QUALIFY_COL_WIDTH = 56;
 const SCORE_COL_WIDTH = 80;
 const ACTIONS_COL_WIDTH = 56;
 
@@ -51,18 +74,6 @@ const STATUS_LABEL: Record<SourcingStatus, string> = {
   qualify: 'Qualify',
   reject: 'Reject',
 };
-
-function isPositive(status: SourcingStatus): boolean {
-  return status === 'pursue' || status === 'qualify';
-}
-
-/** Mirror of the server-side override rule. */
-function needsOverride(status: SourcingStatus, band: ScoreBand): boolean {
-  if (status === 'undecided') return false;
-  if (band === 'qualified' && status === 'reject') return true;
-  if (band === 'reject' && isPositive(status)) return true;
-  return false;
-}
 
 function formatMoney(n: number): string {
   return `$${n.toLocaleString('en-US', { maximumFractionDigits: 0 })}`;
@@ -177,12 +188,14 @@ export function SourcingClient({
 
   const wf = workflows.find((w) => w.key === selectedKey) ?? workflows[0] ?? null;
 
-  /* Upsert helper used by both the add form and the in-table edit. */
+  /* Upsert helper used by both the add form and the in-table edit.
+     Returns the full result so the add form can inspect `.duplicates`
+     (D-057) and surface the warning panel. */
   const handleSave = useCallback(
     async (
       id: string | null,
       patch: UpsertSourcingRowInput,
-    ): Promise<SourcingRow | null> => {
+    ): Promise<UpsertSourcingRowResult> => {
       const res = await upsertSourcingRow(patch);
       if (res.ok && res.row) {
         setRows((prev) => {
@@ -202,14 +215,20 @@ export function SourcingClient({
         } else {
           setFormError(null);
         }
-        return res.row;
+        return res;
+      }
+      // D-057: a duplicate response isn't a true error — let the
+      // caller render the warning panel instead of dropping the
+      // result into the error slot.
+      if (res.duplicates && res.duplicates.length > 0) {
+        return res;
       }
       if (id) {
         setRowErrors((prev) => ({ ...prev, [id]: res.error ?? 'Could not save.' }));
       } else {
         setFormError(res.error ?? 'Could not add the prospect.');
       }
-      return null;
+      return res;
     },
     [],
   );
@@ -270,6 +289,14 @@ export function SourcingClient({
         })}
       </div>
 
+      {/* ─── Where to start (F2.8.4) ──────────────────────────────── */}
+      {/* Sits between the workflow tabs and the form so a rep new to
+          /sourcing — or returning after a break — gets a clear
+          three-step guide before they start typing. Per-workflow
+          content; renders nothing if a workflow doesn't have a
+          `start` entry authored. */}
+      <WhereToStart workflowKey={wf.key} contactNoun={wf.contactNoun} />
+
       {/* ─── Add-prospect form ────────────────────────────────────── */}
       <AddProspectForm
         key={wf.key}
@@ -302,6 +329,66 @@ export function SourcingClient({
 
 /* ── Add-prospect form ────────────────────────────────────────────── */
 
+/* ── Where-to-start onboarding strip (F2.8.4) ─────────────────────── */
+
+function WhereToStart({
+  workflowKey,
+  contactNoun,
+}: {
+  workflowKey: string;
+  contactNoun: string;
+}) {
+  // Render nothing if the workflow doesn't have a `start` entry yet —
+  // V2 only ships real_estate; other workflows backlog the content.
+  const entry = getHelpEntry(workflowKey, 'start', 'sourcing');
+  if (!entry) return null;
+
+  const lowerNoun = contactNoun.toLowerCase();
+  return (
+    <div
+      style={{
+        display: 'flex',
+        alignItems: 'center',
+        gap: '0.85rem',
+        flexWrap: 'wrap',
+        padding: '0.7rem 1rem',
+        background: 'var(--accent-dim)',
+        border: '1px solid var(--border-accent)',
+        borderRadius: 'var(--radius)',
+      }}
+    >
+      <span
+        style={{
+          fontSize: '0.6rem',
+          letterSpacing: '0.22em',
+          textTransform: 'uppercase',
+          fontWeight: 700,
+          color: 'var(--accent)',
+        }}
+      >
+        Where to start
+      </span>
+      <span
+        style={{
+          fontSize: '0.82rem',
+          color: 'var(--text-mid)',
+          flex: 1,
+          minWidth: '14ch',
+        }}
+      >
+        Sourcing {lowerNoun}s in three steps — get the list, fill each
+        row, keep moving.
+      </span>
+      <HelpBox
+        workflowKey={workflowKey}
+        factorKey="start"
+        mode="sourcing"
+        label="Open the guide →"
+      />
+    </div>
+  );
+}
+
 function AddProspectForm({
   workflow,
   formError,
@@ -309,15 +396,24 @@ function AddProspectForm({
 }: {
   workflow: SourcingWorkflow;
   formError: string | null;
-  onAdd: (patch: UpsertSourcingRowInput) => Promise<SourcingRow | null>;
+  onAdd: (patch: UpsertSourcingRowInput) => Promise<UpsertSourcingRowResult>;
 }) {
   const [draft, setDraft] = useState<RowDraft>(() => emptyDraft());
   const [adding, setAdding] = useState(false);
   const addingRef = useRef(false);
+  // D-057: when the server reports duplicates, we pause and surface
+  // them inline so the rep can either back out or continue. State
+  // resets on a successful create and on workflow change.
+  const [pendingDuplicates, setPendingDuplicates] = useState<DuplicateProspect[]>([]);
 
   const liveScore = computeLiveScore(workflow, draft.rankInputs);
   const band = classifyBand(liveScore, workflow.bands);
-  const override = needsOverride(draft.sourcingStatus, band);
+  // D-045: don't force a reason on a fresh add-prospect row whose
+  // factors are all empty (band='reject' / score 0 isn't meaningful).
+  const override = needsOverride(draft.sourcingStatus, band, {
+    rankInputs: draft.rankInputs,
+    factorKeys: workflow.factors.map((f) => f.key),
+  });
   const reasonOk = !override || draft.sourcingNote.trim().length >= OVERRIDE_MIN_CHARS;
 
   const canAdd =
@@ -326,8 +422,7 @@ function AddProspectForm({
     draft.contactName.trim().length > 0 &&
     draft.orgName.trim().length > 0;
 
-  async function handleAdd() {
-    if (!canAdd) return;
+  async function submitAdd(acknowledgeDuplicates: boolean) {
     if (addingRef.current) return;
     addingRef.current = true;
     setAdding(true);
@@ -343,13 +438,34 @@ function AddProspectForm({
         sourcingStatus: draft.sourcingStatus,
         sourcingNote: override ? draft.sourcingNote.trim() : null,
         rankInputPatches: draft.rankInputs,
+        acknowledgeDuplicates,
       };
-      const created = await onAdd(patch);
-      if (created) setDraft(emptyDraft());
+      const result = await onAdd(patch);
+      if (result.ok && result.row) {
+        setDraft(emptyDraft());
+        setPendingDuplicates([]);
+        return;
+      }
+      // D-057: surface the warning if the server reports duplicates
+      // and we haven't already acknowledged them.
+      if (result.duplicates && result.duplicates.length > 0) {
+        setPendingDuplicates(result.duplicates);
+      }
     } finally {
       addingRef.current = false;
       setAdding(false);
     }
+  }
+
+  async function handleAdd() {
+    if (!canAdd) return;
+    await submitAdd(false);
+  }
+  function dismissDuplicates() {
+    setPendingDuplicates([]);
+  }
+  async function continueWithDuplicates() {
+    await submitAdd(true);
   }
 
   const intakeCols = workflow.columns.filter(
@@ -385,6 +501,7 @@ function AddProspectForm({
             setDraft={setDraft}
             contactNoun={workflow.contactNoun}
             orgNoun={workflow.orgNoun}
+            workflowKey={workflow.key}
           />
         ))}
       </div>
@@ -425,6 +542,7 @@ function AddProspectForm({
                 factor={workflow.factors.find((f) => f.key === col.key)}
                 draft={draft}
                 setDraft={setDraft}
+                workflowKey={workflow.key}
               />
             ))}
           </div>
@@ -501,6 +619,20 @@ function AddProspectForm({
           <span style={{ fontSize: '0.74rem', color: 'var(--bad)' }}>{formError}</span>
         )}
       </div>
+
+      {/* D-057: duplicate-warning panel. The server holds the
+          create when it spots a name match within the rep's own
+          prospects; the rep either backs out (Cancel) or
+          re-submits with the ack flag (Continue anyway). */}
+      {pendingDuplicates.length > 0 && (
+        <DuplicateWarning
+          duplicates={pendingDuplicates}
+          contactName={draft.contactName.trim()}
+          onContinue={continueWithDuplicates}
+          onCancel={dismissDuplicates}
+          busy={adding}
+        />
+      )}
     </div>
   );
 }
@@ -512,12 +644,14 @@ function FormField({
   setDraft,
   contactNoun,
   orgNoun,
+  workflowKey,
 }: {
   column: SourcingColumn;
   draft: RowDraft;
   setDraft: React.Dispatch<React.SetStateAction<RowDraft>>;
   contactNoun: string;
   orgNoun: string | null;
+  workflowKey: string;
 }) {
   const fieldKey = column.key as keyof RowDraft;
   const current = String(draft[fieldKey] ?? '');
@@ -536,11 +670,22 @@ function FormField({
 
   return (
     <label style={{ display: 'block' }}>
-      <span className="label">
-        {label}
-        {required && (
-          <span style={{ color: 'var(--bad)', marginLeft: '0.2rem' }}>*</span>
-        )}
+      <span
+        className="label"
+        style={{ display: 'flex', alignItems: 'baseline', gap: '0.4rem' }}
+      >
+        <span>
+          {label}
+          {required && (
+            <span style={{ color: 'var(--bad)', marginLeft: '0.2rem' }}>*</span>
+          )}
+        </span>
+        <HelpBox
+          workflowKey={workflowKey}
+          factorKey={helpKeyForColumn(column.key)}
+          mode="sourcing"
+          label="What goes here?"
+        />
       </span>
       <input
         className="input"
@@ -575,42 +720,53 @@ function QualifierField({
   factor,
   draft,
   setDraft,
+  workflowKey,
 }: {
   column: SourcingColumn;
   factor: RankFactor | undefined;
   draft: RowDraft;
   setDraft: React.Dispatch<React.SetStateAction<RowDraft>>;
+  workflowKey: string;
 }) {
   if (column.kind === 'bool') {
     const checked = draft.rankInputs[column.key] === true;
     return (
-      <label
+      <div
         style={{
           display: 'flex',
-          alignItems: 'center',
-          gap: '0.55rem',
+          flexDirection: 'column',
+          gap: '0.25rem',
           fontSize: '0.78rem',
           color: 'var(--text)',
           padding: '0.5rem 0.6rem',
           borderRadius: 'var(--radius-sm)',
           background: checked ? 'var(--accent-dim)' : 'transparent',
           border: `1px solid ${checked ? 'var(--border-accent)' : 'var(--border)'}`,
-          cursor: 'pointer',
         }}
       >
-        <input
-          type="checkbox"
-          checked={checked}
-          onChange={(e) =>
-            setDraft((d) => ({
-              ...d,
-              rankInputs: { ...d.rankInputs, [column.key]: e.target.checked },
-            }))
-          }
-          style={{ accentColor: 'var(--accent)' }}
+        <label
+          style={{ display: 'flex', alignItems: 'center', gap: '0.55rem', cursor: 'pointer' }}
+        >
+          <input
+            type="checkbox"
+            checked={checked}
+            onChange={(e) =>
+              setDraft((d) => ({
+                ...d,
+                rankInputs: { ...d.rankInputs, [column.key]: e.target.checked },
+              }))
+            }
+            style={{ accentColor: 'var(--accent)' }}
+          />
+          <span>{column.label}</span>
+        </label>
+        <HelpBox
+          workflowKey={workflowKey}
+          factorKey={helpKeyForColumn(column.key)}
+          mode="sourcing"
+          label="How to call it"
         />
-        <span>{column.label}</span>
-      </label>
+      </div>
     );
   }
   // integer
@@ -620,7 +776,18 @@ function QualifierField({
       : 0;
   return (
     <label style={{ display: 'block', fontSize: '0.78rem' }}>
-      <span className="label">{column.label}</span>
+      <span
+        className="label"
+        style={{ display: 'flex', alignItems: 'baseline', gap: '0.4rem' }}
+      >
+        <span>{column.label}</span>
+        <HelpBox
+          workflowKey={workflowKey}
+          factorKey={helpKeyForColumn(column.key)}
+          mode="sourcing"
+          label="How to read it"
+        />
+      </span>
       <input
         type="number"
         min={0}
@@ -746,11 +913,12 @@ function sortValue(row: SourcingRow, key: SortKey): string | number | null {
     case 'sourcingStatus':
       return row.sourcingStatus;
     case 'createdAt':
-      // SourcingRow doesn't carry createdAt; fall back to id (uuid ordering
-      // isn't time-based — but the parent list comes from the server
-      // pre-sorted by created_at DESC, so the initial position is the
-      // proxy). For now sort by id which is stable.
-      return row.id;
+      // ISO timestamps sort lexicographically the same way they sort
+      // chronologically — string compare is fine. Default sort is
+      // 'createdAt' desc, so a newly-saved prospect (whose createdAt
+      // is "now") lands on top regardless of any prior sort the rep
+      // toggled. (D-035.)
+      return row.createdAt;
     default:
       // rank input — return the value if it's a number, else null
       const v = row.rankInputs[key];
@@ -783,12 +951,13 @@ function SourcingTable({
   onSave: (
     id: string | null,
     patch: UpsertSourcingRowInput,
-  ) => Promise<SourcingRow | null>;
+  ) => Promise<UpsertSourcingRowResult>;
 }) {
   const cols = workflow.columns;
 
   const template = useMemo(() => {
-    const parts: string[] = [`${SCORE_COL_WIDTH}px`];
+    // Column order: [Qualify button] [Score] [...workflow cols] [Actions]
+    const parts: string[] = [`${QUALIFY_COL_WIDTH}px`, `${SCORE_COL_WIDTH}px`];
     for (const c of cols) parts.push(`${c.width}px`);
     parts.push(`${ACTIONS_COL_WIDTH}px`);
     return parts.join(' ');
@@ -797,7 +966,13 @@ function SourcingTable({
   return (
     <div className="surface-tool" style={{ padding: '0.5rem', overflowX: 'auto' }}>
       <div role="table" aria-label={`${workflow.name} sourcing`} style={{ minWidth: 'min-content' }}>
-        <TableHeader template={template} columns={cols} sort={sort} onSortChange={onSortChange} />
+        <TableHeader
+          template={template}
+          columns={cols}
+          sort={sort}
+          onSortChange={onSortChange}
+          workflowKey={workflow.key}
+        />
         {rows.length === 0 ? (
           <div
             role="row"
@@ -836,11 +1011,13 @@ function TableHeader({
   columns,
   sort,
   onSortChange,
+  workflowKey,
 }: {
   template: string;
   columns: SourcingColumn[];
   sort: SortState;
   onSortChange: (s: SortState) => void;
+  workflowKey: string;
 }) {
   function toggleSort(key: SortKey) {
     if (sort.key === key) {
@@ -869,6 +1046,18 @@ function TableHeader({
         borderBottom: '1px solid var(--border)',
       }}
     >
+      {/* Qualify-button column — leftmost. Header reads "Qualify
+          selection"; each row's cell holds the per-row button that
+          opens /qualify/[id]. (D-042 placeholder; the actual
+          one-click Qualify gating arrives in F6.) */}
+      <div
+        role="columnheader"
+        style={{ ...cellBase, textAlign: 'center', lineHeight: 1.15 }}
+      >
+        Qualify
+        <br />
+        selection
+      </div>
       <SortHeader
         label="Score"
         sortKey="rankScore"
@@ -878,31 +1067,44 @@ function TableHeader({
       />
       {columns.map((c) => {
         const sortable = sortableKeyForColumn(c);
-        return sortable ? (
-          <SortHeader
-            key={c.key}
-            label={c.label}
-            sortKey={sortable}
-            currentSort={sort}
-            onClick={toggleSort}
-            style={{
-              ...cellBase,
-              color: c.group === 'qualifier' ? 'var(--accent)' : 'var(--text-faint)',
-            }}
-            maxInput={c.maxInput ?? null}
-            title={c.help ?? undefined}
-          />
-        ) : (
+        const cellColor =
+          c.group === 'qualifier' ? 'var(--accent)' : 'var(--text-faint)';
+        // Each header cell holds the sort button (or static label) plus
+        // an optional batch-sourcing HelpBox trigger. HelpBox renders
+        // nothing when no entry exists for the column, so it's safe to
+        // unconditionally pass every column through. (D-041.)
+        return (
           <div
-            role="columnheader"
             key={c.key}
+            role="columnheader"
             style={{
-              ...cellBase,
-              color: c.group === 'qualifier' ? 'var(--accent)' : 'var(--text-faint)',
+              display: 'flex',
+              alignItems: 'baseline',
+              gap: '0.25rem',
+              padding: '0.55rem 0.4rem',
+              minWidth: 0,
             }}
-            title={c.help ?? undefined}
           >
-            {c.label}
+            {sortable ? (
+              <SortHeader
+                label={c.label}
+                sortKey={sortable}
+                currentSort={sort}
+                onClick={toggleSort}
+                style={{ ...cellBase, padding: 0, color: cellColor }}
+                maxInput={c.maxInput ?? null}
+              />
+            ) : (
+              <span style={{ ...cellBase, padding: 0, color: cellColor }}>
+                {c.label}
+              </span>
+            )}
+            <HelpBox
+              workflowKey={workflowKey}
+              factorKey={helpKeyForColumn(c.key)}
+              mode="sourcing"
+              label=""
+            />
           </div>
         );
       })}
@@ -952,11 +1154,19 @@ function SortHeader({
       }}
     >
       {label}
-      {active && (
-        <span aria-hidden style={{ marginLeft: '0.25rem' }}>
-          {currentSort.dir === 'asc' ? '↑' : '↓'}
-        </span>
-      )}
+      {/* D-036: every sortable header carries a sort affordance.
+         Active column shows ↑/↓; inactive columns show a low-opacity
+         ↕ so reps can see at a glance which headers click-to-sort. */}
+      <span
+        aria-hidden
+        style={{
+          marginLeft: '0.25rem',
+          opacity: active ? 1 : 0.4,
+          fontSize: active ? 'inherit' : '0.85em',
+        }}
+      >
+        {active ? (currentSort.dir === 'asc' ? '↑' : '↓') : '↕'}
+      </span>
       {maxInput != null && (
         <span
           style={{
@@ -997,7 +1207,7 @@ function TableRow({
   onSave: (
     id: string | null,
     patch: UpsertSourcingRowInput,
-  ) => Promise<SourcingRow | null>;
+  ) => Promise<UpsertSourcingRowResult>;
   error?: string;
   anotherRowIsActive: boolean;
 }) {
@@ -1006,23 +1216,62 @@ function TableRow({
   // from `row` via renderDisplay — so a server-side score recompute
   // (from another rep editing the rank-factor config, say) shows up
   // without needing a draft re-sync here.
+  //
+  // V2 (D-037, D-039): status toggle + bool checkboxes commit IMMEDIATELY
+  // and never live in the draft. Edit mode (pencil) only unlocks the
+  // first-class non-control cells (name / agency / market / sides /
+  // gross_volume / source_url) for in-place edit. Integer rank inputs
+  // are also still draft+save (typing into them every keystroke would
+  // spam the server).
+  const router = useRouter();
   const [draft, setDraft] = useState<RowDraft>(() => draftFromRow(row));
   const [busy, setBusy] = useState(false);
 
+  // Pending-status flow: when clicking a status button would create an
+  // override case (the rep's call disagrees with the band), we don't
+  // commit immediately. Instead we surface the inline override panel,
+  // collect the ≥20-char reason, and commit on Confirm. Cancel restores
+  // the saved status.
+  const [pendingStatus, setPendingStatus] = useState<SourcingStatus | null>(null);
+  const [pendingReason, setPendingReason] = useState('');
+  const [pendingBusy, setPendingBusy] = useState(false);
+
   const band = classifyBand(row.rankScore, workflow.bands);
-  const override = needsOverride(draft.sourcingStatus, band);
-  const reasonOk = !override || draft.sourcingNote.trim().length >= OVERRIDE_MIN_CHARS;
+  // D-045 options reused at every needsOverride call site in the row —
+  // the row's saved rank_inputs + the full factor key set.
+  const overrideOpts = {
+    rankInputs: row.rankInputs,
+    factorKeys: workflow.factors.map((f) => f.key),
+  };
+  const pendingReasonOk =
+    pendingStatus === null ||
+    !needsOverride(pendingStatus, band, overrideOpts) ||
+    pendingReason.trim().length >= OVERRIDE_MIN_CHARS;
+
+  // What the status toggle visually reflects — pending takes precedence
+  // so the rep sees their in-flight choice while filling the reason.
+  const visibleStatus: SourcingStatus = pendingStatus ?? row.sourcingStatus;
 
   const handleActivate = useCallback(() => {
     setDraft(draftFromRow(row));
     onActivate();
   }, [onActivate, row]);
 
+  /** Save first-class non-control cell edits. Status + bool rank inputs
+   * are NOT included — they commit immediately at click time and the
+   * server already has them. */
   const commit = useCallback(async () => {
     if (busy) return;
-    if (!reasonOk) return;
     setBusy(true);
     try {
+      // Only include integer rank-input patches — bool ones committed
+      // already via handleBoolChange.
+      const integerRankPatches: Record<string, number> = {};
+      for (const f of workflow.factors) {
+        if (f.kind === 'bool') continue;
+        const v = draft.rankInputs[f.key];
+        if (typeof v === 'number') integerRankPatches[f.key] = v;
+      }
       const patch: UpsertSourcingRowInput = {
         id: row.id,
         contactName: draft.contactName,
@@ -1031,21 +1280,98 @@ function TableRow({
         sidesCount: parseIntOrNull(draft.sidesCount),
         grossVolume: parseFloatOrNull(draft.grossVolume),
         sourceUrl: draft.sourceUrl || null,
-        sourcingStatus: draft.sourcingStatus,
-        sourcingNote: override ? draft.sourcingNote.trim() : null,
-        rankInputPatches: draft.rankInputs,
+        rankInputPatches: integerRankPatches,
       };
       await onSave(row.id, patch);
       onDeactivate();
     } finally {
       setBusy(false);
     }
-  }, [busy, draft, onDeactivate, onSave, override, reasonOk, row.id]);
+  }, [busy, draft, onDeactivate, onSave, row.id, workflow.factors]);
 
   function handleCancel() {
     setDraft(draftFromRow(row));
     onDeactivate();
   }
+
+  /** Row body click — navigate to /qualify/[id] when the row isn't in
+   * edit mode and no override is pending. (D-039.) */
+  function handleNavigate() {
+    if (isActive) return;
+    if (pendingStatus !== null) return;
+    if (anotherRowIsActive) return;
+    router.push(`/qualify/${row.id}`);
+  }
+
+  /** Status toggle click — immediate commit if no override needed;
+   * otherwise surface the inline override panel and wait for the
+   * rep's reason. (D-037.) */
+  async function handleStatusChange(next: SourcingStatus) {
+    if (next === row.sourcingStatus) {
+      // Re-click on the current status — clear any pending state.
+      setPendingStatus(null);
+      setPendingReason('');
+      return;
+    }
+    if (needsOverride(next, band, overrideOpts)) {
+      setPendingStatus(next);
+      setPendingReason('');
+      return;
+    }
+    setBusy(true);
+    try {
+      await onSave(row.id, { id: row.id, sourcingStatus: next });
+      setPendingStatus(null);
+      setPendingReason('');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function handlePendingConfirm() {
+    if (pendingStatus === null) return;
+    if (!pendingReasonOk) return;
+    setPendingBusy(true);
+    try {
+      await onSave(row.id, {
+        id: row.id,
+        sourcingStatus: pendingStatus,
+        sourcingNote: pendingReason.trim(),
+      });
+      setPendingStatus(null);
+      setPendingReason('');
+    } finally {
+      setPendingBusy(false);
+    }
+  }
+
+  function handlePendingCancel() {
+    setPendingStatus(null);
+    setPendingReason('');
+  }
+
+  /** Bool rank-input checkbox click — immediate commit. (D-037.) */
+  async function handleBoolChange(key: string, next: boolean) {
+    setBusy(true);
+    try {
+      await onSave(row.id, {
+        id: row.id,
+        rankInputPatches: { [key]: next },
+      });
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  /* Row editability — clicking anywhere on the row body that isn't an
+     interactive control activates edit mode. The leftmost Qualify
+     button and the Name cell are the two exceptions that navigate to
+     /qualify/[id] instead. Edit mode, pending-override, or another
+     active row all suspend the activate-on-click so the rep can
+     finish what they're doing. (Supersedes D-039: row body
+     navigates → row body activates edit; the explicit Qualify
+     column carries the navigate intent.) */
+  const editable = !isActive && pendingStatus === null && !anotherRowIsActive;
 
   /* Row styling — gutter above/below when active, plus a soft background
      tint so clicking off feels intentional. */
@@ -1055,6 +1381,7 @@ function TableRow({
     alignItems: 'stretch',
     borderBottom: '1px solid var(--border)',
     opacity: row.sourcingStatus === 'reject' && !isActive ? 0.55 : 1,
+    cursor: editable ? 'pointer' : 'default',
   };
   const wrapperStyle: React.CSSProperties = isActive
     ? {
@@ -1068,7 +1395,14 @@ function TableRow({
 
   return (
     <div style={wrapperStyle}>
-      <div role="row" style={rowStyle}>
+      <div
+        role="row"
+        style={rowStyle}
+        onClick={editable ? handleActivate : undefined}
+        data-tooltip={editable ? 'Click to edit' : undefined}
+        data-tooltip-pos="below"
+      >
+        <QualifyButtonCell onNavigate={handleNavigate} />
         <ScoreCell row={row} bands={workflow.bands} />
         {workflow.columns.map((col) => (
           <RowCell
@@ -1081,27 +1415,57 @@ function TableRow({
             draft={draft}
             setDraft={setDraft}
             isActive={isActive}
-            onActivate={handleActivate}
-            anotherRowIsActive={anotherRowIsActive}
+            visibleStatus={visibleStatus}
+            onStatusChange={handleStatusChange}
+            onBoolChange={handleBoolChange}
+            onNavigate={handleNavigate}
           />
         ))}
         <ActionsCell
           isActive={isActive}
           busy={busy}
-          canSave={reasonOk}
-          onEdit={handleActivate}
+          canSave
           onSave={commit}
           onCancel={handleCancel}
         />
       </div>
-      {isActive && override && (
-        <div style={{ padding: '0.4rem 0.6rem' }}>
+      {pendingStatus !== null && needsOverride(pendingStatus, band, overrideOpts) && (
+        <div
+          style={{ padding: '0.4rem 0.6rem' }}
+          onClick={(e) => e.stopPropagation()}
+        >
           <OverrideExpansion
-            status={draft.sourcingStatus}
+            status={pendingStatus}
             band={band}
-            reason={draft.sourcingNote}
-            setReason={(r) => setDraft((d) => ({ ...d, sourcingNote: r }))}
+            reason={pendingReason}
+            setReason={setPendingReason}
           />
+          <div
+            style={{
+              display: 'flex',
+              gap: '0.5rem',
+              justifyContent: 'flex-end',
+              marginTop: '0.55rem',
+            }}
+          >
+            <button
+              type="button"
+              onClick={handlePendingCancel}
+              className="btn-ghost"
+              disabled={pendingBusy}
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              onClick={handlePendingConfirm}
+              className="btn-primary"
+              disabled={!pendingReasonOk || pendingBusy}
+              style={{ padding: '0.45rem 1rem', fontSize: '0.7rem' }}
+            >
+              Save with reason
+            </button>
+          </div>
         </div>
       )}
       {error && (
@@ -1120,8 +1484,17 @@ function TableRow({
   );
 }
 
-/* Per-cell rendering — read-only display when row isn't active,
-   input when row is active. */
+/* Per-cell rendering. V2 behavior (D-037, D-039):
+   - Status toggle + bool rank-input checkboxes are ALWAYS interactive
+     and commit immediately on click. They live outside the draft.
+   - Integer rank-input cells display read-only until the pencil
+     unlocks edit mode (typing a number on every keystroke would spam
+     the server — these stay draft+save).
+   - First-class text cells (name, agency, market, gross_volume,
+     source_url) also stay draft+save.
+   - Display-mode cells no longer activate edit on click; the row's
+     own onClick handles navigation to /qualify/[id]. Edit-mode cells
+     stop propagation so typing doesn't trigger navigation. */
 function RowCell({
   column,
   factor,
@@ -1129,8 +1502,10 @@ function RowCell({
   draft,
   setDraft,
   isActive,
-  onActivate,
-  anotherRowIsActive,
+  visibleStatus,
+  onStatusChange,
+  onBoolChange,
+  onNavigate,
 }: {
   column: SourcingColumn;
   factor: RankFactor | undefined;
@@ -1138,108 +1513,119 @@ function RowCell({
   draft: RowDraft;
   setDraft: React.Dispatch<React.SetStateAction<RowDraft>>;
   isActive: boolean;
-  onActivate: () => void;
-  anotherRowIsActive: boolean;
+  visibleStatus: SourcingStatus;
+  onStatusChange: (next: SourcingStatus) => void;
+  onBoolChange: (key: string, next: boolean) => void;
+  onNavigate: () => void;
 }) {
-  // Status cell renders as toggle when active, label-pill when locked.
-  if (column.key === 'sourcingStatus') {
-    if (!isActive) {
-      return (
-        <div
-          role="cell"
-          style={{ display: 'flex', alignItems: 'center', padding: '0.55rem 0.5rem' }}
-        >
-          <StatusPill value={row.sourcingStatus} />
-        </div>
-      );
-    }
+  // Primary cell (Name) — always a navigation link to /qualify/[id]
+  // regardless of edit mode. The name is not editable from Sourcing
+  // (rep edits it on Qualify if it ever needs to change). The
+  // leftmost Qualify button + this cell are the two row exceptions
+  // that navigate instead of activating edit (F2.8.1).
+  if (column.isPrimary) {
     return (
       <div
         role="cell"
-        style={{ display: 'flex', alignItems: 'center', padding: '0.3rem 0.4rem' }}
+        onClick={(e) => {
+          e.stopPropagation();
+          onNavigate();
+        }}
+        data-tooltip="Open in Qualify"
+        data-tooltip-pos="below"
+        style={{
+          padding: '0.55rem 0.65rem',
+          fontSize: '0.85rem',
+          fontWeight: 500,
+          color: 'var(--accent)',
+          cursor: 'pointer',
+          textDecoration: 'underline',
+          textDecorationColor: 'var(--border-accent)',
+          textUnderlineOffset: '0.2rem',
+          textDecorationStyle: 'dotted',
+          whiteSpace: 'nowrap',
+          overflow: 'hidden',
+          textOverflow: 'ellipsis',
+          lineHeight: 1.3,
+        }}
       >
-        <SourcingStatusToggle
-          value={draft.sourcingStatus}
-          onChange={(s) => setDraft((d) => ({ ...d, sourcingStatus: s }))}
-        />
+        {row.contactName || <Dim>—</Dim>}
       </div>
     );
   }
 
-  // Bool rank-input cell: checkbox when active, ✓/— when locked.
-  if (column.isRankInput && column.kind === 'bool') {
-    const liveChecked = isActive
-      ? draft.rankInputs[column.key] === true
-      : row.rankInputs[column.key] === true;
-    if (!isActive) {
-      return (
-        <div
-          role="cell"
-          style={{
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            padding: '0.55rem 0.4rem',
-            color: liveChecked ? 'var(--good)' : 'var(--text-faint)',
-            fontSize: '0.95rem',
-          }}
-        >
-          {liveChecked ? '✓' : '—'}
-        </div>
-      );
-    }
+  // Status cell — always renders the toggle (D-037). Stop propagation
+  // so clicking a status button doesn't also trigger row navigation.
+  if (column.key === 'sourcingStatus') {
     return (
       <div
         role="cell"
+        onClick={(e) => e.stopPropagation()}
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          padding: '0.3rem 0.4rem',
+          cursor: 'default',
+        }}
+      >
+        <SourcingStatusToggle value={visibleStatus} onChange={onStatusChange} />
+      </div>
+    );
+  }
+
+  // Bool rank-input cell — always interactive (D-037).
+  if (column.isRankInput && column.kind === 'bool') {
+    const liveChecked = row.rankInputs[column.key] === true;
+    return (
+      <div
+        role="cell"
+        onClick={(e) => e.stopPropagation()}
         style={{
           display: 'flex',
           alignItems: 'center',
           justifyContent: 'center',
           padding: '0.3rem 0.4rem',
+          cursor: 'default',
         }}
       >
         <input
           type="checkbox"
           checked={liveChecked}
-          onChange={(e) => {
-            const next = e.target.checked;
-            setDraft((d) => ({
-              ...d,
-              rankInputs: { ...d.rankInputs, [column.key]: next },
-            }));
-          }}
+          onChange={(e) => onBoolChange(column.key, e.target.checked)}
           aria-label={column.label}
-          style={{ width: 16, height: 16, accentColor: 'var(--accent)' }}
+          style={{ width: 16, height: 16, accentColor: 'var(--accent)', cursor: 'pointer' }}
         />
       </div>
     );
   }
 
-  // Integer rank-input cell.
+  // Integer rank-input cell — display-only until edit mode unlocks it.
   if (column.isRankInput && column.kind === 'integer') {
-    const liveValue = isActive
-      ? typeof draft.rankInputs[column.key] === 'number'
-        ? (draft.rankInputs[column.key] as number)
-        : 0
-      : typeof row.rankInputs[column.key] === 'number'
-        ? (row.rankInputs[column.key] as number)
-        : 0;
     if (!isActive) {
+      const liveValue =
+        typeof row.rankInputs[column.key] === 'number'
+          ? (row.rankInputs[column.key] as number)
+          : 0;
       return (
-        <DisplayCell
-          onClick={anotherRowIsActive ? undefined : onActivate}
-          align="right"
-        >
+        <DisplayCell align="right">
           {liveValue > 0 ? String(liveValue) : <Dim>—</Dim>}
         </DisplayCell>
       );
     }
+    const draftValue =
+      typeof draft.rankInputs[column.key] === 'number'
+        ? (draft.rankInputs[column.key] as number)
+        : 0;
     return (
-      <div role="cell" style={{ padding: '0.3rem 0.4rem' }}>
+      <div
+        role="cell"
+        onClick={(e) => e.stopPropagation()}
+        style={{ padding: '0.3rem 0.4rem' }}
+      >
         <input
           type="number"
           min={0}
-          value={liveValue === 0 ? '' : liveValue}
+          value={draftValue === 0 ? '' : draftValue}
           onChange={(e) => {
             const n = parseInt(e.target.value, 10);
             const clean = Number.isFinite(n) && n > 0 ? Math.floor(n) : 0;
@@ -1263,11 +1649,10 @@ function RowCell({
   const displayValue = renderDisplay(column, row);
 
   if (!isActive) {
-    return (
-      <DisplayCell onClick={anotherRowIsActive ? undefined : onActivate}>
-        {displayValue}
-      </DisplayCell>
-    );
+    // Display-only; the row's onClick handles navigation. The
+    // `anotherRowIsActive` ref is unused here — display cells no
+    // longer activate edit on click (D-039).
+    return <DisplayCell>{displayValue}</DisplayCell>;
   }
 
   const inputType =
@@ -1278,7 +1663,11 @@ function RowCell({
         : 'text';
 
   return (
-    <div role="cell" style={{ padding: '0.3rem 0.4rem' }}>
+    <div
+      role="cell"
+      onClick={(e) => e.stopPropagation()}
+      style={{ padding: '0.3rem 0.4rem' }}
+    >
       <input
         type={inputType}
         inputMode={
@@ -1313,22 +1702,22 @@ function renderDisplay(column: SourcingColumn, row: SourcingRow): React.ReactNod
 
 function DisplayCell({
   children,
-  onClick,
   align,
 }: {
   children: React.ReactNode;
-  onClick?: () => void;
   align?: 'left' | 'right';
 }) {
+  // V2: display cells are no longer click-to-edit (D-039). The row's
+  // own onClick handles navigation to /qualify/[id]; the cell just
+  // inherits the row's cursor so the pointer affordance reads right.
   return (
     <div
       role="cell"
-      onClick={onClick}
       style={{
         padding: '0.55rem 0.65rem',
         fontSize: '0.82rem',
         color: 'var(--text)',
-        cursor: onClick ? 'pointer' : 'default',
+        cursor: 'inherit',
         textAlign: align ?? 'left',
         whiteSpace: 'nowrap',
         overflow: 'hidden',
@@ -1351,42 +1740,44 @@ const cellInputStyle: React.CSSProperties = {
   fontSize: '0.82rem',
 };
 
-/* ── Pencil / check column ───────────────────────────────────────── */
+/* ── Save / Cancel column (edit mode only) ───────────────────────── */
+/* Display mode renders an empty cell — the row-body click is the
+   edit trigger now (F2.8.1 replaces the pencil-as-edit-trigger). */
 
 function ActionsCell({
   isActive,
   busy,
   canSave,
-  onEdit,
   onSave,
   onCancel,
 }: {
   isActive: boolean;
   busy: boolean;
   canSave: boolean;
-  onEdit: () => void;
   onSave: () => void;
   onCancel: () => void;
 }) {
   return (
     <div
       role="cell"
+      onClick={(e) => e.stopPropagation()}
       style={{
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'center',
         gap: '0.25rem',
         padding: '0.3rem',
+        cursor: 'default',
       }}
     >
-      {isActive ? (
+      {isActive && (
         <>
           <button
             type="button"
             onClick={onSave}
             disabled={busy || !canSave}
             aria-label="Save row"
-            title="Save"
+            data-tooltip={canSave ? 'Save edits' : 'Resolve the validation issue first'}
             style={{
               width: 26,
               height: 26,
@@ -1408,7 +1799,7 @@ function ActionsCell({
             onClick={onCancel}
             disabled={busy}
             aria-label="Cancel edits"
-            title="Cancel"
+            data-tooltip="Discard edits"
             style={{
               width: 22,
               height: 22,
@@ -1423,26 +1814,52 @@ function ActionsCell({
             ✕
           </button>
         </>
-      ) : (
-        <button
-          type="button"
-          onClick={onEdit}
-          aria-label="Edit row"
-          title="Edit"
-          style={{
-            width: 24,
-            height: 24,
-            border: '1px solid var(--border)',
-            borderRadius: 'var(--radius-sm)',
-            background: 'transparent',
-            color: 'var(--text-mid)',
-            cursor: 'pointer',
-            fontSize: '0.74rem',
-          }}
-        >
-          ✎
-        </button>
       )}
+    </div>
+  );
+}
+
+/* ── Qualify button column (leftmost) ─────────────────────────────── */
+/* Per-row navigate-to-/qualify/[id] button. Sits in the new leftmost
+   column; the header above reads "Qualify selection." Stop-propagates
+   the click so the row-body activate-edit doesn't also fire. */
+
+function QualifyButtonCell({ onNavigate }: { onNavigate: () => void }) {
+  return (
+    <div
+      role="cell"
+      onClick={(e) => e.stopPropagation()}
+      style={{
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        padding: '0.3rem',
+        cursor: 'default',
+      }}
+    >
+      <button
+        type="button"
+        onClick={onNavigate}
+        aria-label="Open in Qualify"
+        data-tooltip="Open in Qualify"
+        style={{
+          width: 32,
+          height: 26,
+          border: '1px solid var(--border-accent)',
+          borderRadius: 'var(--radius-sm)',
+          background: 'var(--accent-dim)',
+          color: 'var(--accent)',
+          cursor: 'pointer',
+          fontSize: '0.85rem',
+          fontWeight: 600,
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          lineHeight: 1,
+        }}
+      >
+        →
+      </button>
     </div>
   );
 }
@@ -1467,11 +1884,12 @@ function ScoreCell({ row, bands }: { row: SourcingRow; bands: RankBands }) {
         padding: '0.55rem 0.3rem',
         position: 'relative',
       }}
-      title={
+      data-tooltip={
         row.hasPartialScore
           ? 'Partial — supporting factors fill in on Qualify.'
           : 'No qualifiers filled yet.'
       }
+      data-tooltip-pos="below"
     >
       <span
         className="money"
@@ -1498,33 +1916,7 @@ function ScoreCell({ row, bands }: { row: SourcingRow; bands: RankBands }) {
   );
 }
 
-/* ── Status pill (locked rows) + Status toggle (active rows + form) ── */
-
-function StatusPill({ value }: { value: SourcingStatus }) {
-  const color =
-    value === 'pursue' || value === 'qualify'
-      ? 'var(--good)'
-      : value === 'reject'
-        ? 'var(--bad)'
-        : 'var(--text-faint)';
-  return (
-    <span
-      style={{
-        fontSize: '0.68rem',
-        fontWeight: 700,
-        letterSpacing: '0.1em',
-        textTransform: 'uppercase',
-        padding: '0.25rem 0.55rem',
-        border: `1px solid ${color}`,
-        borderRadius: 'var(--radius-sm)',
-        color,
-        background: `${color}11`,
-      }}
-    >
-      {STATUS_LABEL[value]}
-    </span>
-  );
-}
+/* ── Status toggle — interactive in display + edit mode (D-037) ──── */
 
 function SourcingStatusToggle({
   value,
@@ -1564,17 +1956,25 @@ function SourcingStatusToggle({
             type="button"
             onClick={() => onChange(opt)}
             aria-pressed={active}
+            data-tooltip={
+              opt === 'pursue'
+                ? 'Worth qualifying — keeps stage at Researching'
+                : opt === 'reject'
+                  ? 'Not worth pursuing — moves stage to Rejected'
+                  : 'Park as undecided'
+            }
             style={{
-              fontSize: '0.68rem',
+              fontSize: '0.66rem',
               fontWeight: 700,
-              letterSpacing: '0.1em',
+              letterSpacing: '0.08em',
               textTransform: 'uppercase',
-              padding: '0.3rem 0.55rem',
+              padding: '0.28rem 0.45rem',
               border: 'none',
               borderRadius: 'var(--radius-sm)',
               background: active ? `${color}22` : 'transparent',
               color: active ? color : 'var(--text-faint)',
               cursor: 'pointer',
+              whiteSpace: 'nowrap',
             }}
           >
             {STATUS_LABEL[opt]}

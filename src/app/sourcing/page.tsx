@@ -70,6 +70,7 @@ interface ProspectRow {
   rank_inputs: Record<string, boolean | number> | null;
   rank_score: string;
   stage: ProspectStage;
+  created_at: string;
 }
 
 export default async function SourcingPage() {
@@ -97,7 +98,8 @@ export default async function SourcingPage() {
         SELECT id, workflow_key, contact_name, org_name, market_area,
                sides_count, gross_volume::text AS gross_volume, source_url,
                sourcing_status, sourcing_note,
-               rank_inputs, rank_score::text AS rank_score, stage
+               rank_inputs, rank_score::text AS rank_score, stage,
+               created_at::text AS created_at
         FROM prospects
         WHERE owner_id = ${user.id}
         ORDER BY created_at DESC
@@ -186,6 +188,7 @@ export default async function SourcingPage() {
       rankScore: Number(p.rank_score),
       stage: p.stage,
       hasPartialScore: hasPartial,
+      createdAt: p.created_at,
     };
   });
 

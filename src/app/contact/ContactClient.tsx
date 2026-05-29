@@ -1,11 +1,17 @@
 'use client';
 
 /**
- * The tracking board — interactive, multi-workflow.
+ * The contact board (was the "tracking board" pre-F3 / D-046) —
+ * interactive, multi-workflow.
  *
  * Left: every prospect in a contact cycle, across workflows, most urgent
  * first, with a workflow filter. Right: the selected prospect's cycle,
  * worked against its own workflow's scripts.
+ *
+ * Lib types still read `TrackingCard` / `TrackingStatus` per the V2-PLAN
+ * F3 scope (route folder + URL references only). A lib-side rename can
+ * follow if needed; this file keeps the imports and renames the local
+ * type + exported component to `Contact*`.
  */
 
 import { useState } from 'react';
@@ -22,7 +28,7 @@ import {
 } from '@/lib/tracking';
 import { logContact, markResponded, closeOut } from './actions';
 
-export interface TrackingWorkflow {
+export interface ContactWorkflow {
   key: string;
   name: string;
   accent: string;
@@ -50,7 +56,7 @@ function seedValues(card: TrackingCard, repName: string): Record<string, string>
   };
 }
 
-export function TrackingClient({
+export function ContactClient({
   cards,
   workflows,
   scriptsByWorkflow,
@@ -58,7 +64,7 @@ export function TrackingClient({
   repName,
 }: {
   cards: TrackingCard[];
-  workflows: TrackingWorkflow[];
+  workflows: ContactWorkflow[];
   scriptsByWorkflow: Record<string, ContactScript[]>;
   linksByWorkflow: Record<string, HandoffLink[]>;
   repName: string;
@@ -139,73 +145,104 @@ export function TrackingClient({
               const meta = STATUS_META[card.status];
               const active = card.prospect.id === selected?.prospect.id;
               const wf = wfByKey.get(card.prospect.workflowKey);
+              const accent = wf?.accent ?? 'var(--text-faint)';
+              // D-051: urgency drives the LEFT-side status dot. Workflow
+              // accent colors the card body (left-stripe + tinted background).
+              const urgencyColor =
+                card.urgency === 'now'
+                  ? 'var(--good)'
+                  : card.urgency === 'soon'
+                    ? 'var(--warn)'
+                    : card.urgency === 'overdue'
+                      ? 'var(--bad)'
+                      : 'var(--text-faint)';
               return (
                 <button
                   key={card.prospect.id}
                   onClick={() => setSelectedId(card.prospect.id)}
                   style={{
                     textAlign: 'left',
-                    padding: '0.7rem 0.8rem',
+                    padding: '0.65rem 0.8rem 0.65rem 0.65rem',
                     borderRadius: 'var(--radius-sm)',
-                    border: `1px solid ${active ? 'var(--accent)' : 'var(--border)'}`,
-                    background: active ? 'var(--accent-dim)' : 'var(--surface-tool-2)',
+                    border: `1px solid ${active ? accent : 'var(--border)'}`,
+                    borderLeft: `4px solid ${accent}`,
+                    background: active ? `${accent}1A` : `${accent}0D`,
                     cursor: 'pointer',
                     display: 'flex',
-                    flexDirection: 'column',
-                    gap: '0.3rem',
+                    alignItems: 'flex-start',
+                    gap: '0.55rem',
                   }}
                 >
-                  <div
+                  {/* Urgency dot — leftmost. D-051. */}
+                  <span
+                    aria-hidden
                     style={{
-                      display: 'flex',
-                      justifyContent: 'space-between',
-                      alignItems: 'baseline',
-                      gap: '0.5rem',
+                      width: 9,
+                      height: 9,
+                      borderRadius: '50%',
+                      background: urgencyColor,
+                      flexShrink: 0,
+                      marginTop: '0.35rem',
+                      boxShadow:
+                        card.urgency === 'now' || card.urgency === 'overdue'
+                          ? `0 0 0 2px ${urgencyColor}33`
+                          : 'none',
                     }}
-                  >
-                    <span
-                      style={{
-                        fontWeight: 600,
-                        fontSize: '0.86rem',
-                        color: 'var(--text)',
-                        overflow: 'hidden',
-                        textOverflow: 'ellipsis',
-                        whiteSpace: 'nowrap',
-                      }}
-                    >
-                      {card.prospect.contactName}
-                    </span>
-                    <span
-                      className="money"
-                      style={{ fontSize: '0.8rem', color: 'var(--text-faint)', flexShrink: 0 }}
-                    >
-                      {card.prospect.rankScore.toFixed(1)}
-                    </span>
-                  </div>
+                  />
                   <span
                     style={{
-                      fontSize: '0.66rem',
-                      letterSpacing: '0.08em',
-                      textTransform: 'uppercase',
-                      fontWeight: 700,
-                      color: meta.color,
+                      flex: 1,
+                      minWidth: 0,
+                      display: 'flex',
+                      flexDirection: 'column',
+                      gap: '0.2rem',
                     }}
                   >
                     <span
-                      aria-hidden
                       style={{
-                        display: 'inline-block',
-                        width: 7,
-                        height: 7,
-                        borderRadius: '50%',
-                        background: wf?.accent ?? 'var(--text-faint)',
-                        marginRight: '0.4rem',
+                        display: 'flex',
+                        justifyContent: 'space-between',
+                        alignItems: 'baseline',
+                        gap: '0.5rem',
                       }}
-                    />
-                    {meta.label}
-                    {card.status === 'waiting' && card.dueInDays !== null
-                      ? ` · ${card.dueInDays}d`
-                      : null}
+                    >
+                      <span
+                        style={{
+                          fontWeight: 600,
+                          fontSize: '0.86rem',
+                          color: 'var(--text)',
+                          overflow: 'hidden',
+                          textOverflow: 'ellipsis',
+                          whiteSpace: 'nowrap',
+                        }}
+                      >
+                        {card.prospect.contactName}
+                      </span>
+                      <span
+                        className="money"
+                        style={{
+                          fontSize: '0.8rem',
+                          color: 'var(--text-faint)',
+                          flexShrink: 0,
+                        }}
+                      >
+                        {card.prospect.rankScore.toFixed(1)}
+                      </span>
+                    </span>
+                    <span
+                      style={{
+                        fontSize: '0.66rem',
+                        letterSpacing: '0.08em',
+                        textTransform: 'uppercase',
+                        fontWeight: 700,
+                        color: meta.color,
+                      }}
+                    >
+                      {meta.label}
+                      {card.status === 'waiting' && card.dueInDays !== null
+                        ? ` · ${card.dueInDays}d`
+                        : null}
+                    </span>
                   </span>
                 </button>
               );
@@ -319,6 +356,31 @@ function DetailPanel({
   const doneKeys = new Set(contacts.map((c) => c.stepKey));
   const orderedScripts = [...scripts].sort((a, b) => a.stepOrder - b.stepOrder);
 
+  // D-049: cycle-step tabs are all navigable. `viewedStepKey` is the
+  // tab the rep is looking at — defaults to the current next step
+  // (null sentinel resolves to nextStep). When the rep clicks a past
+  // step, we show the message as it was sent; when they click a
+  // future step, we show the template + a "send X first" badge.
+  const [viewedStepKey, setViewedStepKey] = useState<string | null>(null);
+  const viewedStep =
+    (viewedStepKey ? orderedScripts.find((s) => s.stageKey === viewedStepKey) : null) ??
+    nextStep;
+  const viewedIsCurrent = viewedStep != null && nextStep != null && viewedStep.stageKey === nextStep.stageKey;
+  const viewedIsPast = viewedStep != null && doneKeys.has(viewedStep.stageKey);
+  const viewedIsFuture = viewedStep != null && !viewedIsCurrent && !viewedIsPast;
+  const viewedContact =
+    viewedIsPast && viewedStep
+      ? contacts.find((c) => c.stepKey === viewedStep.stageKey) ?? null
+      : null;
+  // The step that has to land before `viewedStep` becomes live —
+  // surfaced in the future-step badge.
+  const prevStepLabel = viewedIsFuture && viewedStep
+    ? (() => {
+        const idx = orderedScripts.findIndex((s) => s.stageKey === viewedStep.stageKey);
+        return idx > 0 ? orderedScripts[idx - 1].label : null;
+      })()
+    : null;
+
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
       {/* Header */}
@@ -373,29 +435,44 @@ function DetailPanel({
           </span>
         </div>
 
-        {/* Cycle progress */}
+        {/* Cycle progress — every step is a navigable tab (D-049). */}
         <div style={{ display: 'flex', gap: '0.4rem', flexWrap: 'wrap', marginTop: '0.9rem' }}>
           {orderedScripts.map((s) => {
             const done = doneKeys.has(s.stageKey);
             const current = s.stageKey === card.nextStepKey;
+            const viewed = viewedStep != null && s.stageKey === viewedStep.stageKey;
             return (
-              <span
+              <button
                 key={s.id}
+                type="button"
+                onClick={() => setViewedStepKey(s.stageKey)}
+                aria-pressed={viewed}
                 style={{
                   fontSize: '0.68rem',
                   fontWeight: 600,
                   padding: '0.25rem 0.55rem',
                   borderRadius: 'var(--radius-sm)',
                   border: `1px solid ${
-                    current ? 'var(--accent)' : done ? 'var(--good)' : 'var(--border)'
+                    viewed
+                      ? 'var(--accent)'
+                      : current
+                        ? 'var(--accent)'
+                        : done
+                          ? 'var(--good)'
+                          : 'var(--border)'
                   }`,
-                  background: current ? 'var(--accent-dim)' : 'transparent',
-                  color: done ? 'var(--good)' : current ? 'var(--text)' : 'var(--text-faint)',
+                  background: viewed
+                    ? 'var(--accent-dim)'
+                    : current
+                      ? 'var(--accent-dim)'
+                      : 'transparent',
+                  color: done ? 'var(--good)' : viewed || current ? 'var(--text)' : 'var(--text-faint)',
+                  cursor: 'pointer',
                 }}
               >
                 {done ? '✓ ' : ''}
                 {s.label}
-              </span>
+              </button>
             );
           })}
         </div>
@@ -450,8 +527,128 @@ function DetailPanel({
         </div>
       )}
 
-      {/* Status-specific surface */}
-      {status === 'replied' ? (
+      {/* Viewed step is past or future (D-049). Past steps show the
+          message as it actually went out; future steps show the
+          template + a "send X first" badge. The Log-contact action is
+          NOT shown — that lives only on the current step view below. */}
+      {!viewedIsCurrent && viewedStep && (
+        <div
+          className="surface-tool"
+          style={{ display: 'flex', flexDirection: 'column', gap: '0.85rem' }}
+        >
+          <div
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              gap: '0.75rem',
+              flexWrap: 'wrap',
+            }}
+          >
+            <div className="eyebrow">
+              {viewedStep.label} · {viewedStep.channel}
+            </div>
+            {viewedIsPast && viewedContact && (
+              <span
+                style={{
+                  fontSize: '0.62rem',
+                  fontWeight: 700,
+                  letterSpacing: '0.12em',
+                  textTransform: 'uppercase',
+                  color: 'var(--good)',
+                  border: '1px solid var(--good)',
+                  background: 'rgba(16, 185, 129, 0.08)',
+                  padding: '0.18rem 0.5rem',
+                  borderRadius: 'var(--radius-sm)',
+                }}
+              >
+                Already sent · {viewedContact.sentAtLabel}
+              </span>
+            )}
+            {viewedIsFuture && (
+              <span
+                style={{
+                  fontSize: '0.62rem',
+                  fontWeight: 700,
+                  letterSpacing: '0.12em',
+                  textTransform: 'uppercase',
+                  color: 'var(--warn)',
+                  border: '1px solid var(--warn)',
+                  background: 'rgba(245, 158, 11, 0.08)',
+                  padding: '0.18rem 0.5rem',
+                  borderRadius: 'var(--radius-sm)',
+                }}
+              >
+                {prevStepLabel ? `Send ${prevStepLabel} first` : 'Cycle hasn’t reached this step yet'}
+              </span>
+            )}
+          </div>
+
+          <div
+            style={{
+              background: 'var(--surface-tool-2)',
+              border: '1px solid var(--border)',
+              borderRadius: 'var(--radius-sm)',
+              padding: '0.85rem',
+              display: 'flex',
+              flexDirection: 'column',
+              gap: '0.6rem',
+            }}
+          >
+            {(() => {
+              const subj = viewedIsPast
+                ? viewedContact?.filledSubject ?? null
+                : viewedStep.subject;
+              if (!subj) return null;
+              return (
+                <div>
+                  <span className="label" style={{ marginBottom: 0 }}>
+                    Subject
+                  </span>
+                  <div style={{ fontSize: '0.84rem', color: 'var(--text)' }}>
+                    {subj}
+                  </div>
+                </div>
+              );
+            })()}
+            <div>
+              <span className="label" style={{ marginBottom: 0 }}>
+                Message
+              </span>
+              <div
+                style={{
+                  fontSize: '0.82rem',
+                  color: 'var(--text)',
+                  whiteSpace: 'pre-wrap',
+                  lineHeight: 1.55,
+                }}
+              >
+                {viewedIsPast
+                  ? viewedContact?.filledBody ?? (
+                      <span style={{ color: 'var(--text-faint)' }}>
+                        The send-time text wasn’t snapshotted for this touch.
+                      </span>
+                    )
+                  : viewedStep.body}
+              </div>
+            </div>
+          </div>
+
+          {nextStep && (
+            <button
+              type="button"
+              className="btn-ghost"
+              onClick={() => setViewedStepKey(null)}
+              style={{ alignSelf: 'flex-start' }}
+            >
+              ← Back to {nextStep.label}
+            </button>
+          )}
+        </div>
+      )}
+
+      {/* Status-specific surface — current view only. */}
+      {viewedIsCurrent && (status === 'replied' ? (
         <div className="surface-tool">
           <p style={{ fontSize: '0.85rem', color: 'var(--text)' }}>
             {prospect.contactName} replied. Take it from here on their client page —
@@ -648,7 +845,7 @@ function DetailPanel({
             {busy ? 'Logging…' : 'Mark as sent'}
           </button>
         </div>
-      )}
+      ))}
 
       <p style={{ fontSize: '0.72rem', color: 'var(--text-faint)', textAlign: 'center' }}>
         Stay Sharp. Stay Seen. Stay Human.

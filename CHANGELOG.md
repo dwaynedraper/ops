@@ -40,6 +40,849 @@ lives in `README.md`. This file is the time-ordered receipt.
 
 ---
 
+## V2 — 2026-05-28
+
+The polish-and-fit pass. Every surface V1 had exercised in real use,
+tightened. Fourteen phases (F0 → F13) covering: testing-DB stand-up,
+sidebar restructure, Sourcing polish + revisions, Tracking → Contact
+rename, workflow color palette, Contact page rebuild, Qualify polish,
+Clients re-think + cross-workflow Qualify list, duplicate-check,
+tutorial block enhancements + content (real-estate revised, Corp HS
+drafted), limited mobile pass on Dashboard + Clients, and the
+`/today` → Dashboard merge.
+
+Decisions D-035 → D-067 (D-052 intentionally skipped) recorded in
+**BUILD-PLAN.md §10**. Full per-phase detail below.
+
+### Setup needed for this release
+- Run `npm run db:migrate` against your DATABASE_URL. The migration
+  is **idempotent** end-to-end — every UPDATE is guarded by the V1
+  default value, so manual edits via `/rank-factors` / `/scripts`
+  / hand-SQL are preserved. The three blocks that run:
+  - **F4 / D-053** — `workflows.accent` colors update from V1
+    defaults to the new palette (gold / violet / cyan / red /
+    fuchsia).
+  - **F5 / D-047 + D-048** — real-estate first-touch paragraph
+    rewrites; standardized "Regards, … • Sharp Sighted {Branch} …"
+    signature applies across every script.
+  - All earlier V1 migrations still apply.
+- For local dev, the F0 doc walkthrough in README sets up a separate
+  Neon project so V2 work doesn't touch prod data.
+- Re-seeding (`npm run db:seed`) is optional. The migrations above
+  handle live rows; the seed picks up the same values for fresh
+  installs.
+
+### Verified
+- `tsc --noEmit` and `eslint src` clean on the final pass.
+- Decision log D-035 → D-067 added to BUILD-PLAN §10.
+- Ready to merge `v2` → `main`.
+
+### F0 — Testing DB setup (docs only)
+- README gains a "Testing database (V2 onward)" section. One-time
+  Dean task: create a second Neon project, swap `DATABASE_URL` in
+  `.env.local` to it, run `npm run db:migrate`. No code changes.
+  (D-064.)
+
+### F1 — Sidebar restructure + sticky app-shell
+
+- `src/components/Sidebar.tsx` rebuilt into four sections with
+  section headers + top-border separators: **Dashboard** (single
+  link), **TOOLS** (Quote Calculator, Tutorials), **SALES**
+  (Sourcing, Qualify, Contact, Client List), **PRICING & ADMIN**
+  (super-admin only). (D-066.)
+- Label renames: `Calculator` → **Quote Calculator**, `Clients` →
+  **Client List**. URLs unchanged; pure display-text edits.
+- The "Contact" sidebar label pointed at `/tracking` until F3
+  landed the route-folder rename; href now reads `/contact`.
+- Active-route matching now handles nested routes: `/qualify`
+  highlights for both `/qualify` and `/qualify/[id]`, same for
+  `/tutorials`.
+- Sidebar is now `position: sticky; top: 0; height: 100vh` via the
+  new `.app-shell-aside` class. The page scrolls normally (so the
+  footer follows the content), but the aside stays pinned at the
+  top of the viewport — wordmark up top, scrollable nav in the
+  middle, theme toggle + sign-out pinned at the bottom — no matter
+  how tall the page is. (D-067.) `align-self: start` on the aside
+  prevents CSS Grid's default `stretch` from defeating sticky
+  positioning. The first attempt used `height: 100vh; overflow:
+  hidden` on `.app-shell` to lock the whole shell to the viewport,
+  but the inner main+footer column wasn't height-constrained, so
+  the page scrolled anyway and the toggle/sign-out dropped below
+  the fold. Sticky-aside also avoids the trap where shell-level
+  `overflow: hidden` silently disables `position: sticky` for
+  every nested side panel (calculator summary, qualify score,
+  tracking list). On mobile (≤768px), the aside reverts to
+  `position: static` and the layout stacks (full mobile pass lands
+  in F11).
+
+### F2 — Sourcing polish (D-035 → D-041)
+
+The polish-and-fit pass on `/sourcing`. Six concrete moves:
+
+- **D-035 — Newest-first default sort.** Added `createdAt` (ISO
+  string) to `SourcingRow` and surfaced `created_at::text` in the
+  page query + the `upsertSourcingRow` action. Default sort is now
+  `createdAt` desc — a freshly-added prospect lands on top
+  regardless of how the rep had the table sorted before, including
+  after the rep toggles to a different column and back. Replaces
+  the previous fallback that sorted by `id` (UUID lexicographic).
+- **D-036 — Sort indicators on every header.** `SortHeader` always
+  renders a glyph: ↑/↓ on the active column, ↕ at 40% opacity on
+  inactive sortable columns. Reads "this is clickable to sort" at
+  a glance.
+- **D-038 — Status column fit.** Bumped the `sourcingStatus`
+  column from 150 → 200px and trimmed the `SourcingStatusToggle`
+  button padding + letter-spacing slightly. Pursue / — / Reject all
+  fit cleanly in the always-visible toggle, never clipped under any
+  state. The wider column also makes room for the override panel
+  below the row to align cleanly to the right.
+- **D-037 + D-039 — Always-interactive controls + row-body
+  navigation.** Major behavior shift on `TableRow`:
+  - Status toggle + bool rank-input checkboxes are now ALWAYS
+    interactive (display mode + edit mode). Clicking either commits
+    immediately via `upsertSourcingRow` with a minimal patch — no
+    draft, no Save button needed.
+  - When clicking a status button would create an override case
+    (the rep's call disagrees with the band), the row drops an
+    inline panel below itself with the `OverrideExpansion` + a
+    Cancel / "Save with reason" pair. The toggle visually reflects
+    the rep's pending choice (`visibleStatus = pendingStatus ?? row.sourcingStatus`)
+    so they see what they're about to commit to.
+  - Row body click → `useRouter().push('/qualify/${row.id}')`. The
+    interactive controls (status cell, bool cell, action buttons,
+    edit-mode inputs) call `e.stopPropagation()` so they don't
+    trigger navigation. Cursor is `pointer` only when the row is
+    navigable (not in edit mode, no override pending, no other row
+    active). Tooltip on the row reads "Open in Qualify."
+  - Pencil click → unlocks edit mode for only the FIRST-CLASS
+    non-control cells (name, agency, market, gross_volume,
+    source_url) plus integer rank inputs (typing into them on every
+    keystroke would spam the server). Commit only includes those
+    fields — status + bool values committed already.
+  - The `StatusPill` component is now unused and removed.
+- **D-040 — Custom CSS tooltips.** Attribute-driven, CSS-only,
+  zero-JS hover labels via `data-tooltip="…"` on any element.
+  Instant on hover — no delay — because reps are clicking rapidly
+  and a tooltip that hesitates is worse than none. Position
+  defaults to above; `data-tooltip-pos="below"` for top-of-viewport
+  elements. Pseudo-element rendered as `::after` with `pointer-events:
+  none` so it doesn't interfere with clicks. Wired onto: pencil,
+  Save, Cancel, the three status toggle buttons, the score cell,
+  and the row body.
+- **D-041 — Sourcing help boxes.** Added `mode: 'qualify' |
+  'sourcing'` to `HelpBox` + `getHelpEntry`. Authored a new
+  registry of sourcing-time content for the real-estate workflow
+  (`gross_volume`, `source_url`, `has_target_listing`,
+  `annual_volume`, `pro_website`, `uses_video`) — six entries
+  pitched at batch triage instead of deep-read qualify. Voice:
+  "you've got 50 names, spend 30 seconds, defer the deep stuff to
+  Qualify." Wired the trigger into `FormField` (per-field on the
+  add-prospect form), `QualifierField` (per-qualifier on the
+  add-prospect form), and `TableHeader` (per-column). The native
+  `title=` attributes on the headers come off (they were slow and
+  the help modal replaces them). Missing entries render no
+  trigger, so columns without authored content stay clean.
+
+### F2 — Sourcing revisions after first walk-through (F2.8)
+
+Dean walked the table in dev and called out four things that
+needed to change:
+
+- **F2.8.1 — Row interaction model reversed (supersedes D-039).**
+  The row body now opens edit mode on click (which is what reps
+  expect from a spreadsheet-style triage surface). A new
+  **leftmost column** holds a per-row **Qualify selection**
+  button — a small terracotta-accented `→` that navigates to
+  `/qualify/[id]`. The Name cell is the second navigation
+  exception: clicking it also opens `/qualify/[id]` (the name is
+  the prospect's identity, so it reads as a link). The pencil
+  comes out of `ActionsCell` entirely — the row body click is the
+  edit trigger now; in display mode that column is empty, in edit
+  mode it holds Save + Cancel.
+  - `QUALIFY_COL_WIDTH = 56` added to the grid template; column
+    order is now `[Qualify] [Score] […workflow cols] [Actions]`.
+  - `TableHeader` renders "Qualify / selection" as the leftmost
+    columnheader.
+  - New `QualifyButtonCell` component; new `onNavigate` prop on
+    `RowCell` so the Name cell can fire navigation without
+    bubbling up through the row's activate-edit handler.
+  - `RowCell` gains a `column.isPrimary` branch — the name is
+    rendered as a dotted-underline accent link, not an editable
+    input. Name editing happens on Qualify going forward.
+- **F2.8.2 — Tooltip restyled.** The original tooltip read as a
+  small button hovering below the row (surface-3 background,
+  strong border, box-shadow). Lightened to a flat cursor-hint:
+  no shadow, no border, smaller font + padding, `surface-tool-2`
+  background. Row-body tooltip now reads "Click to edit"; the
+  Qualify button + Name cell read "Open in Qualify."
+- **F2.8.3 — `annual_volume` sourcing help rewritten.** My
+  first-draft sourcing entry treated `annual_volume` as a dollar
+  figure (`$34M → 34`), which contradicts the field — it's the
+  COUNT of listings closed per year in the $500K–$2M band. New
+  three-section entry covers the rapid read (10/yr / 20+ / 30+
+  scoring bands), estimating the in-band fraction from RealTrends
+  + Zillow Past Sales, and when to defer to Qualify.
+- **F2.8.4 — "Where to start" onboarding strip.** New inline
+  card between the workflow tabs and the add-prospect form, with
+  a prominent `Open the guide →` HelpBox trigger. Authored a
+  three-section guide (get the list / fill each row / keep
+  moving) including a RealTrends example URL and the "30 seconds
+  per row" cadence guidance. Per-workflow content; renders
+  nothing when a workflow lacks a `start` entry (only
+  `real_estate` ships in V2). New `WhereToStart` component
+  imports `getHelpEntry` directly to gate visibility.
+
+### F3 — Tracking → Contact rename (D-046)
+
+App-wide rename of the contact-cycle surface from `/tracking` to
+`/contact`. Pure URL + folder + label sweep; no behavior or schema
+changes. Same shape as the V1 `/research` → `/qualify` rename.
+
+- **Folder rename** via `git mv`:
+  - `src/app/tracking/` → `src/app/contact/`
+  - `src/app/contact/TrackingClient.tsx` → `src/app/contact/ContactClient.tsx`
+- **In-folder renames** (page-internal only):
+  - `TrackingPage` → `ContactPage` (default export)
+  - `TrackingClient` → `ContactClient` (exported component)
+  - `TrackingWorkflow` → `ContactWorkflow` (local interface)
+  - Page eyebrow + `metadata.title` "Tracking" → "Contact"
+  - `callbackUrl=/tracking` → `callbackUrl=/contact`
+  - All three `revalidatePath('/tracking')` → `'/contact'`
+  - Header comment on `actions.ts` updated; "tracking board"
+    phrasings inside comments now read "contact board."
+- **External URL references** swept:
+  - `Sidebar.tsx` — `href: '/contact'`. The placeholder comment
+    about "route stays /tracking until F3" comes out.
+  - `src/app/page.tsx` — three Dashboard Links (`Open Tracking →`
+    button + two row Links to follow-up cards) now point at
+    `/contact` and read "Open Contact →".
+  - `src/lib/digest-email.ts` — both `${base}/tracking` URL
+    constructions now `${base}/contact`.
+  - `src/app/today/page.tsx` — four refs (Section action hrefs +
+    DigestRow hrefs) + two `"Open Tracking →"` button labels +
+    the "the composer is in Tracking" hint copy all flipped to
+    Contact.
+  - `src/lib/tutorials-content.ts` — the real-estate Step 3
+    walkthrough rewritten to say `/contact` and "the Contact
+    page" instead of `/tracking` / "the Tracking page."
+- **Out of scope (intentional):** the supporting library at
+  `src/lib/tracking.ts` keeps its filename, and the in-lib types
+  `TrackingCard`, `TrackingStatus` (plus `statusRank`'s signature)
+  stay as-is. Every consumer still imports from `@/lib/tracking`.
+  The V2-PLAN F3 wording is "folder rename" + URL sweep — a
+  lib-side rename can land as a small follow-up if the naming
+  mismatch starts to bite. Three new comment headers (page.tsx,
+  ContactClient.tsx, actions.ts) explicitly flag this so a future
+  reader doesn't trip over the asymmetry.
+- **Doc sweep:** the F1 note about "Contact label points at
+  /tracking until F3" updated to reflect that F3 has landed.
+  Historical V1 entries (Phase B, etc.) keep their original
+  `/tracking` references — they describe what shipped at the
+  time and shouldn't be rewritten.
+- **Verified:** `tsc --noEmit` + `eslint src` clean. Every
+  `/tracking` left in `src/` is either a `@/lib/tracking` import
+  (correct) or a "was `/tracking` pre-F3" comment header.
+
+### F4 — Workflow color palette (D-053)
+
+Five new workflow accent hex values. Pure data change — every UI
+surface already reads `workflow.accent` from the DB, so the colors
+update everywhere as soon as the rows do.
+
+The new palette:
+
+- **RE Media** — `#c9922a` (brand gold, the Sharp pillar's Media accent)
+- **Corp HS** — `#8b5cf6` (violet)
+- **Story Portraits** — `#38bdf8` (brand cyan, the Photos pillar)
+- **The Saga** — `#dc2626` (dramatic red)
+- **The 10% Rule** — `#ec4899` (fuchsia)
+
+Changes:
+
+- **`scripts/db-seed.mjs`** — `accent` values on the five
+  workflow seed entries updated to the D-053 hex codes. Fresh
+  installs (`npm run db:seed`) pick these up.
+- **`src/lib/db/schema.sql`** — new idempotent migration block
+  at the bottom. Each `UPDATE workflows SET accent = …` is
+  guarded by `WHERE workflow_key = … AND accent = '<V1 default>'`,
+  so a super-admin who's already customized an accent (via
+  hand-SQL or a future accent editor on `/rates`) keeps their
+  edit. The V1 defaults the migration looks for:
+  `#64748b` (RE), `#0ea5e9` (Corp), `#c25f3e` (Story),
+  `#a0462a` (Saga), `#10b981` (10%).
+- **Note on the Saga × workflow-row conflict:** dramatic red
+  collides with the rejected-state styling for table rows.
+  F7's REJECTED badge + 55% opacity treatment (D-055) is the
+  disambiguation; the seed comment flags it inline.
+
+No code changes anywhere else — every consumer (workflow tabs on
+Sourcing, Qualify pickers, Contact column heads, Clients rows,
+Dashboard panels) reads `workflow.accent` from the workflows
+table and renders whatever's there.
+
+### F5 — Contact page rebuild (D-047, D-048, D-049, D-050, D-051)
+
+Four decisions land together in this phase. Each is independent but
+all touch `/contact` so they ride one commit.
+
+- **D-047 — Email first-touch wording overhaul.** The real-estate
+  first-touch sales-pitch paragraph swaps "I shoot real estate
+  media in the 121 corridor — …" for **"Sharp Sighted Media shoots
+  real estate media in the 121 corridor, from Allen to Southlake.
+  The base package delivers stills, aerial, floor plan, twilight,
+  and a vertical reel, all delivered within 24 hours. One shoot,
+  five deliverables, MLS-ready."** Brand-agnostic phrasing —
+  reps send the message, not Dean. Update lands in
+  `scripts/db-seed.mjs` and as an idempotent `REPLACE()` in
+  `src/lib/db/schema.sql`.
+- **D-048 — Standardized signature.** Every script across every
+  workflow now closes with:
+
+  ```
+  Regards,
+  {{rep_name}} • Sharp Sighted Branch
+  https://sharpsighted.branch
+
+  Stay Sharp. Stay Seen. Stay Human.
+  ```
+
+  The tagline is now the absolute last line. Branch per workflow:
+  real_estate → **Media** (sharpsighted.media), corporate +
+  story_portraits + saga → **Photos** (sharpsighted.photos),
+  ten_percent → **Studio** (sharpsighted.studio). Update covers
+  all 17 seed scripts and a per-workflow `REPLACE()` migration
+  block in schema.sql so live rows pick it up without a re-seed.
+  Migrations preserve manual edits — REPLACE only acts on the V1
+  closing pattern.
+- **D-049 — Navigable cycle-step tabs + inactive-step badges.**
+  Every cycle pill (First touch / Follow-up 1 / Follow-up 2 /
+  Final touch) is now a real button. Clicking an inactive step
+  shows:
+  - **Past step:** the message *as it actually went out* (filled
+    placeholders), plus a green "Already sent · {date}" badge.
+    Required surfacing `filled_subject` + `filled_body` from
+    `prospect_contacts` through the `ContactLog` interface and
+    the page query — they live in the DB but weren't passed to
+    the client until now.
+  - **Future step:** the *template* body, plus a yellow
+    "Send {prevStepLabel} first" badge.
+  - **Current step:** the live composer (original behavior).
+
+  A "← Back to {nextStepLabel}" link returns to the live view.
+  The Log-contact action only renders on the current step — past
+  + future are read-only.
+- **D-050 — "Commit now" on the 20s undo toast.** `UndoProvider`
+  gains a `commitNow(id)` callback that cancels the wait timer
+  and fires the action immediately. The toast renders a
+  `Commit now` btn-primary alongside the existing Undo. Lifecycle
+  moves still get the safety window by default, but the rep is
+  never blocked when they're sure. Sharp-eyed implementation
+  detail: `commitNow` reuses the existing `commit(id)` path so
+  the success/failure handling, route refresh, and resolved
+  promise outcome all stay identical to the timer-driven path.
+- **D-051 — Card list redesign: workflow-color body + urgency
+  dot on the left.** The contact card list moves to:
+  - A new **left-side urgency dot** (`9px`, with a soft glow on
+    `now`/`overdue`). Color reflects how urgent the card is:
+    - **Green** (`now`): reply waiting (replied), first touch
+      ready, or follow-up due within the last 24h.
+    - **Yellow** (`soon`): due within the next 24h.
+    - **Red** (`overdue`): more than 24h past due.
+    - **Faint** (`idle`): waiting > 1 day, or cycle done.
+  - The **workflow accent** colors the card body — a 4px
+    left-stripe + a `10%`-tinted background. Active card uses
+    `1A` tint (~10%), idle uses `0D` tint (~5%), border picks
+    up the accent on active.
+  - Status meta label + score read at the same level as before.
+  - Urgency computed server-side in `computeCycle` — new
+    `CycleUrgency` type (`'now' | 'soon' | 'overdue' | 'idle'`),
+    surfaced via `CycleState.urgency` and `TrackingCard.urgency`.
+
+### F6 — Qualify polish (D-042, D-043, D-044, D-045)
+
+Four decisions, all on `/qualify`. Two of them (D-045 + D-044)
+also tighten the server contract that `/sourcing` shares.
+
+- **D-042 — One-click Qualify at score ≥ 7.** New prominent
+  primary button on the live score panel of `QualifyForm`,
+  visible whenever every entry gate is clear AND the score is
+  ≥ 7 AND the rep hasn't already set `status='qualify'`.
+  Clicking commits `sourcing_status='qualify'` which advances
+  the lifecycle stage to `qualified`. The existing
+  three-button toggle stays for explicit Pursue / Undecided /
+  Reject choices. Required a small refactor of `onSave` to
+  accept an optional `overrideStatus` argument so the shortcut
+  saves the right value without waiting for the local status
+  state to settle.
+- **D-043 — Qualify list filtering.** The "Your prospects"
+  list at the bottom of `/qualify` now:
+  - Hides `sourcing_status='qualify'` (already in the
+    pipeline) and `sourcing_status='reject'` (Sourcing said
+    no) by default. Default view shows pursue + undecided.
+  - Adds a "Pursued only" checkbox toggle that narrows the
+    remaining set to `pursue` alone.
+  - Surfaces a "· N hidden" count next to the section
+    eyebrow so the rep sees what the filter is suppressing.
+  - Required surfacing `sourcing_status` on
+    `ProspectListItem` and the page query.
+- **D-044 — Direct-entry default = `pursue`.** `QualifyClient`
+  passes `initialSourcingStatus="pursue"` (was `"undecided"`)
+  to the create-mode `QualifyForm`. A rep adding a prospect
+  straight on Qualify is here BECAUSE they want to qualify,
+  so the row appears in the default Qualify list right away.
+  The status toggle still lets them change it.
+- **D-045 — Skip override-with-reason when empty.** The
+  override rule (status disagrees with band → ≥20-char reason
+  required) carves out an exception: when no qualifier inputs
+  are filled at all, `band='reject'` (score 0) isn't
+  meaningful and no reason is required. The rule re-engages
+  the moment any qualifier is set.
+  - Consolidated `needsOverride` into `src/lib/sourcing.ts`
+    as the single source of truth — previously duplicated in
+    `QualifyForm`, `SourcingClient`, and `sourcing/actions.ts`.
+    New signature takes an optional `{ rankInputs, factorKeys
+    }` to enable the D-045 carve-out.
+  - QualifyForm passes its full input set + every factor key.
+  - SourcingClient passes the row's `rankInputs` + every
+    factor key at all four call sites (AddProspectForm,
+    pendingReasonOk, handleStatusChange, override-panel
+    render).
+  - The server's `validateOverride` in
+    `sourcing/actions.ts` gains `rankInputs` + `factors`
+    parameters and applies the same rule. The two
+    `needsOverride` call sites that decide whether to keep
+    the override note (createRow + updateRow) also pass the
+    options.
+  - Net effect: same override gate behavior on real cases,
+    but a fresh direct-entry row no longer demands a reason
+    before the rep has touched a single qualifier.
+
+### F7 — Clients re-think (D-054, D-055, D-056)
+
+The master Clients list grows three deliberate cues.
+
+- **D-054 — Workflow color on every row.** Each `Link` card
+  picks up a 4px left-stripe in the workflow accent + a 5%
+  tinted background (same dialect as the F5 Contact card list
+  so the two surfaces read as a family). The existing
+  workflow-name pill stays, but the body color now does the
+  primary identity work — a Story Portraits row and a Saga
+  row read distinct at a glance.
+- **D-055 — Rejected + dormant fade + corner badge.** Rows
+  where `stage='rejected'` render at 55% opacity with a small
+  red "Rejected" corner badge (top-right). Rows where
+  `stage='dormant'` get the same fade with a muted "Dormant"
+  badge. The workflow accent stays visible through the fade
+  so a rejected Saga still reads as a Saga, not as a generic
+  inactive row.
+- **D-056 — "Show inactive" toggle.** Above the list, between
+  the search box and the count: a "Show inactive" checkbox.
+  - Default **off** — rows where `stage='rejected'` or
+    `stage='dormant'` are filtered out so the working list
+    stays focused on live prospects.
+  - When the rep picks an explicit stage from the dropdown
+    (`rejected` or `dormant`), the toggle is bypassed so they
+    can target those stages directly without flipping the
+    box first.
+  - When off and inactive rows exist, the label reads
+    "Show inactive (N hidden)" so the rep sees what's being
+    suppressed.
+
+Row click still navigates to `/prospects/[id]` — that part
+didn't change.
+
+#### F7-b — Cross-workflow Qualify list (inline addition)
+
+After walking the rest of F7, Dean called out the
+scroll-pick-scroll thrash on `/qualify`: switching workflows to
+find a recently-qualified prospect meant tab, scroll, click,
+tab, scroll, click. The "Your prospects" list at the bottom of
+`/qualify` now shows EVERY workflow's prospects, with the
+currently-selected workflow's rows floated to the top. The
+within-group order keeps the server's `ORDER BY created_at
+DESC` (Array#filter is stable).
+
+- Section heading reads "Your prospects · {currentWorkflow}
+  first · N hidden" instead of "Your {currentWorkflow}
+  prospects."
+- New `renderProspectRow` helper carries the row chrome so the
+  same component renders both groups identically. Each row gets
+  the F5/F7 dialect — 4px workflow-accent left-stripe + 5%
+  tinted background — so cross-workflow rows read at a glance.
+  A small workflow-name pill sits next to the stage badge as a
+  redundant cue.
+- Band classification uses the prospect's OWN workflow's bands
+  (each workflow can tune `qualified_min` independently), not
+  the currently-selected workflow's.
+- "Other workflows" eyebrow with a faint top-border sits
+  between the two groups when both have rows.
+- D-043 filter (hide qualify + reject; "Pursued only" narrows)
+  applies across all workflows now. Hidden-count reads cross-
+  workflow.
+
+### F8 — Duplicate-check on add-prospect (D-057)
+
+The server holds the create when it spots a name match within the
+rep's own prospects. The client surfaces a non-blocking warning;
+the rep either backs out or re-submits with an explicit ack flag.
+Owner-scoped — the check only sees the rep's own prospects, never
+another rep's (preserves D-019 visibility).
+
+Server (`sourcing/actions.ts`)
+- `UpsertSourcingRowInput` gains `acknowledgeDuplicates?: boolean`.
+- `UpsertSourcingRowResult` gains `duplicates?: DuplicateProspect[]`.
+- New exported `DuplicateProspect` shape:
+  `{ id, contactName, workflowKey, workflowName, stage, sourcingStatus }`.
+- `createRow` runs a `SELECT … WHERE owner_id = $userId AND
+  lower(contact_name) = lower($name) LIMIT 5` ONLY when
+  `acknowledgeDuplicates !== true`. If matches exist, returns
+  `{ ok: false, duplicates: […] }` (no `error` — the warning is
+  not a failure). Otherwise the create proceeds normally.
+- `updateRow` is untouched — duplicates only matter on insert.
+
+Client — shared `DuplicateWarning` component
+- New `src/components/DuplicateWarning.tsx` carries the panel
+  shape so Sourcing and Qualify render identically. List of
+  matched prospects (workflow name + stage + an `open →` link to
+  `/qualify/[id]`), plus Cancel / "Continue anyway" buttons. Soft
+  warn-styled background + dashed border so the panel reads as
+  "your call," not as a hard error.
+
+Sourcing wire-up
+- `handleSave` in SourcingClient now returns the full
+  `UpsertSourcingRowResult` so AddProspectForm can inspect
+  `.duplicates`.
+- `AddProspectForm` gains `pendingDuplicates` state, a
+  `submitAdd(acknowledgeDuplicates)` helper, and Continue /
+  Cancel handlers that re-submit or dismiss. Panel renders
+  inline under the Add button.
+- TableRow's `onSave` prop return type updated to match (no
+  behavior change there — update never hits the duplicate path).
+
+Qualify wire-up
+- `QualifyForm.onSave` gains a second arg
+  `acknowledgeDuplicates = false`. On a duplicates result, sets
+  `pendingDuplicates` and pauses; doesn't push the error into
+  the regular error slot. Continue re-submits with `true`;
+  Cancel clears the panel.
+- Panel renders under the Save button row.
+- Edit mode (`prospectId != null`) never sees the panel because
+  the server only runs the check in `createRow`.
+
+### F9 — Tutorial block enhancements (D-058)
+
+Two additions to the shared block renderer. Authors get more
+expressive content without writing JSX; every existing
+`HelpBlockList` consumer (HelpBox modals + the tutorial detail
+page at `/tutorials/[slug]`) picks them up for free.
+
+- **New `heading` block type.** Adds
+  `{ kind: 'heading'; text: string; level?: 2 | 3 }` to the
+  HelpBlock union. Level 2 is the default and renders as a small
+  Playfair `h3`; level 3 reads as a sub-beat (`h4`, smaller).
+  Authors use this to break long sections into named beats
+  without introducing a new top-level `HelpSection`.
+- **Inline markdown in paragraph + list + steps + callout text.**
+  Tiny no-library parser recognizes two patterns and emits a
+  React fragment:
+  - `**bold**` → `<strong>bold</strong>`
+  - `[label](url)` → external link with the dotted-accent
+    underline style we use elsewhere
+  Anything else passes through unchanged. The parser walks the
+  input left-to-right; no nesting, no regex-backtracking
+  pitfalls. Applied at render-time in `HelpBox.tsx`, so the
+  registry can stay in plain TypeScript string literals.
+
+Heading text is rendered literally — inline markdown is paragraph-
+level only. Keep heading text short.
+
+### F10 — Tutorial content + Corp HS draft (D-059, D-060)
+
+Both decisions land together in `src/lib/tutorials-content.ts`.
+The shared `HelpBlock` renderer (F9) means heading sub-beats, bold
+phrases, and inline links all render correctly with no additional
+client-side work.
+
+D-059 — Real-estate walkthrough revised
+- Each step ("Source," "Qualify," "Contact," "Send the email")
+  now breaks into named sub-beats with `kind: 'heading'` blocks
+  — "Working a row, top to bottom," "The 20-second window,"
+  "When your call disagrees with the math," etc. Reads more like
+  a manual, less like a wall of text.
+- Bold pulled onto every action verb or noun the rep needs to
+  spot at a glance — toggles, buttons, status names, the
+  threshold numbers.
+- Inline links to `/sourcing`, `/qualify`, `/contact`, `/clients`,
+  `/calculator`, `/rank-factors`, `/scripts`, and the RealTrends
+  ranking. Renders as dotted-accent underline (F9 styling).
+- Updated to match the V2 surface: F2.8.1's row-click-to-edit
+  replaces the old "✎ pencil" copy; F2.8.4's tab tooltip and
+  D-049's navigable cycle tabs are called out; F5's "Commit
+  now" undo button gets a mention; D-051's urgency-dot legend
+  lands in Step 3; D-042's one-click Qualify button gets its own
+  paragraph.
+- Lingering "Tracking" references on Step 4 + "What happens
+  next" now read "Contact."
+
+D-060 — Corp HS walkthrough drafted from scratch
+- Six sections mirroring real-estate's structure (overview →
+  source → qualify → contact → email → next).
+- Source angle is non-RealTrends: **LinkedIn searches**, the
+  Dallas Business Journal's growing-companies coverage,
+  walking-radius, referrals from real-estate clients. Plus a
+  note that the rep should source in small batches (5 firms at
+  a time, not 50) — the qualifier work is heavier than
+  real-estate.
+- Qualify covers the seven Corporate factors verbatim — gates
+  (`has_team_to_shoot`, `weak_team_photos`), headcount (max 40,
+  weighted 3), `professional_services`, `recent_growth`,
+  `brand_refresh`, `in_service_area`, `decision_maker_known`.
+- Contact-cycle section walks the four Corporate scripts in
+  order (First touch / Follow-up 1 / Follow-up 2 / Final touch)
+  with their hooks.
+- Pricing note pins the Team Day base + per-person rate so the
+  rep knows the numbers before the discovery call.
+- Branch attribution reads **Sharp Sighted Photos** throughout
+  (corporate headshots are portrait work, not media work).
+- Closes by explicitly flagging Story Portraits, Saga, and 10%
+  walkthroughs as **post-V2 backlog** so reps don't expect them
+  in this release.
+
+Registry update
+- `TUTORIALS` now exports both. `tutorialIndexFor` returns
+  ready-card for `real_estate` + `corporate`, coming-soon for
+  `story_portraits` / `saga` / `ten_percent`.
+
+### F11 — Mobile pass (D-061)
+
+Limited mobile pass on **Dashboard + Clients only**. Other
+surfaces (Sourcing, Qualify, Contact, the admin tools) stay
+desktop-optimized by design — a rep doing real work belongs at
+a keyboard. The goal here is the phone glance: *"do I need to
+open a laptop today?"*
+
+Approach: three opt-in CSS classes in `globals.css`, applied
+to the two surfaces. Inline styles stay; the classes layer the
+responsive behavior on top.
+
+- **`.list-row-responsive`** — used on Dashboard's follow-up
+  list rows and Clients' row cards. Below 600px, the trailing
+  badge column wraps to a second line, padded under the
+  name+metadata so the visual hierarchy stays intact.
+- **`.list-row-trail`** — marks the trailing column on those
+  rows. Mobile CSS gives it `flex-basis: 100%`, drops it
+  underneath the main column, and pads it to line up with the
+  name column. The Clients row trail wraps three sub-elements
+  (workflow pill + stage badge + date) so they fall together.
+- **`.filter-bar-responsive`** — used on Clients' filter row.
+  Below 600px the select + search input stretch to full
+  width, and inter-control gap tightens.
+
+Plus a tighter `.app-shell-main` padding at narrow widths
+(`1rem 0.85rem` instead of `1.5rem`), and a 44px min-height
+floor on buttons inside the mobile-aware regions.
+
+The Dashboard's pipeline-by-workflow section already used
+`grid-template-columns: repeat(auto-fit, minmax(110px, 1fr))`
+so the stage tiles wrap cleanly without further work.
+
+Out of scope (intentional)
+- /sourcing — batch entry needs a wide table; a phone is the
+  wrong tool for it.
+- /qualify — the deep-work surface needs the side-by-side
+  layout to hold the live score panel next to the form.
+- /contact — the cycle composer needs the desktop layout to
+  keep the copyable subject + body legible.
+- /tutorials, /rates, /packages, /scripts, etc. — admin tools
+  + read-heavy content. Not worth the mobile work in V2.
+
+### F12 — Dashboard + /today merge (D-062, D-063)
+
+The last big phase. The standalone `/today` route folds into the
+Dashboard at `/`, and the route itself goes away. The digest
+computation in `lib/digest.ts` didn't change — it still powers
+both the page (now `/`) and the morning email cron, so the page
+and the email always agree (D-062's intent).
+
+Dashboard rewrite
+- `src/app/page.tsx` now runs `computeDigest(user.id, now)` and
+  the per-rep `digest_email` opt-in alongside the existing
+  pipeline-by-workflow queries — single `Promise.all`.
+- The old "Welcome back / Follow-ups due" two-block layout is
+  replaced by the digest's structured panels:
+  - **Replies waiting on you** — green tag, links to
+    `/prospects/[id]` per item.
+  - **Follow-ups due today** — Due/Ready tag in warn/accent,
+    links to `/contact`, action link "Open Contact →" in the
+    section header.
+  - **Ready to close out** — faint "No reply" tag, links to
+    `/contact`.
+  - **All clear** card with a "Qualify new prospects" CTA when
+    every queue is empty.
+  - **In motion** ambient line — "N prospects mid-cycle, the
+    next comes due in M days."
+- The **pipeline-by-workflow** section is preserved — it's
+  unique to the Dashboard and gives the cross-workflow funnel
+  view the old `/today` page didn't have.
+- The morning brief greeting at the top reads "Good morning,
+  {firstName}" with a day eyebrow ("Tuesday, May 27") instead
+  of "Welcome back."
+- Email opt-in (`DigestOptIn`) renders at the bottom.
+
+File reorganization
+- `src/app/today/page.tsx` + `DigestOptIn.tsx` + `actions.ts` —
+  deleted (git rm).
+- `src/components/DigestOptIn.tsx` — the toggle, moved out of
+  the route so the Dashboard can import it.
+- `src/lib/digest-actions.ts` — `setDigestOptIn` server action,
+  moved out with a `revalidatePath('/')` instead of
+  `'/today'`.
+
+URL + label sweep
+- `src/lib/digest-email.ts` — every `${base}/today` link in the
+  morning email points at `${base}/` now; the "Open Today"
+  button labels read "Open Dashboard."
+- `src/app/api/cron/digest/route.ts` — comment header refreshed.
+- `src/lib/db/schema.sql` — `ops_profiles.digest_email` comment
+  flagged with the F12 fold-in.
+- `src/lib/digest.ts` — header comment refreshed.
+
+Cron unchanged
+- The cron path at `/api/cron/digest` reads prospects + scripts
+  + contacts server-side and emails via Resend. It never
+  touched the page route, so removing `/today` doesn't break
+  it. Vercel Cron entry in `vercel.json` keeps working as-is.
+
+### Pricing & Admin gating — verified, not changed
+- Sidebar already gates the admin section to `super_admin` via
+  `role === 'super_admin'` filtering. Every admin route
+  (`/rates`, `/packages`, `/corporate`, `/rank-factors`,
+  `/scripts`, `/team`) re-checks the role server-side per the V1
+  launch audit. Both layers hold.
+
+### F13 — Verify + finalize
+- `tsc --noEmit` + `eslint src` clean on the full repo.
+- BUILD-PLAN.md §10 gains compact entries for **D-035 →
+  D-067** (D-052 skipped). V2-PLAN.md remains the canonical
+  detail; the §10 entries link back to it.
+- This CHANGELOG's V2 section promoted from "in progress" to
+  a dated release header ("V2 — 2026-05-28"), with the
+  "Setup needed for this release" + "Verified" panels at the
+  top so a fresh reader sees the migration-walk + release
+  status before the per-phase detail.
+- v2.1 backlog: print packages (D-065) — the first thing
+  after V2 merges.
+- Post-v2.1 backlog (out of V2 entirely): Story Portraits /
+  Saga / 10% tutorial walkthroughs; help-box content for the
+  four non-real-estate workflows; cross-sell linked
+  prospects; lib-side `tracking.ts` → `contact.ts` rename to
+  match the F3 route rename.
+
+### Walk this in dev — phase by phase
+
+Accumulated walk-through items per phase. Most rely only on
+running `npm run db:migrate` once; the rest are pure UI or
+content reviews.
+
+- F0: ✓ done. Second Neon project (`ep-divine-rain-aqktp4bn`) is
+  up, schema migrated, `.env.local` swapped. Production stays on
+  the prod project via Vercel env vars.
+- F1: walk the sidebar in dev — confirm the section layout, the
+  sticky bottom controls, and the scroll behavior when the nav is
+  taller than the viewport.
+- F2: walk Sourcing in dev — verify
+  (a) newly-added rows land on top,
+  (b) headers show ↕ / ↑ / ↓,
+  (c) clicking a status toggle on a normal row commits without a
+      save step, and an override case opens the inline panel,
+  (d) clicking a bool checkbox commits immediately,
+  (e) clicking the row body (not on a control) navigates to
+      `/qualify/[id]`,
+  (f) the pencil unlocks edit mode for the other cells and Save
+      commits cleanly,
+  (g) hovering the pencil / status buttons / row shows the custom
+      tooltip instantly,
+  (h) header HelpBox triggers open the sourcing-mode modals, and
+      the field-level triggers on the add-prospect form match.
+  Revise any of the six new help entries in `src/lib/help-content.ts`
+  (`sourcingRealEstate`) — first draft Claude, your voice will
+  refine.
+- F3: walk Contact in dev — visit `/contact`, confirm the page H1
+  reads "Contact," the sidebar highlights "Contact" when you're
+  on it, follow-up Links from Dashboard + Today both land on
+  `/contact`, and the digest email URLs read `…/contact`.
+- F4: run `npm run db:migrate` against the testing DB to pick up
+  the new workflow accent values (the migration is idempotent
+  and only updates rows whose `accent` still matches the V1
+  default — any manual edit you've made is preserved). When
+  V2 merges, the same migration runs against prod via the next
+  deploy. Walk the workflow tabs on Sourcing / Qualify / Contact
+  to confirm the new palette reads right.
+- F12: no migration. Pull up `/` — the brief reads as the old
+  `/today` brief did (greeting, replies, follow-ups due,
+  close-outs, all-clear), with the pipeline-by-workflow section
+  underneath. Confirm the opt-in toggle still saves. If the
+  next morning email arrives, the "Open Dashboard" link should
+  land on `/` instead of the dead `/today`.
+- F11: no migration — pure CSS + small wrapping. Pull up
+  `/` and `/clients` on a phone (or a narrow browser window).
+  Confirm rows stack cleanly, the filter bar on Clients
+  doesn't crowd, and buttons feel large enough to tap.
+- F10: no migration — content-only. Walk both tutorials at
+  `/tutorials/real_estate` and `/tutorials/corporate`. The
+  real-estate one should read familiar but with more breathing
+  room (headings, bold). The Corp HS one is brand new — give
+  it a Dean-revise pass before reps see it.
+- F9: no migration. Pure renderer change. Confirm an existing
+  HelpBox modal still reads the same (paragraphs that don't
+  contain `**` or `[...](...)` are unchanged). Once F10 lands
+  revised content using the new vocabulary, the heading + bold
+  + link affordances will start showing up across `/tutorials`
+  and on the per-field help modals.
+- F8: no migration needed — pure code change. Walk it by adding
+  a prospect whose name matches one you already own (on
+  `/sourcing` and on `/qualify`); confirm the warning panel
+  surfaces inline with the matched rows + workflow + stage and
+  that Cancel dismisses while Continue anyway commits. Confirm
+  the check doesn't fire for another rep's prospect with the
+  same name (owner-scoped).
+- F7: no migration needed — pure UI. Walk `/clients`: each row
+  now wears its workflow accent (4px left-stripe + tinted
+  body); rejected/dormant rows render at 55% opacity with a
+  corner badge; the "Show inactive" checkbox at the top of
+  the filter row toggles their visibility. Confirm a rejected
+  row STILL reads as its workflow (not a generic gray row),
+  and confirm "Show inactive" reports the hidden count
+  honestly.
+- F6: no migration needed — pure code change. Walk `/qualify`:
+  - On the create form, hit Save without filling any
+    qualifier and confirm no reason is demanded (D-045).
+  - Confirm a brand-new direct-entry row lands in the default
+    list (status now defaults to pursue — D-044).
+  - Score a row to ≥ 7 and confirm the prominent "Qualify
+    this prospect" button appears on the score panel (D-042).
+  - Toggle "Pursued only" and confirm the list narrows;
+    confirm hidden-count badge reads honestly.
+  - Also walk `/sourcing`: status toggles on rows with no
+    qualifiers filled should no longer trigger the override
+    panel.
+- F5: same `npm run db:migrate` picks up the email overhaul
+  (D-047) + standardized signature (D-048) on every script row
+  whose body still matches the V1 closing pattern. Then walk
+  `/contact`: confirm the live composer reads with the new
+  signature, the cycle pills are navigable (click an inactive
+  step to view past as-sent or future template), an undo toast
+  shows the **Commit now** button next to Undo, and the card
+  list shows the urgency dot on the left + workflow-accent body.
+  Vitest's tracking suite can't run in my sandbox right now
+  (rolldown native binding loader bug); please run
+  `npm test src/lib/tracking.test.ts` locally to confirm the
+  new `urgency` field doesn't break expectations — if a test
+  pinned the literal shape of `CycleState`, it'll need a small
+  update for the added field.
+
+---
+
 ## 2026-05-26 — V1 Sourcing close
 
 The Sourcing redesign that wraps V1 on master. After this lands, V2

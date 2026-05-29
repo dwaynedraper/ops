@@ -100,7 +100,8 @@ CREATE TABLE IF NOT EXISTS verification_token (
 -- A rep is NEVER deleted — prospects, contacts, and quotes must stay
 -- attributable for pay and dispute records.
 --
--- `digest_email` is the per-rep opt-in for the morning /today digest.
+-- `digest_email` is the per-rep opt-in for the morning Dashboard
+-- digest (was /today before V2 F12 / D-063 folded that route in).
 CREATE TABLE IF NOT EXISTS ops_profiles (
   user_id      UUID PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
   role         TEXT NOT NULL DEFAULT 'partner'
@@ -888,4 +889,128 @@ BEGIN
   -- branded_email dropped from the model — redundant with pro_website.
   UPDATE rank_factors SET active = false
     WHERE workflow_key = 'real_estate' AND key = 'branded_email' AND active = true;
+END $$;
+
+-- ────────────────────────────────────────────────────────────────────
+-- V2 F4 — workflow color palette (D-053).
+--
+-- Brings existing workflow rows up to the new accent palette: gold for
+-- RE Media (Sharp pillar), violet for Corp HS, brand cyan for Story
+-- Portraits (Seen / Photos pillar), dramatic red for The Saga, and
+-- fuchsia for The 10% Rule (contribution, not sales).
+--
+-- Each UPDATE is conditional on the original V1 default, so any manual
+-- accent edit a super-admin has already made (via hand-SQL, or any
+-- future /rates accent editor) is preserved. Idempotent — safe to
+-- re-run.
+-- ────────────────────────────────────────────────────────────────────
+DO $$
+BEGIN
+  -- RE Media: steel → brand gold.
+  UPDATE workflows SET accent = '#c9922a'
+    WHERE workflow_key = 'real_estate' AND accent = '#64748b';
+
+  -- Corporate Headshots: cyan → violet (frees brand cyan for portraits).
+  UPDATE workflows SET accent = '#8b5cf6'
+    WHERE workflow_key = 'corporate' AND accent = '#0ea5e9';
+
+  -- Story Portraits: terracotta → brand cyan (the Seen pillar).
+  UPDATE workflows SET accent = '#38bdf8'
+    WHERE workflow_key = 'story_portraits' AND accent = '#c25f3e';
+
+  -- The Saga: rust → dramatic red.
+  UPDATE workflows SET accent = '#dc2626'
+    WHERE workflow_key = 'saga' AND accent = '#a0462a';
+
+  -- The 10% Rule: emerald → fuchsia.
+  UPDATE workflows SET accent = '#ec4899'
+    WHERE workflow_key = 'ten_percent' AND accent = '#10b981';
+END $$;
+
+-- ────────────────────────────────────────────────────────────────────
+-- V2 F5 — email template overhaul (D-047, D-048).
+--
+-- Two changes, both delivered via idempotent REPLACE() so manual edits
+-- a super-admin has made via /scripts are preserved:
+--
+-- 1. D-047: the real-estate first-touch sales-pitch paragraph swaps
+--    "I shoot real estate media in the 121 corridor — …" for
+--    "Sharp Sighted Media shoots real estate media in the 121
+--    corridor, from Allen to Southlake. …". Brand-agnostic phrasing
+--    since reps send it, not Dean.
+--
+-- 2. D-048: standardized signature block on every script. The V1
+--    closing was tagline → rep_name • Sharp Sighted [Branch]
+--    (followed by a bare-host URL on real-estate first-touch only).
+--    The V2 closing is:
+--
+--      Regards,
+--      {{rep_name}} • Sharp Sighted Branch
+--      https://sharpsighted.branch
+--
+--      Stay Sharp. Stay Seen. Stay Human.
+--
+--    The tagline is now the final line. Branch is per-workflow:
+--    real_estate → Media, corporate/story_portraits/saga → Photos,
+--    ten_percent → Studio.
+--
+-- Each REPLACE() is idempotent: if a rep has edited the body so the
+-- old pattern doesn't appear, nothing changes. Safe to re-run.
+-- ────────────────────────────────────────────────────────────────────
+DO $$
+BEGIN
+  -- D-047 — real-estate first-touch paragraph.
+  UPDATE contact_scripts
+  SET body = REPLACE(
+    body,
+    'I shoot real estate media in the 121 corridor — stills, aerial, floor plan, twilight, and a vertical reel, all delivered within 24 hours. One shoot, five deliverables, MLS-ready.',
+    'Sharp Sighted Media shoots real estate media in the 121 corridor, from Allen to Southlake. The base package delivers stills, aerial, floor plan, twilight, and a vertical reel, all delivered within 24 hours. One shoot, five deliverables, MLS-ready.'
+  )
+  WHERE workflow_key = 'real_estate' AND stage_key = 'first_touch';
+
+  -- D-048 — standardize signatures. Order matters: replace the longest
+  -- pattern (real-estate first-touch with the bare-host URL line)
+  -- first so the shorter patterns don't claim its match.
+  UPDATE contact_scripts
+  SET body = REPLACE(
+    body,
+    E'Stay Sharp. Stay Seen. Stay Human.\n{{rep_name}} · Sharp Sighted Media\nsharpsighted.media',
+    E'Regards,\n{{rep_name}} • Sharp Sighted Media\nhttps://sharpsighted.media\n\nStay Sharp. Stay Seen. Stay Human.'
+  )
+  WHERE workflow_key = 'real_estate';
+
+  UPDATE contact_scripts
+  SET body = REPLACE(
+    body,
+    E'Stay Sharp. Stay Seen. Stay Human.\n{{rep_name}} · Sharp Sighted Media',
+    E'Regards,\n{{rep_name}} • Sharp Sighted Media\nhttps://sharpsighted.media\n\nStay Sharp. Stay Seen. Stay Human.'
+  )
+  WHERE workflow_key = 'real_estate';
+
+  UPDATE contact_scripts
+  SET body = REPLACE(
+    body,
+    E'Stay Sharp. Stay Seen. Stay Human.\n{{rep_name}} · Sharp Sighted Photos',
+    E'Regards,\n{{rep_name}} • Sharp Sighted Photos\nhttps://sharpsighted.photos\n\nStay Sharp. Stay Seen. Stay Human.'
+  )
+  WHERE workflow_key = 'story_portraits';
+
+  -- corporate + saga both used the bare "· Sharp Sighted" V1 closing
+  -- and both move to "Sharp Sighted Photos" in V2.
+  UPDATE contact_scripts
+  SET body = REPLACE(
+    body,
+    E'Stay Sharp. Stay Seen. Stay Human.\n{{rep_name}} · Sharp Sighted',
+    E'Regards,\n{{rep_name}} • Sharp Sighted Photos\nhttps://sharpsighted.photos\n\nStay Sharp. Stay Seen. Stay Human.'
+  )
+  WHERE workflow_key IN ('corporate', 'saga');
+
+  -- ten_percent moves to Sharp Sighted Studio.
+  UPDATE contact_scripts
+  SET body = REPLACE(
+    body,
+    E'Stay Sharp. Stay Seen. Stay Human.\n{{rep_name}} · Sharp Sighted',
+    E'Regards,\n{{rep_name}} • Sharp Sighted Studio\nhttps://sharpsighted.studio\n\nStay Sharp. Stay Seen. Stay Human.'
+  )
+  WHERE workflow_key = 'ten_percent';
 END $$;

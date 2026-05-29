@@ -35,34 +35,13 @@ import {
   type ProspectStage,
 } from '@/lib/prospects';
 import {
+  needsOverride,
   stageForSourcingStatus,
   type SourcingStatus,
   type SourcingRow,
 } from '@/lib/sourcing';
 
 const OVERRIDE_MIN_CHARS = 20;
-
-/** True when the status is a "positive" commitment — either Sourcing's
- * "pursue this further" or Qualify's "this is qualified." Both count
- * as positive for the band-disagreement check. */
-function isPositive(status: SourcingStatus): boolean {
-  return status === 'pursue' || status === 'qualify';
-}
-
-/** Per D-028 + the V1 close: when the rep's toggle disagrees with the
- * band's recommendation, a ≥20-char reason is required.
- * - band='qualified' (high score) recommends a positive call;
- *   rejecting it requires a reason.
- * - band='reject' (low score) recommends a reject;
- *   marking it positive (pursue/qualify) requires a reason.
- * - 'undecided' is parking; never an override.
- * - 'borderline' band makes no recommendation. */
-function needsOverride(status: SourcingStatus, band: ScoreBand): boolean {
-  if (status === 'undecided') return false;
-  if (band === 'qualified' && status === 'reject') return true;
-  if (band === 'reject' && isPositive(status)) return true;
-  return false;
-}
 
 /* ── Input + result ────────────────────────────────────────────────── */
 
@@ -83,6 +62,23 @@ export interface UpsertSourcingRowInput {
   /** Patch into `prospects.rank_inputs`. Keys not included keep their
    * existing value. */
   rankInputPatches?: Record<string, boolean | number>;
+  /** D-057: when the client has already seen the duplicate warning
+   * and the rep clicked "Continue anyway", set this to true so the
+   * server skips the duplicate check and proceeds with the create.
+   * Ignored on update (only create runs the check). */
+  acknowledgeDuplicates?: boolean;
+}
+
+/** D-057: a peer prospect already owned by the same rep whose name
+ * matches the one being added. The client renders a small list of
+ * these so the rep can either back out or continue with the create. */
+export interface DuplicateProspect {
+  id: string;
+  contactName: string;
+  workflowKey: string;
+  workflowName: string;
+  stage: ProspectStage;
+  sourcingStatus: SourcingStatus;
 }
 
 export interface UpsertSourcingRowResult {
@@ -91,6 +87,11 @@ export interface UpsertSourcingRowResult {
   /** The full row state after the upsert, so the client can update
    * its local cache without a re-fetch. */
   row?: SourcingRow;
+  /** Set when D-057 found duplicates and the input didn't carry an
+   * `acknowledgeDuplicates: true` flag. `ok` is false in this case
+   * but `error` is null — the warning isn't a failure, just a
+   * "confirm before we create." */
+  duplicates?: DuplicateProspect[];
 }
 
 /* ── Helpers ──────────────────────────────────────────────────────── */
@@ -117,6 +118,16 @@ function clampMoney(v: number | null | undefined): number | null {
 const SOURCING_STATUSES: SourcingStatus[] = ['undecided', 'pursue', 'qualify', 'reject'];
 function isSourcingStatus(v: unknown): v is SourcingStatus {
   return typeof v === 'string' && (SOURCING_STATUSES as readonly string[]).includes(v);
+}
+
+/** Server-side projection of a duplicate prospect (D-057). */
+interface DuplicateRow {
+  id: string;
+  contact_name: string;
+  workflow_key: string;
+  workflow_name: string;
+  stage: ProspectStage;
+  sourcing_status: SourcingStatus;
 }
 
 /* ── Load rank-factor config for a workflow ───────────────────────── */
@@ -205,9 +216,20 @@ function validateOverride(
   patchedStatus: SourcingStatus | undefined,
   band: ScoreBand,
   reasonInput: string | null | undefined,
+  rankInputs: RankInputs,
+  factors: RankFactor[],
 ): string | null {
   if (patchedStatus === undefined) return null;
-  if (!needsOverride(patchedStatus, band)) return null;
+  // D-045: skip the rule when no qualifier inputs are filled (band='reject'
+  // on a fresh row is meaningless until the rep starts scoring).
+  if (
+    !needsOverride(patchedStatus, band, {
+      rankInputs,
+      factorKeys: factors.map((f) => f.key),
+    })
+  ) {
+    return null;
+  }
   const trimmed = (reasonInput ?? '').trim();
   if (trimmed.length < OVERRIDE_MIN_CHARS) {
     return `Your call disagrees with the pre-score band. Add a reason of at least ${OVERRIDE_MIN_CHARS} characters.`;
@@ -253,6 +275,7 @@ interface ExistingRow {
   rank_inputs: RankInputs;
   rank_score: string;
   stage: ProspectStage;
+  created_at: string;
 }
 
 async function createRow(
@@ -274,6 +297,36 @@ async function createRow(
     return { ok: false, error: 'That workflow is no longer available.' };
   }
 
+  // D-057: duplicate-check. Match on lower(contact_name) within the
+  // rep's own prospects. Owner-scoped — preserves the D-019
+  // visibility rule (a rep never sees another rep's prospects, even
+  // for collision-checking). The rep can override by re-submitting
+  // with `acknowledgeDuplicates: true`.
+  if (!input.acknowledgeDuplicates) {
+    const duplicates = await sql<DuplicateRow>`
+      SELECT p.id, p.contact_name, p.workflow_key, p.stage, p.sourcing_status,
+             w.name AS workflow_name
+      FROM prospects p
+      JOIN workflows w ON w.workflow_key = p.workflow_key
+      WHERE p.owner_id = ${userId}
+        AND lower(p.contact_name) = lower(${contactName})
+      ORDER BY p.created_at DESC
+      LIMIT 5`;
+    if (duplicates.length > 0) {
+      return {
+        ok: false,
+        duplicates: duplicates.map((d) => ({
+          id: d.id,
+          contactName: d.contact_name,
+          workflowKey: d.workflow_key,
+          workflowName: d.workflow_name,
+          stage: d.stage,
+          sourcingStatus: d.sourcing_status,
+        })),
+      };
+    }
+  }
+
   const [factors, bands] = await Promise.all([
     loadWorkflowFactors(input.workflowKey),
     loadWorkflowBands(input.workflowKey),
@@ -288,13 +341,21 @@ async function createRow(
     : 'undecided';
   const stage = stageForSourcingStatus(status, 'researching');
 
-  // P4.6 override rule: if the caller is patching status into a value
-  // that disagrees with the band, require a ≥20-char reason.
-  const overrideError = validateOverride(input.sourcingStatus, band, input.sourcingNote);
+  // P4.6 override rule (D-045-aware): if the caller is patching status
+  // into a value that disagrees with the band AND any qualifier is
+  // filled, require a ≥20-char reason.
+  const overrideError = validateOverride(
+    input.sourcingStatus,
+    band,
+    input.sourcingNote,
+    rankInputs,
+    factors,
+  );
   if (overrideError) return { ok: false, error: overrideError };
 
   // Reason is meaningful only when overriding; clear it otherwise.
-  const finalNote = needsOverride(status, band)
+  const overrideOpts = { rankInputs, factorKeys: factors.map((f) => f.key) };
+  const finalNote = needsOverride(status, band, overrideOpts)
     ? trimOrNull(input.sourcingNote)
     : null;
 
@@ -317,7 +378,8 @@ async function createRow(
     RETURNING id, workflow_key, contact_name, org_name, market_area,
               sides_count, gross_volume, source_url,
               sourcing_status, sourcing_note,
-              rank_inputs, rank_score::text AS rank_score, stage`;
+              rank_inputs, rank_score::text AS rank_score, stage,
+              created_at::text AS created_at`;
   if (!inserted) return { ok: false, error: 'Could not save that prospect.' };
 
   revalidatePath('/sourcing');
@@ -339,7 +401,8 @@ async function updateRow(
     SELECT id, workflow_key, contact_name, org_name, market_area,
            sides_count, gross_volume, source_url,
            sourcing_status, sourcing_note,
-           rank_inputs, rank_score::text AS rank_score, stage
+           rank_inputs, rank_score::text AS rank_score, stage,
+           created_at::text AS created_at
     FROM prospects WHERE id = ${prospect.id}`;
   if (!existing) return { ok: false, error: 'That prospect is no longer in the pipeline.' };
 
@@ -391,17 +454,27 @@ async function updateRow(
   const { score: newScore } = scoreProspect(factors, newRankInputs);
   const newBand = classifyBand(newScore, bands);
 
-  // P4.6 override rule: when status is being patched into a value that
-  // disagrees with the new band, require a ≥20-char reason. If the rep
-  // is only editing rank inputs (status untouched), existing status
-  // carries forward even if the band shifted.
-  const overrideError = validateOverride(input.sourcingStatus, newBand, input.sourcingNote);
+  // P4.6 override rule (D-045-aware): when status is being patched into
+  // a value that disagrees with the new band AND any qualifier is filled,
+  // require a ≥20-char reason. If the rep is only editing rank inputs
+  // (status untouched), existing status carries forward even if the
+  // band shifted.
+  const overrideError = validateOverride(
+    input.sourcingStatus,
+    newBand,
+    input.sourcingNote,
+    newRankInputs,
+    factors,
+  );
   if (overrideError) return { ok: false, error: overrideError };
 
   // Note carries weight only when overriding. If the current state
   // doesn't constitute an override, drop the note. Otherwise honor the
   // input (if patched) or keep whatever's on the row.
-  const isOverride = needsOverride(newSourcingStatus, newBand);
+  const isOverride = needsOverride(newSourcingStatus, newBand, {
+    rankInputs: newRankInputs,
+    factorKeys: factors.map((f) => f.key),
+  });
   const newSourcingNote = !isOverride
     ? null
     : input.sourcingNote !== undefined
@@ -425,7 +498,8 @@ async function updateRow(
     RETURNING id, workflow_key, contact_name, org_name, market_area,
               sides_count, gross_volume, source_url,
               sourcing_status, sourcing_note,
-              rank_inputs, rank_score::text AS rank_score, stage`;
+              rank_inputs, rank_score::text AS rank_score, stage,
+              created_at::text AS created_at`;
   if (!updated) return { ok: false, error: 'Could not save that prospect.' };
 
   revalidatePath('/sourcing');
@@ -472,5 +546,6 @@ function rowFromExisting(r: ExistingRow, factors: RankFactor[]): SourcingRow {
     rankScore: Number(r.rank_score),
     stage: r.stage,
     hasPartialScore: hasPartial,
+    createdAt: r.created_at,
   };
 }

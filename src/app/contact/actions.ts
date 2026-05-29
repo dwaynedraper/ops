@@ -1,7 +1,8 @@
 'use server';
 
 /**
- * Tracking page server actions — the contact cycle.
+ * Contact page (was `/tracking` pre-F3 / D-046) server actions — the
+ * contact cycle.
  *
  * The app drives the prospect's lifecycle stage; the rep never edits it
  * directly. Logging a touch advances qualified → contacting. Marking a
@@ -58,7 +59,7 @@ export async function logContact(input: {
       await sql`UPDATE prospects SET stage = 'contacting' WHERE id = ${input.prospectId}`;
     }
 
-    revalidatePath('/tracking');
+    revalidatePath('/contact');
     return { ok: true };
   } catch (err) {
     return {
@@ -89,7 +90,7 @@ export async function markResponded(input: {
       UPDATE prospects SET stage = 'responded'
       WHERE id = ${input.prospectId} AND stage IN ('qualified', 'contacting')`;
 
-    revalidatePath('/tracking');
+    revalidatePath('/contact');
     return { ok: true };
   } catch (err) {
     return {
@@ -101,7 +102,7 @@ export async function markResponded(input: {
 
 /**
  * Close out a prospect whose contact cycle ran its course with no reply.
- * Moves it to dormant so it leaves the active tracking board.
+ * Moves it to dormant so it leaves the active contact board.
  */
 export async function closeOut(input: { prospectId: string }): Promise<ActionResult> {
   const loaded = await loadOwnedProspect(input.prospectId);
@@ -112,7 +113,7 @@ export async function closeOut(input: { prospectId: string }): Promise<ActionRes
       UPDATE prospects SET stage = 'dormant'
       WHERE id = ${input.prospectId} AND stage = 'contacting'`;
 
-    revalidatePath('/tracking');
+    revalidatePath('/contact');
     return { ok: true };
   } catch (err) {
     return {
