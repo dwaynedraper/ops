@@ -100,9 +100,13 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
 
     /**
      * Attach role, displayName, and status from ops_profiles to the
-     * session. Runs on every session lookup; cheap because ops_profiles
-     * is small and indexed on user_id (its primary key). A missing
-     * profile defaults to status 'invited' — gated, never silently in.
+     * session — and bump `last_seen_at` to now() as a side effect, so
+     * the admin Team page reflects actual activity (when the user was
+     * last using the tool) instead of their last sign-in.
+     *
+     * Cheap: one UPDATE by primary key with RETURNING, single round
+     * trip. Runs on every session lookup. A missing profile defaults
+     * to status 'invited' — gated, never silently in.
      */
     async session({ session, user }) {
       const profile = await sqlOne<{
@@ -110,7 +114,10 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
         display_name: string | null;
         status: RepStatus;
       }>`
-        SELECT role, display_name, status FROM ops_profiles WHERE user_id = ${user.id}
+        UPDATE ops_profiles
+        SET last_seen_at = now()
+        WHERE user_id = ${user.id}
+        RETURNING role, display_name, status
       `;
       session.user.id = user.id;
       session.user.role = profile?.role ?? 'partner';
