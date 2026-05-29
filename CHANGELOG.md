@@ -426,6 +426,69 @@ also tighten the server contract that `/sourcing` shares.
     but a fresh direct-entry row no longer demands a reason
     before the rep has touched a single qualifier.
 
+### F7 — Clients re-think (D-054, D-055, D-056)
+
+The master Clients list grows three deliberate cues.
+
+- **D-054 — Workflow color on every row.** Each `Link` card
+  picks up a 4px left-stripe in the workflow accent + a 5%
+  tinted background (same dialect as the F5 Contact card list
+  so the two surfaces read as a family). The existing
+  workflow-name pill stays, but the body color now does the
+  primary identity work — a Story Portraits row and a Saga
+  row read distinct at a glance.
+- **D-055 — Rejected + dormant fade + corner badge.** Rows
+  where `stage='rejected'` render at 55% opacity with a small
+  red "Rejected" corner badge (top-right). Rows where
+  `stage='dormant'` get the same fade with a muted "Dormant"
+  badge. The workflow accent stays visible through the fade
+  so a rejected Saga still reads as a Saga, not as a generic
+  inactive row.
+- **D-056 — "Show inactive" toggle.** Above the list, between
+  the search box and the count: a "Show inactive" checkbox.
+  - Default **off** — rows where `stage='rejected'` or
+    `stage='dormant'` are filtered out so the working list
+    stays focused on live prospects.
+  - When the rep picks an explicit stage from the dropdown
+    (`rejected` or `dormant`), the toggle is bypassed so they
+    can target those stages directly without flipping the
+    box first.
+  - When off and inactive rows exist, the label reads
+    "Show inactive (N hidden)" so the rep sees what's being
+    suppressed.
+
+Row click still navigates to `/prospects/[id]` — that part
+didn't change.
+
+#### F7-b — Cross-workflow Qualify list (inline addition)
+
+After walking the rest of F7, Dean called out the
+scroll-pick-scroll thrash on `/qualify`: switching workflows to
+find a recently-qualified prospect meant tab, scroll, click,
+tab, scroll, click. The "Your prospects" list at the bottom of
+`/qualify` now shows EVERY workflow's prospects, with the
+currently-selected workflow's rows floated to the top. The
+within-group order keeps the server's `ORDER BY created_at
+DESC` (Array#filter is stable).
+
+- Section heading reads "Your prospects · {currentWorkflow}
+  first · N hidden" instead of "Your {currentWorkflow}
+  prospects."
+- New `renderProspectRow` helper carries the row chrome so the
+  same component renders both groups identically. Each row gets
+  the F5/F7 dialect — 4px workflow-accent left-stripe + 5%
+  tinted background — so cross-workflow rows read at a glance.
+  A small workflow-name pill sits next to the stage badge as a
+  redundant cue.
+- Band classification uses the prospect's OWN workflow's bands
+  (each workflow can tune `qualified_min` independently), not
+  the currently-selected workflow's.
+- "Other workflows" eyebrow with a faint top-border sits
+  between the two groups when both have rows.
+- D-043 filter (hide qualify + reject; "Pursued only" narrows)
+  applies across all workflows now. Hidden-count reads cross-
+  workflow.
+
 ### Pricing & Admin gating — verified, not changed
 - Sidebar already gates the admin section to `super_admin` via
   `role === 'super_admin'` filtering. Every admin route
@@ -471,6 +534,14 @@ also tighten the server contract that `/sourcing` shares.
   V2 merges, the same migration runs against prod via the next
   deploy. Walk the workflow tabs on Sourcing / Qualify / Contact
   to confirm the new palette reads right.
+- F7: no migration needed — pure UI. Walk `/clients`: each row
+  now wears its workflow accent (4px left-stripe + tinted
+  body); rejected/dormant rows render at 55% opacity with a
+  corner badge; the "Show inactive" checkbox at the top of
+  the filter row toggles their visibility. Confirm a rejected
+  row STILL reads as its workflow (not a generic gray row),
+  and confirm "Show inactive" reports the hidden count
+  honestly.
 - F6: no migration needed — pure code change. Walk `/qualify`:
   - On the create form, hit Save without filling any
     qualifier and confirm no reason is demanded (D-045).

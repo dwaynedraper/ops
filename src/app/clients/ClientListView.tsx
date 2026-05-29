@@ -79,6 +79,10 @@ export function ClientListView({
   );
   const [stage, setStage] = useState<ProspectStage | ''>('');
   const [search, setSearch] = useState('');
+  // D-056: "Show inactive" toggle. Default off — rejected + dormant
+  // are hidden so the working list stays focused on live prospects.
+  // Toggle on reveals both with the D-055 fade + badge treatment.
+  const [showInactive, setShowInactive] = useState(false);
 
   const wfName = useMemo(
     () => new Map(workflows.map((w) => [w.key, w.name])),
@@ -108,12 +112,27 @@ export function ClientListView({
   const filtered = rows.filter((r) => {
     if (!shown.has(r.workflowKey)) return false;
     if (stage && r.stage !== stage) return false;
+    // D-056: hide rejected + dormant unless "Show inactive" is on.
+    // An explicit stage-filter pick overrides the toggle so the rep
+    // can target rejected/dormant directly without flipping the box.
+    if (
+      !showInactive &&
+      !stage &&
+      (r.stage === 'rejected' || r.stage === 'dormant')
+    ) {
+      return false;
+    }
     if (query) {
       const hay = `${r.contactName} ${r.orgName ?? ''}`.toLowerCase();
       if (!hay.includes(query)) return false;
     }
     return true;
   });
+  const hiddenInactiveCount = rows.filter(
+    (r) =>
+      shown.has(r.workflowKey) &&
+      (r.stage === 'rejected' || r.stage === 'dormant'),
+  ).length;
 
   const allShown = shown.size === workflows.length;
 
@@ -213,6 +232,34 @@ export function ClientListView({
           placeholder="Search name or organization…"
           style={{ flex: '1 1 220px', minWidth: 0 }}
         />
+        {/* D-056: Show-inactive toggle. */}
+        <label
+          style={{
+            display: 'inline-flex',
+            alignItems: 'center',
+            gap: '0.4rem',
+            fontSize: '0.74rem',
+            color: 'var(--text-mid)',
+            cursor: 'pointer',
+            whiteSpace: 'nowrap',
+          }}
+        >
+          <input
+            type="checkbox"
+            checked={showInactive}
+            onChange={(e) => setShowInactive(e.target.checked)}
+            style={{ accentColor: 'var(--accent)' }}
+          />
+          <span>
+            Show inactive
+            {!showInactive && hiddenInactiveCount > 0 && (
+              <span style={{ color: 'var(--text-faint)' }}>
+                {' '}
+                ({hiddenInactiveCount} hidden)
+              </span>
+            )}
+          </span>
+        </label>
         <span style={{ fontSize: '0.74rem', color: 'var(--text-faint)', whiteSpace: 'nowrap' }}>
           {filtered.length} of {rows.length}
         </span>
@@ -238,20 +285,61 @@ export function ClientListView({
                   ? 'var(--warn)'
                   : 'var(--text-faint)';
             const accent = wfAccent.get(r.workflowKey) ?? 'var(--text-faint)';
+            // D-055: rejected + dormant render at 55% opacity. The
+            // workflow accent stays visible (so a rejected Saga still
+            // reads as a Saga, not a generic faded row). REJECTED gets
+            // a red corner badge; dormant gets a muted one.
+            const isRejected = r.stage === 'rejected';
+            const isDormant = r.stage === 'dormant';
+            const isInactive = isRejected || isDormant;
             return (
               <Link
                 key={r.id}
                 href={`/prospects/${r.id}`}
-                className="surface-tool"
                 style={{
+                  position: 'relative',
                   display: 'flex',
                   alignItems: 'center',
                   gap: '0.85rem',
-                  padding: '0.7rem 0.9rem',
+                  padding: '0.7rem 0.9rem 0.7rem 0.7rem',
                   textDecoration: 'none',
                   color: 'inherit',
+                  // D-054: workflow accent on every row — 4px left-stripe
+                  // + ~5% tinted background. Same dialect as the Contact
+                  // card list so the two surfaces read as a family.
+                  borderRadius: 'var(--radius-sm)',
+                  border: '1px solid var(--border)',
+                  borderLeft: `4px solid ${accent}`,
+                  background: `${accent}0D`,
+                  opacity: isInactive ? 0.55 : 1,
                 }}
               >
+                {/* D-055: corner badge for rejected/dormant rows. */}
+                {isInactive && (
+                  <span
+                    aria-hidden
+                    style={{
+                      position: 'absolute',
+                      top: 6,
+                      right: 8,
+                      fontSize: '0.55rem',
+                      letterSpacing: '0.18em',
+                      textTransform: 'uppercase',
+                      fontWeight: 700,
+                      color: isRejected ? 'var(--bad)' : 'var(--text-faint)',
+                      border: `1px solid ${isRejected ? 'var(--bad)' : 'var(--text-faint)'}`,
+                      background: isRejected
+                        ? 'rgba(220, 38, 38, 0.08)'
+                        : 'rgba(255, 255, 255, 0.04)',
+                      borderRadius: 'var(--radius-sm)',
+                      padding: '0.1rem 0.4rem',
+                      pointerEvents: 'none',
+                    }}
+                  >
+                    {isRejected ? 'Rejected' : 'Dormant'}
+                  </span>
+                )}
+
                 <span
                   className="money"
                   style={{
@@ -332,6 +420,9 @@ export function ClientListView({
                     minWidth: '3.2rem',
                     textAlign: 'right',
                     flexShrink: 0,
+                    // The corner badge eats into the right edge — give
+                    // the date a touch of room on inactive rows.
+                    paddingTop: isInactive ? '0.55rem' : 0,
                   }}
                 >
                   {r.updatedAtLabel}
