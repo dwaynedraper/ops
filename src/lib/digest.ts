@@ -1,10 +1,11 @@
 /**
  * The morning digest — one rep's brief, computed from the contact cycle.
  *
- * Shared by the /today page (renders it) and the digest cron route
- * (emails it). Owner-scoped: every item belongs to the given rep. Built
- * on the same pure cycle logic as Tracking, so the digest and the board
- * always agree.
+ * Shared by the Dashboard at `/` (renders it as panels — F12 folded the
+ * old `/today` route in via D-063) and the digest cron route (emails
+ * it). Owner-scoped: every item belongs to the given rep. Built on the
+ * same pure cycle logic as Contact, so the digest, the Dashboard, and
+ * the morning email always agree.
  */
 
 import { sql } from '@/lib/db';

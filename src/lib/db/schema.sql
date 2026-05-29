@@ -100,7 +100,8 @@ CREATE TABLE IF NOT EXISTS verification_token (
 -- A rep is NEVER deleted — prospects, contacts, and quotes must stay
 -- attributable for pay and dispute records.
 --
--- `digest_email` is the per-rep opt-in for the morning /today digest.
+-- `digest_email` is the per-rep opt-in for the morning Dashboard
+-- digest (was /today before V2 F12 / D-063 folded that route in).
 CREATE TABLE IF NOT EXISTS ops_profiles (
   user_id      UUID PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
   role         TEXT NOT NULL DEFAULT 'partner'

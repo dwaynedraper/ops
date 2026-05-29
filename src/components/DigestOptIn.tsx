@@ -2,13 +2,16 @@
 
 /**
  * The morning-digest email opt-in — a small toggle at the foot of the
- * /today page. Off by default; a rep turns it on if they want the brief
- * pushed to their inbox each morning as well as living on this page.
+ * Dashboard. Off by default; a rep turns it on if they want the brief
+ * pushed to their inbox each morning as well as living on the page.
+ *
+ * F12 (D-063) moved this from `/today` into a shared component. The
+ * server action lives in `src/lib/digest-actions.ts`.
  */
 
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { setDigestOptIn } from './actions';
+import { setDigestOptIn } from '@/lib/digest-actions';
 
 export function DigestOptIn({ enabled }: { enabled: boolean }) {
   const router = useRouter();
@@ -54,8 +57,8 @@ export function DigestOptIn({ enabled }: { enabled: boolean }) {
           Email me this brief each morning
         </div>
         <div style={{ fontSize: '0.74rem', color: 'var(--text-muted)', marginTop: '0.15rem' }}>
-          Optional. The digest always lives here on Today; this also pushes it to
-          your inbox first thing.
+          Optional. The digest always lives here on the Dashboard; this
+          also pushes it to your inbox first thing.
         </div>
         {error && (
           <div style={{ fontSize: '0.74rem', color: 'var(--bad)', marginTop: '0.3rem' }}>

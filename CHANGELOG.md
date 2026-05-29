@@ -665,6 +665,63 @@ Out of scope (intentional)
 - /tutorials, /rates, /packages, /scripts, etc. — admin tools
   + read-heavy content. Not worth the mobile work in V2.
 
+### F12 — Dashboard + /today merge (D-062, D-063)
+
+The last big phase. The standalone `/today` route folds into the
+Dashboard at `/`, and the route itself goes away. The digest
+computation in `lib/digest.ts` didn't change — it still powers
+both the page (now `/`) and the morning email cron, so the page
+and the email always agree (D-062's intent).
+
+Dashboard rewrite
+- `src/app/page.tsx` now runs `computeDigest(user.id, now)` and
+  the per-rep `digest_email` opt-in alongside the existing
+  pipeline-by-workflow queries — single `Promise.all`.
+- The old "Welcome back / Follow-ups due" two-block layout is
+  replaced by the digest's structured panels:
+  - **Replies waiting on you** — green tag, links to
+    `/prospects/[id]` per item.
+  - **Follow-ups due today** — Due/Ready tag in warn/accent,
+    links to `/contact`, action link "Open Contact →" in the
+    section header.
+  - **Ready to close out** — faint "No reply" tag, links to
+    `/contact`.
+  - **All clear** card with a "Qualify new prospects" CTA when
+    every queue is empty.
+  - **In motion** ambient line — "N prospects mid-cycle, the
+    next comes due in M days."
+- The **pipeline-by-workflow** section is preserved — it's
+  unique to the Dashboard and gives the cross-workflow funnel
+  view the old `/today` page didn't have.
+- The morning brief greeting at the top reads "Good morning,
+  {firstName}" with a day eyebrow ("Tuesday, May 27") instead
+  of "Welcome back."
+- Email opt-in (`DigestOptIn`) renders at the bottom.
+
+File reorganization
+- `src/app/today/page.tsx` + `DigestOptIn.tsx` + `actions.ts` —
+  deleted (git rm).
+- `src/components/DigestOptIn.tsx` — the toggle, moved out of
+  the route so the Dashboard can import it.
+- `src/lib/digest-actions.ts` — `setDigestOptIn` server action,
+  moved out with a `revalidatePath('/')` instead of
+  `'/today'`.
+
+URL + label sweep
+- `src/lib/digest-email.ts` — every `${base}/today` link in the
+  morning email points at `${base}/` now; the "Open Today"
+  button labels read "Open Dashboard."
+- `src/app/api/cron/digest/route.ts` — comment header refreshed.
+- `src/lib/db/schema.sql` — `ops_profiles.digest_email` comment
+  flagged with the F12 fold-in.
+- `src/lib/digest.ts` — header comment refreshed.
+
+Cron unchanged
+- The cron path at `/api/cron/digest` reads prospects + scripts
+  + contacts server-side and emails via Resend. It never
+  touched the page route, so removing `/today` doesn't break
+  it. Vercel Cron entry in `vercel.json` keeps working as-is.
+
 ### Pricing & Admin gating — verified, not changed
 - Sidebar already gates the admin section to `super_admin` via
   `role === 'super_admin'` filtering. Every admin route
@@ -710,6 +767,12 @@ Out of scope (intentional)
   V2 merges, the same migration runs against prod via the next
   deploy. Walk the workflow tabs on Sourcing / Qualify / Contact
   to confirm the new palette reads right.
+- F12: no migration. Pull up `/` — the brief reads as the old
+  `/today` brief did (greeting, replies, follow-ups due,
+  close-outs, all-clear), with the pipeline-by-workflow section
+  underneath. Confirm the opt-in toggle still saves. If the
+  next morning email arrives, the "Open Dashboard" link should
+  land on `/` instead of the dead `/today`.
 - F11: no migration — pure CSS + small wrapping. Pull up
   `/` and `/clients` on a phone (or a narrow browser window).
   Confirm rows stack cleanly, the filter bar on Clients

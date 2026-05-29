@@ -1,25 +1,26 @@
 import Link from 'next/link';
 import { redirect } from 'next/navigation';
 import { auth } from '@/auth';
-import { sql } from '@/lib/db';
+import { sql, sqlOne } from '@/lib/db';
 import { Sidebar } from '@/components/Sidebar';
 import { Footer } from '@/components/Footer';
+import { DigestOptIn } from '@/components/DigestOptIn';
 import { STAGE_LABEL, type ProspectStage } from '@/lib/prospects';
-import {
-  computeCycle,
-  statusRank,
-  type ContactScript,
-  type ContactChannel,
-  type CycleContact,
-  type TrackingStatus,
-} from '@/lib/tracking';
+import { computeDigest, type DigestItem } from '@/lib/digest';
 
 /**
- * Dashboard — the daily working surface, multi-workflow.
+ * Dashboard — the daily working surface (D-062, D-063).
  *
- * Owner-scoped (D-019): every count and queue is the signed-in rep's own
- * pipeline. Follow-ups are cross-workflow and urgency-sorted; the pipeline
- * is grouped by workflow, each reading its own qualified target.
+ * V2 (F12) folded the standalone /today route into the Dashboard. The
+ * digest computation in `lib/digest.ts` is unchanged — it still
+ * powers both this page and the morning email cron, so the page and
+ * the email always agree.
+ *
+ * Owner-scoped (D-019): every count and queue is the signed-in rep's
+ * own pipeline. The digest panels (replies, follow-ups, close-outs)
+ * carry the "what needs you today" intent; the pipeline-by-workflow
+ * section underneath gives the cross-workflow funnel view that the
+ * old /today page didn't have.
  */
 export const dynamic = 'force-dynamic';
 
@@ -39,32 +40,7 @@ interface TargetRow {
   workflow_key: string;
   value: string;
 }
-interface ScriptRow {
-  workflow_key: string;
-  stage_key: string;
-  label: string;
-  channel: ContactChannel;
-  step_order: number;
-  followup_after_days: number;
-  subject: string | null;
-  body: string;
-}
-interface CycleProspectRow {
-  id: string;
-  workflow_key: string;
-  contact_name: string;
-  org_name: string | null;
-  stage: ProspectStage;
-  rank_score: string;
-}
-interface ContactRow {
-  prospect_id: string;
-  step_key: string;
-  sent_at: Date;
-  response_received: boolean;
-}
 
-const CYCLE_STAGES = ['qualified', 'contacting', 'responded'] as const;
 const QUALIFIED_STAGES: ProspectStage[] = [
   'qualified',
   'contacting',
@@ -81,15 +57,11 @@ const TILE_STAGES: ProspectStage[] = [
   'client',
 ];
 
-interface FollowUp {
-  id: string;
-  workflowKey: string;
-  contactName: string;
-  orgName: string | null;
-  rankScore: number;
-  status: TrackingStatus;
-  nextLabel: string;
-}
+const DATE_FMT = new Intl.DateTimeFormat('en-US', {
+  weekday: 'long',
+  month: 'long',
+  day: 'numeric',
+});
 
 export default async function Dashboard() {
   const session = await auth();
@@ -105,7 +77,12 @@ export default async function Dashboard() {
     redirect('/signin');
   }
 
-  const [workflowRows, countRows, targetRows, scriptRows, cycleRows] = await Promise.all([
+  const now = new Date();
+  // F12 (D-063): the digest computation lives in `lib/digest.ts` and
+  // is shared with the morning-email cron route, so the page and the
+  // email always agree. The Dashboard runs it alongside the pipeline
+  // queries.
+  const [workflowRows, countRows, targetRows, digest, profile] = await Promise.all([
     sql<WorkflowRow>`
       SELECT workflow_key, name, accent FROM workflows
       WHERE active = true ORDER BY sort_order, name`,
@@ -116,16 +93,9 @@ export default async function Dashboard() {
       GROUP BY workflow_key, stage`,
     sql<TargetRow>`
       SELECT workflow_key, value FROM rank_config WHERE key = 'qualified_target_count'`,
-    sql<ScriptRow>`
-      SELECT workflow_key, stage_key, label, channel, step_order, followup_after_days,
-             subject, body
-      FROM contact_scripts
-      WHERE active = true
-      ORDER BY workflow_key, step_order`,
-    sql<CycleProspectRow>`
-      SELECT id, workflow_key, contact_name, org_name, stage, rank_score
-      FROM prospects
-      WHERE owner_id = ${user.id} AND stage = ANY(${[...CYCLE_STAGES]})`,
+    computeDigest(user.id, now),
+    sqlOne<{ digest_email: boolean }>`
+      SELECT digest_email FROM ops_profiles WHERE user_id = ${user.id}`,
   ]);
 
   // workflow_key → stage → count
@@ -139,69 +109,19 @@ export default async function Dashboard() {
 
   const targetByWf = new Map(targetRows.map((r) => [r.workflow_key, Number(r.value)]));
 
-  // Scripts grouped by workflow.
-  const scriptsByWf: Record<string, ContactScript[]> = {};
-  for (const r of scriptRows) {
-    (scriptsByWf[r.workflow_key] ??= []).push({
-      id: '',
-      stageKey: r.stage_key,
-      label: r.label,
-      channel: r.channel,
-      stepOrder: r.step_order,
-      followupAfterDays: r.followup_after_days,
-      subject: r.subject,
-      body: r.body,
-    });
+  // Digest breakdown for the morning brief (D-063 — folded in from
+  // the old /today route).
+  const { replies, dueNow, closeOuts, waiting, soonestWait, allClear } = digest;
+  const summaryParts: string[] = [];
+  if (replies.length > 0) {
+    summaryParts.push(`${replies.length} repl${replies.length === 1 ? 'y' : 'ies'} to act on`);
   }
-
-  // Follow-ups due — across workflows, computed against each one's scripts.
-  const cycleIds = cycleRows.map((p) => p.id);
-  const contactRows =
-    cycleIds.length > 0
-      ? await sql<ContactRow>`
-          SELECT prospect_id, step_key, sent_at, response_received
-          FROM prospect_contacts
-          WHERE prospect_id = ANY(${cycleIds})`
-      : [];
-
-  const contactsByProspect = new Map<string, CycleContact[]>();
-  for (const c of contactRows) {
-    const list = contactsByProspect.get(c.prospect_id) ?? [];
-    list.push({
-      stepKey: c.step_key,
-      sentAt: new Date(c.sent_at),
-      responseReceived: c.response_received,
-    });
-    contactsByProspect.set(c.prospect_id, list);
+  if (dueNow.length > 0) {
+    summaryParts.push(`${dueNow.length} follow-up${dueNow.length === 1 ? '' : 's'} due`);
   }
-
-  const now = new Date();
-  const followUps: FollowUp[] = [];
-  for (const p of cycleRows) {
-    const cycle = computeCycle(
-      scriptsByWf[p.workflow_key] ?? [],
-      contactsByProspect.get(p.id) ?? [],
-      p.stage,
-      now,
-    );
-    if (cycle.status === 'ready' || cycle.status === 'due') {
-      followUps.push({
-        id: p.id,
-        workflowKey: p.workflow_key,
-        contactName: p.contact_name,
-        orgName: p.org_name,
-        rankScore: Number(p.rank_score),
-        status: cycle.status,
-        nextLabel: cycle.nextScript?.label ?? 'Next touch',
-      });
-    }
+  if (closeOuts.length > 0) {
+    summaryParts.push(`${closeOuts.length} to close out`);
   }
-  followUps.sort((a, b) => {
-    const r = statusRank(a.status) - statusRank(b.status);
-    return r !== 0 ? r : b.rankScore - a.rankScore;
-  });
-
-  const wfByKey = new Map(workflowRows.map((w) => [w.workflow_key, w]));
 
   return (
     <div className="app-shell">
@@ -211,7 +131,7 @@ export default async function Dashboard() {
         <main className="app-shell-main" style={{ flex: 1 }}>
           <div style={{ maxWidth: 1100, margin: '0 auto' }}>
             <div className="eyebrow" style={{ marginBottom: '0.5rem' }}>
-              Dashboard
+              {DATE_FMT.format(now)}
             </div>
             <h1
               style={{
@@ -222,126 +142,93 @@ export default async function Dashboard() {
                 marginBottom: '0.5rem',
               }}
             >
-              Welcome back, <em style={{ color: 'var(--accent)' }}>{firstName || 'partner'}</em>.
+              Good morning, <em style={{ color: 'var(--accent)' }}>{firstName || 'partner'}</em>.
             </h1>
             <p style={{ color: 'var(--text-mid)', marginBottom: '2rem', maxWidth: '52ch' }}>
-              Who needs you today, and where each workflow stands. Start at the top
-              of the list and work down.
+              {allClear
+                ? 'Nothing is waiting on you this morning — a clean slate.'
+                : `Your morning brief: ${summaryParts.join(' · ')}.`}
             </p>
 
-            {/* ─── Follow-ups due ────────────────────────────────────── */}
-            <section style={{ marginBottom: '2rem' }}>
-              <div
-                style={{
-                  display: 'flex',
-                  alignItems: 'baseline',
-                  justifyContent: 'space-between',
-                  gap: '1rem',
-                  marginBottom: '0.85rem',
-                }}
+            {/* ─── Replies waiting on you (D-063) ────────────────────── */}
+            {replies.length > 0 && (
+              <DigestSection
+                title="Replies waiting on you"
+                hint="Someone wrote back — take it to their client page and quote the work."
               >
-                <div className="eyebrow">Follow-ups due</div>
-                {followUps.length > 0 && (
-                  <Link href="/contact" className="btn-ghost" style={{ padding: '0.2rem 0' }}>
-                    Open Contact →
-                  </Link>
-                )}
-              </div>
+                {replies.map((i) => (
+                  <DigestRow
+                    key={i.id}
+                    item={i}
+                    href={`/prospects/${i.id}`}
+                    tag="Replied"
+                    tagColor="var(--good)"
+                  />
+                ))}
+              </DigestSection>
+            )}
 
-              {followUps.length === 0 ? (
-                <div className="surface-card">
-                  <p style={{ fontSize: '0.86rem', color: 'var(--text-muted)' }}>
-                    Nothing due right now — you&apos;re clear. Qualify new prospects,
-                    or let an open follow-up window come around.
-                  </p>
-                </div>
-              ) : (
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '0.4rem' }}>
-                  {followUps.map((f) => {
-                    const wf = wfByKey.get(f.workflowKey);
-                    return (
-                      <Link
-                        key={f.id}
-                        href="/contact"
-                        className="surface-tool list-row-responsive"
-                        style={{
-                          display: 'flex',
-                          alignItems: 'center',
-                          gap: '0.85rem',
-                          padding: '0.7rem 0.9rem',
-                          textDecoration: 'none',
-                          color: 'inherit',
-                        }}
-                      >
-                        <span
-                          className="money"
-                          style={{
-                            fontSize: '1rem',
-                            color: 'var(--text-faint)',
-                            minWidth: '2.2rem',
-                            textAlign: 'center',
-                            flexShrink: 0,
-                          }}
-                        >
-                          {f.rankScore.toFixed(1)}
-                        </span>
-                        <span style={{ flex: 1, minWidth: 0 }}>
-                          <span
-                            style={{
-                              display: 'block',
-                              fontSize: '0.88rem',
-                              fontWeight: 600,
-                              color: 'var(--text)',
-                              overflow: 'hidden',
-                              textOverflow: 'ellipsis',
-                              whiteSpace: 'nowrap',
-                            }}
-                          >
-                            {f.contactName}
-                          </span>
-                          <span
-                            style={{
-                              display: 'block',
-                              fontSize: '0.74rem',
-                              color: 'var(--text-muted)',
-                            }}
-                          >
-                            <span
-                              aria-hidden
-                              style={{
-                                display: 'inline-block',
-                                width: 7,
-                                height: 7,
-                                borderRadius: '50%',
-                                background: wf?.accent ?? 'var(--text-faint)',
-                                marginRight: '0.4rem',
-                              }}
-                            />
-                            {wf?.name ?? f.workflowKey}
-                            {f.orgName ? ` · ${f.orgName}` : ''}
-                          </span>
-                        </span>
-                        <span
-                          className="list-row-trail"
-                          style={{
-                            fontSize: '0.62rem',
-                            letterSpacing: '0.12em',
-                            textTransform: 'uppercase',
-                            fontWeight: 700,
-                            color: f.status === 'due' ? 'var(--warn)' : 'var(--accent)',
-                            flexShrink: 0,
-                            display: 'flex',
-                            alignItems: 'center',
-                          }}
-                        >
-                          {f.status === 'due' ? 'Due' : 'Ready'} · {f.nextLabel}
-                        </span>
-                      </Link>
-                    );
-                  })}
-                </div>
-              )}
-            </section>
+            {/* ─── Follow-ups due (D-063) ────────────────────────────── */}
+            {dueNow.length > 0 && (
+              <DigestSection
+                title="Follow-ups due today"
+                hint="Work these top-down — highest score first. The composer is in Contact."
+                action={{ href: '/contact', label: 'Open Contact →' }}
+              >
+                {dueNow.map((i) => (
+                  <DigestRow
+                    key={i.id}
+                    item={i}
+                    href="/contact"
+                    tag={`${i.status === 'due' ? 'Due' : 'Ready'} · ${i.nextLabel}`}
+                    tagColor={i.status === 'due' ? 'var(--warn)' : 'var(--accent)'}
+                  />
+                ))}
+              </DigestSection>
+            )}
+
+            {/* ─── Close-outs (D-063) ────────────────────────────────── */}
+            {closeOuts.length > 0 && (
+              <DigestSection
+                title="Ready to close out"
+                hint="The full cycle ran with no reply. Close them so the board stays honest."
+                action={{ href: '/contact', label: 'Open Contact →' }}
+              >
+                {closeOuts.map((i) => (
+                  <DigestRow
+                    key={i.id}
+                    item={i}
+                    href="/contact"
+                    tag="No reply"
+                    tagColor="var(--text-faint)"
+                  />
+                ))}
+              </DigestSection>
+            )}
+
+            {/* ─── All clear ─────────────────────────────────────────── */}
+            {allClear && (
+              <div className="surface-card" style={{ marginBottom: '1.5rem' }}>
+                <p style={{ fontSize: '0.9rem', color: 'var(--text)', marginBottom: '0.85rem' }}>
+                  No replies, no follow-ups due, nothing to close. The cycle is current.
+                  A good morning to put fresh names in the pipeline.
+                </p>
+                <Link href="/qualify" className="btn-primary">
+                  Qualify new prospects
+                </Link>
+              </div>
+            )}
+
+            {/* ─── In motion (ambient) ───────────────────────────────── */}
+            {waiting.length > 0 && (
+              <p style={{ fontSize: '0.8rem', color: 'var(--text-faint)', marginBottom: '2rem' }}>
+                {waiting.length} prospect{waiting.length === 1 ? ' is' : 's are'} mid-cycle,
+                inside the follow-up window
+                {soonestWait !== null
+                  ? ` — the next comes due in ${soonestWait} day${soonestWait === 1 ? '' : 's'}.`
+                  : '.'}
+              </p>
+            )}
 
             {/* ─── Pipeline by workflow ──────────────────────────────── */}
             <section>
@@ -427,11 +314,139 @@ export default async function Dashboard() {
                 })}
               </div>
             </section>
+
+            {/* ─── Email opt-in (folded from /today, D-063) ─────────── */}
+            <DigestOptIn enabled={profile?.digest_email ?? false} />
           </div>
         </main>
 
         <Footer />
       </div>
     </div>
+  );
+}
+
+// ─── Digest section + row helpers (folded from /today, D-063) ────────
+
+function DigestSection({
+  title,
+  hint,
+  action,
+  children,
+}: {
+  title: string;
+  hint: string;
+  action?: { href: string; label: string };
+  children: React.ReactNode;
+}) {
+  return (
+    <section style={{ marginBottom: '1.75rem' }}>
+      <div
+        style={{
+          display: 'flex',
+          alignItems: 'baseline',
+          justifyContent: 'space-between',
+          gap: '1rem',
+          marginBottom: '0.3rem',
+        }}
+      >
+        <div className="eyebrow">{title}</div>
+        {action && (
+          <Link href={action.href} className="btn-ghost" style={{ padding: '0.2rem 0' }}>
+            {action.label}
+          </Link>
+        )}
+      </div>
+      <p style={{ fontSize: '0.78rem', color: 'var(--text-muted)', marginBottom: '0.7rem' }}>
+        {hint}
+      </p>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: '0.4rem' }}>{children}</div>
+    </section>
+  );
+}
+
+function DigestRow({
+  item,
+  href,
+  tag,
+  tagColor,
+}: {
+  item: DigestItem;
+  href: string;
+  tag: string;
+  tagColor: string;
+}) {
+  return (
+    <Link
+      href={href}
+      className="surface-tool list-row-responsive"
+      style={{
+        display: 'flex',
+        alignItems: 'center',
+        gap: '0.85rem',
+        padding: '0.7rem 0.9rem',
+        textDecoration: 'none',
+        color: 'inherit',
+      }}
+    >
+      <span
+        className="money"
+        style={{
+          fontSize: '1rem',
+          color: 'var(--text-faint)',
+          minWidth: '2.2rem',
+          textAlign: 'center',
+          flexShrink: 0,
+        }}
+      >
+        {item.rankScore.toFixed(1)}
+      </span>
+      <span style={{ flex: 1, minWidth: 0 }}>
+        <span
+          style={{
+            display: 'block',
+            fontSize: '0.88rem',
+            fontWeight: 600,
+            color: 'var(--text)',
+            overflow: 'hidden',
+            textOverflow: 'ellipsis',
+            whiteSpace: 'nowrap',
+          }}
+        >
+          {item.contactName}
+        </span>
+        <span style={{ display: 'block', fontSize: '0.74rem', color: 'var(--text-muted)' }}>
+          <span
+            aria-hidden
+            style={{
+              display: 'inline-block',
+              width: 7,
+              height: 7,
+              borderRadius: '50%',
+              background: item.workflowAccent,
+              marginRight: '0.4rem',
+            }}
+          />
+          {item.workflowName}
+          {item.orgName ? ` · ${item.orgName}` : ''}
+        </span>
+      </span>
+      <span
+        className="list-row-trail"
+        style={{
+          fontSize: '0.62rem',
+          letterSpacing: '0.1em',
+          textTransform: 'uppercase',
+          fontWeight: 700,
+          color: tagColor,
+          flexShrink: 0,
+          textAlign: 'right',
+          display: 'flex',
+          alignItems: 'center',
+        }}
+      >
+        {tag}
+      </span>
+    </Link>
   );
 }
