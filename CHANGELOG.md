@@ -565,6 +565,63 @@ page at `/tutorials/[slug]`) picks them up for free.
 Heading text is rendered literally — inline markdown is paragraph-
 level only. Keep heading text short.
 
+### F10 — Tutorial content + Corp HS draft (D-059, D-060)
+
+Both decisions land together in `src/lib/tutorials-content.ts`.
+The shared `HelpBlock` renderer (F9) means heading sub-beats, bold
+phrases, and inline links all render correctly with no additional
+client-side work.
+
+D-059 — Real-estate walkthrough revised
+- Each step ("Source," "Qualify," "Contact," "Send the email")
+  now breaks into named sub-beats with `kind: 'heading'` blocks
+  — "Working a row, top to bottom," "The 20-second window,"
+  "When your call disagrees with the math," etc. Reads more like
+  a manual, less like a wall of text.
+- Bold pulled onto every action verb or noun the rep needs to
+  spot at a glance — toggles, buttons, status names, the
+  threshold numbers.
+- Inline links to `/sourcing`, `/qualify`, `/contact`, `/clients`,
+  `/calculator`, `/rank-factors`, `/scripts`, and the RealTrends
+  ranking. Renders as dotted-accent underline (F9 styling).
+- Updated to match the V2 surface: F2.8.1's row-click-to-edit
+  replaces the old "✎ pencil" copy; F2.8.4's tab tooltip and
+  D-049's navigable cycle tabs are called out; F5's "Commit
+  now" undo button gets a mention; D-051's urgency-dot legend
+  lands in Step 3; D-042's one-click Qualify button gets its own
+  paragraph.
+- Lingering "Tracking" references on Step 4 + "What happens
+  next" now read "Contact."
+
+D-060 — Corp HS walkthrough drafted from scratch
+- Six sections mirroring real-estate's structure (overview →
+  source → qualify → contact → email → next).
+- Source angle is non-RealTrends: **LinkedIn searches**, the
+  Dallas Business Journal's growing-companies coverage,
+  walking-radius, referrals from real-estate clients. Plus a
+  note that the rep should source in small batches (5 firms at
+  a time, not 50) — the qualifier work is heavier than
+  real-estate.
+- Qualify covers the seven Corporate factors verbatim — gates
+  (`has_team_to_shoot`, `weak_team_photos`), headcount (max 40,
+  weighted 3), `professional_services`, `recent_growth`,
+  `brand_refresh`, `in_service_area`, `decision_maker_known`.
+- Contact-cycle section walks the four Corporate scripts in
+  order (First touch / Follow-up 1 / Follow-up 2 / Final touch)
+  with their hooks.
+- Pricing note pins the Team Day base + per-person rate so the
+  rep knows the numbers before the discovery call.
+- Branch attribution reads **Sharp Sighted Photos** throughout
+  (corporate headshots are portrait work, not media work).
+- Closes by explicitly flagging Story Portraits, Saga, and 10%
+  walkthroughs as **post-V2 backlog** so reps don't expect them
+  in this release.
+
+Registry update
+- `TUTORIALS` now exports both. `tutorialIndexFor` returns
+  ready-card for `real_estate` + `corporate`, coming-soon for
+  `story_portraits` / `saga` / `ten_percent`.
+
 ### Pricing & Admin gating — verified, not changed
 - Sidebar already gates the admin section to `super_admin` via
   `role === 'super_admin'` filtering. Every admin route
@@ -610,6 +667,11 @@ level only. Keep heading text short.
   V2 merges, the same migration runs against prod via the next
   deploy. Walk the workflow tabs on Sourcing / Qualify / Contact
   to confirm the new palette reads right.
+- F10: no migration — content-only. Walk both tutorials at
+  `/tutorials/real_estate` and `/tutorials/corporate`. The
+  real-estate one should read familiar but with more breathing
+  room (headings, bold). The Corp HS one is brand new — give
+  it a Dean-revise pass before reps see it.
 - F9: no migration. Pure renderer change. Confirm an existing
   HelpBox modal still reads the same (paragraphs that don't
   contain `**` or `[...](...)` are unchanged). Once F10 lands
