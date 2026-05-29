@@ -364,6 +364,52 @@ function BlockList({ blocks }: { blocks: HelpBlock[] }) {
   );
 }
 
+/** D-058 — tiny inline-markdown parser. Recognizes two patterns
+ * inside paragraph / list-item / steps-item / callout text:
+ *
+ *   **bold**           → <strong>bold</strong>
+ *   [label](url)       → <a target="_blank" rel="noopener…">label</a>
+ *
+ * Anything else passes through as plain text. No nesting, no
+ * regex backtracking pitfalls — the parser walks the input
+ * left-to-right and emits a React fragment of mixed text + nodes.
+ * Authors stay in source-text mode (TypeScript string literals)
+ * without needing JSX in the content registry. */
+const INLINE_MD_RE = /\*\*(.+?)\*\*|\[([^\]]+)\]\(([^)]+)\)/g;
+
+function renderInline(text: string): React.ReactNode {
+  const nodes: React.ReactNode[] = [];
+  let lastIndex = 0;
+  let key = 0;
+  let match: RegExpExecArray | null;
+  INLINE_MD_RE.lastIndex = 0;
+  while ((match = INLINE_MD_RE.exec(text)) !== null) {
+    if (match.index > lastIndex) {
+      nodes.push(text.slice(lastIndex, match.index));
+    }
+    if (match[1] !== undefined) {
+      nodes.push(<strong key={key++}>{match[1]}</strong>);
+    } else if (match[2] !== undefined && match[3] !== undefined) {
+      nodes.push(
+        <a
+          key={key++}
+          href={match[3]}
+          rel="noopener noreferrer"
+          target="_blank"
+          style={{ color: 'var(--accent)', textDecoration: 'underline', textDecorationStyle: 'dotted', textUnderlineOffset: '0.2rem' }}
+        >
+          {match[2]}
+        </a>,
+      );
+    }
+    lastIndex = match.index + match[0].length;
+  }
+  if (lastIndex < text.length) {
+    nodes.push(text.slice(lastIndex));
+  }
+  return nodes.length === 0 ? text : nodes;
+}
+
 function Block({ block }: { block: HelpBlock }) {
   if (block.kind === 'paragraph') {
     return (
@@ -375,8 +421,29 @@ function Block({ block }: { block: HelpBlock }) {
           margin: 0,
         }}
       >
-        {block.text}
+        {renderInline(block.text)}
       </p>
+    );
+  }
+  if (block.kind === 'heading') {
+    // Level 2 default; level 3 reads as a sub-beat.
+    const level = block.level ?? 2;
+    const isLevel3 = level === 3;
+    const Tag = isLevel3 ? 'h4' : 'h3';
+    return (
+      <Tag
+        style={{
+          fontFamily: 'var(--font-playfair), serif',
+          fontWeight: 500,
+          margin: 0,
+          fontSize: isLevel3 ? '0.95rem' : '1.05rem',
+          color: 'var(--text)',
+          letterSpacing: '-0.005em',
+          marginTop: '0.25rem',
+        }}
+      >
+        {block.text}
+      </Tag>
     );
   }
   if (block.kind === 'list') {
@@ -391,7 +458,7 @@ function Block({ block }: { block: HelpBlock }) {
               color: 'var(--text)',
             }}
           >
-            {it}
+            {renderInline(it)}
           </li>
         ))}
       </ul>
@@ -409,7 +476,7 @@ function Block({ block }: { block: HelpBlock }) {
               color: 'var(--text)',
             }}
           >
-            {it}
+            {renderInline(it)}
           </li>
         ))}
       </ol>
@@ -429,7 +496,7 @@ function Block({ block }: { block: HelpBlock }) {
           color: 'var(--text-mid)',
         }}
       >
-        {block.text}
+        {renderInline(block.text)}
       </div>
     );
   }

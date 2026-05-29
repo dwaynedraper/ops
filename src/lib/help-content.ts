@@ -17,7 +17,13 @@ export type HelpBlock =
   | { kind: 'list'; items: string[] }
   | { kind: 'callout'; tone: 'info' | 'warn'; text: string }
   | { kind: 'steps'; items: string[] }
-  | { kind: 'link'; url: string; label: string };
+  | { kind: 'link'; url: string; label: string }
+  /** D-058 — short H2/H3-style header inside a section's body. Default
+   * level is 2; level 3 renders smaller. Authors use this to break up
+   * long sections into named beats without having to introduce a new
+   * top-level HelpSection. Inline markdown isn't parsed on heading
+   * text — keep it short and literal. */
+  | { kind: 'heading'; text: string; level?: 2 | 3 };
 
 export interface HelpSection {
   /** Stable id used by the ToC. */

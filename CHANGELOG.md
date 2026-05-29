@@ -538,6 +538,33 @@ Qualify wire-up
 - Edit mode (`prospectId != null`) never sees the panel because
   the server only runs the check in `createRow`.
 
+### F9 — Tutorial block enhancements (D-058)
+
+Two additions to the shared block renderer. Authors get more
+expressive content without writing JSX; every existing
+`HelpBlockList` consumer (HelpBox modals + the tutorial detail
+page at `/tutorials/[slug]`) picks them up for free.
+
+- **New `heading` block type.** Adds
+  `{ kind: 'heading'; text: string; level?: 2 | 3 }` to the
+  HelpBlock union. Level 2 is the default and renders as a small
+  Playfair `h3`; level 3 reads as a sub-beat (`h4`, smaller).
+  Authors use this to break long sections into named beats
+  without introducing a new top-level `HelpSection`.
+- **Inline markdown in paragraph + list + steps + callout text.**
+  Tiny no-library parser recognizes two patterns and emits a
+  React fragment:
+  - `**bold**` → `<strong>bold</strong>`
+  - `[label](url)` → external link with the dotted-accent
+    underline style we use elsewhere
+  Anything else passes through unchanged. The parser walks the
+  input left-to-right; no nesting, no regex-backtracking
+  pitfalls. Applied at render-time in `HelpBox.tsx`, so the
+  registry can stay in plain TypeScript string literals.
+
+Heading text is rendered literally — inline markdown is paragraph-
+level only. Keep heading text short.
+
 ### Pricing & Admin gating — verified, not changed
 - Sidebar already gates the admin section to `super_admin` via
   `role === 'super_admin'` filtering. Every admin route
@@ -583,6 +610,12 @@ Qualify wire-up
   V2 merges, the same migration runs against prod via the next
   deploy. Walk the workflow tabs on Sourcing / Qualify / Contact
   to confirm the new palette reads right.
+- F9: no migration. Pure renderer change. Confirm an existing
+  HelpBox modal still reads the same (paragraphs that don't
+  contain `**` or `[...](...)` are unchanged). Once F10 lands
+  revised content using the new vocabulary, the heading + bold
+  + link affordances will start showing up across `/tutorials`
+  and on the per-field help modals.
 - F8: no migration needed — pure code change. Walk it by adding
   a prospect whose name matches one you already own (on
   `/sourcing` and on `/qualify`); confirm the warning panel
