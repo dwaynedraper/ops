@@ -40,11 +40,42 @@ lives in `README.md`. This file is the time-ordered receipt.
 
 ---
 
-## V2 — in progress (on the `v2` branch)
+## V2 — 2026-05-28
 
-Live users stay on master/V1 until V2 is merged. Each phase below
-finishes with a clean `tsc --noEmit` + `eslint src` and a doc entry
-in `V2-PLAN.md`.
+The polish-and-fit pass. Every surface V1 had exercised in real use,
+tightened. Fourteen phases (F0 → F13) covering: testing-DB stand-up,
+sidebar restructure, Sourcing polish + revisions, Tracking → Contact
+rename, workflow color palette, Contact page rebuild, Qualify polish,
+Clients re-think + cross-workflow Qualify list, duplicate-check,
+tutorial block enhancements + content (real-estate revised, Corp HS
+drafted), limited mobile pass on Dashboard + Clients, and the
+`/today` → Dashboard merge.
+
+Decisions D-035 → D-067 (D-052 intentionally skipped) recorded in
+**BUILD-PLAN.md §10**. Full per-phase detail below.
+
+### Setup needed for this release
+- Run `npm run db:migrate` against your DATABASE_URL. The migration
+  is **idempotent** end-to-end — every UPDATE is guarded by the V1
+  default value, so manual edits via `/rank-factors` / `/scripts`
+  / hand-SQL are preserved. The three blocks that run:
+  - **F4 / D-053** — `workflows.accent` colors update from V1
+    defaults to the new palette (gold / violet / cyan / red /
+    fuchsia).
+  - **F5 / D-047 + D-048** — real-estate first-touch paragraph
+    rewrites; standardized "Regards, … • Sharp Sighted {Branch} …"
+    signature applies across every script.
+  - All earlier V1 migrations still apply.
+- For local dev, the F0 doc walkthrough in README sets up a separate
+  Neon project so V2 work doesn't touch prod data.
+- Re-seeding (`npm run db:seed`) is optional. The migrations above
+  handle live rows; the seed picks up the same values for fresh
+  installs.
+
+### Verified
+- `tsc --noEmit` and `eslint src` clean on the final pass.
+- Decision log D-035 → D-067 added to BUILD-PLAN §10.
+- Ready to merge `v2` → `main`.
 
 ### F0 — Testing DB setup (docs only)
 - README gains a "Testing database (V2 onward)" section. One-time
@@ -729,10 +760,30 @@ Cron unchanged
   `/scripts`, `/team`) re-checks the role server-side per the V1
   launch audit. Both layers hold.
 
-### Verified
-- `tsc --noEmit` and `eslint src` clean.
+### F13 — Verify + finalize
+- `tsc --noEmit` + `eslint src` clean on the full repo.
+- BUILD-PLAN.md §10 gains compact entries for **D-035 →
+  D-067** (D-052 skipped). V2-PLAN.md remains the canonical
+  detail; the §10 entries link back to it.
+- This CHANGELOG's V2 section promoted from "in progress" to
+  a dated release header ("V2 — 2026-05-28"), with the
+  "Setup needed for this release" + "Verified" panels at the
+  top so a fresh reader sees the migration-walk + release
+  status before the per-phase detail.
+- v2.1 backlog: print packages (D-065) — the first thing
+  after V2 merges.
+- Post-v2.1 backlog (out of V2 entirely): Story Portraits /
+  Saga / 10% tutorial walkthroughs; help-box content for the
+  four non-real-estate workflows; cross-sell linked
+  prospects; lib-side `tracking.ts` → `contact.ts` rename to
+  match the F3 route rename.
 
-### Still on Dean
+### Walk this in dev — phase by phase
+
+Accumulated walk-through items per phase. Most rely only on
+running `npm run db:migrate` once; the rest are pure UI or
+content reviews.
+
 - F0: ✓ done. Second Neon project (`ep-divine-rain-aqktp4bn`) is
   up, schema migrated, `.env.local` swapped. Production stays on
   the prod project via Vercel env vars.
