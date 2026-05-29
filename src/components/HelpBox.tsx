@@ -14,6 +14,7 @@
  */
 
 import { useEffect, useId, useMemo, useState } from 'react';
+import { renderInline } from '@/lib/inline-markdown';
 import {
   getHelpEntry,
   type HelpBlock,
@@ -364,51 +365,9 @@ function BlockList({ blocks }: { blocks: HelpBlock[] }) {
   );
 }
 
-/** D-058 — tiny inline-markdown parser. Recognizes two patterns
- * inside paragraph / list-item / steps-item / callout text:
- *
- *   **bold**           → <strong>bold</strong>
- *   [label](url)       → <a target="_blank" rel="noopener…">label</a>
- *
- * Anything else passes through as plain text. No nesting, no
- * regex backtracking pitfalls — the parser walks the input
- * left-to-right and emits a React fragment of mixed text + nodes.
- * Authors stay in source-text mode (TypeScript string literals)
- * without needing JSX in the content registry. */
-const INLINE_MD_RE = /\*\*(.+?)\*\*|\[([^\]]+)\]\(([^)]+)\)/g;
-
-function renderInline(text: string): React.ReactNode {
-  const nodes: React.ReactNode[] = [];
-  let lastIndex = 0;
-  let key = 0;
-  let match: RegExpExecArray | null;
-  INLINE_MD_RE.lastIndex = 0;
-  while ((match = INLINE_MD_RE.exec(text)) !== null) {
-    if (match.index > lastIndex) {
-      nodes.push(text.slice(lastIndex, match.index));
-    }
-    if (match[1] !== undefined) {
-      nodes.push(<strong key={key++}>{match[1]}</strong>);
-    } else if (match[2] !== undefined && match[3] !== undefined) {
-      nodes.push(
-        <a
-          key={key++}
-          href={match[3]}
-          rel="noopener noreferrer"
-          target="_blank"
-          style={{ color: 'var(--accent)', textDecoration: 'underline', textDecorationStyle: 'dotted', textUnderlineOffset: '0.2rem' }}
-        >
-          {match[2]}
-        </a>,
-      );
-    }
-    lastIndex = match.index + match[0].length;
-  }
-  if (lastIndex < text.length) {
-    nodes.push(text.slice(lastIndex));
-  }
-  return nodes.length === 0 ? text : nodes;
-}
+// D-058 inline-markdown parser lives in `lib/inline-markdown.tsx` so
+// both this renderer and the unit test can pull from the same source.
+// (Import is at the top of the file.)
 
 function Block({ block }: { block: HelpBlock }) {
   if (block.kind === 'paragraph') {
