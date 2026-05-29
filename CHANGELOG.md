@@ -489,6 +489,55 @@ DESC` (Array#filter is stable).
   applies across all workflows now. Hidden-count reads cross-
   workflow.
 
+### F8 — Duplicate-check on add-prospect (D-057)
+
+The server holds the create when it spots a name match within the
+rep's own prospects. The client surfaces a non-blocking warning;
+the rep either backs out or re-submits with an explicit ack flag.
+Owner-scoped — the check only sees the rep's own prospects, never
+another rep's (preserves D-019 visibility).
+
+Server (`sourcing/actions.ts`)
+- `UpsertSourcingRowInput` gains `acknowledgeDuplicates?: boolean`.
+- `UpsertSourcingRowResult` gains `duplicates?: DuplicateProspect[]`.
+- New exported `DuplicateProspect` shape:
+  `{ id, contactName, workflowKey, workflowName, stage, sourcingStatus }`.
+- `createRow` runs a `SELECT … WHERE owner_id = $userId AND
+  lower(contact_name) = lower($name) LIMIT 5` ONLY when
+  `acknowledgeDuplicates !== true`. If matches exist, returns
+  `{ ok: false, duplicates: […] }` (no `error` — the warning is
+  not a failure). Otherwise the create proceeds normally.
+- `updateRow` is untouched — duplicates only matter on insert.
+
+Client — shared `DuplicateWarning` component
+- New `src/components/DuplicateWarning.tsx` carries the panel
+  shape so Sourcing and Qualify render identically. List of
+  matched prospects (workflow name + stage + an `open →` link to
+  `/qualify/[id]`), plus Cancel / "Continue anyway" buttons. Soft
+  warn-styled background + dashed border so the panel reads as
+  "your call," not as a hard error.
+
+Sourcing wire-up
+- `handleSave` in SourcingClient now returns the full
+  `UpsertSourcingRowResult` so AddProspectForm can inspect
+  `.duplicates`.
+- `AddProspectForm` gains `pendingDuplicates` state, a
+  `submitAdd(acknowledgeDuplicates)` helper, and Continue /
+  Cancel handlers that re-submit or dismiss. Panel renders
+  inline under the Add button.
+- TableRow's `onSave` prop return type updated to match (no
+  behavior change there — update never hits the duplicate path).
+
+Qualify wire-up
+- `QualifyForm.onSave` gains a second arg
+  `acknowledgeDuplicates = false`. On a duplicates result, sets
+  `pendingDuplicates` and pauses; doesn't push the error into
+  the regular error slot. Continue re-submits with `true`;
+  Cancel clears the panel.
+- Panel renders under the Save button row.
+- Edit mode (`prospectId != null`) never sees the panel because
+  the server only runs the check in `createRow`.
+
 ### Pricing & Admin gating — verified, not changed
 - Sidebar already gates the admin section to `super_admin` via
   `role === 'super_admin'` filtering. Every admin route
@@ -534,6 +583,13 @@ DESC` (Array#filter is stable).
   V2 merges, the same migration runs against prod via the next
   deploy. Walk the workflow tabs on Sourcing / Qualify / Contact
   to confirm the new palette reads right.
+- F8: no migration needed — pure code change. Walk it by adding
+  a prospect whose name matches one you already own (on
+  `/sourcing` and on `/qualify`); confirm the warning panel
+  surfaces inline with the matched rows + workflow + stage and
+  that Cancel dismisses while Continue anyway commits. Confirm
+  the check doesn't fire for another rep's prospect with the
+  same name (owner-scoped).
 - F7: no migration needed — pure UI. Walk `/clients`: each row
   now wears its workflow accent (4px left-stripe + tinted
   body); rejected/dormant rows render at 55% opacity with a

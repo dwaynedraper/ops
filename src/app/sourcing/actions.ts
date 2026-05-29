@@ -62,6 +62,23 @@ export interface UpsertSourcingRowInput {
   /** Patch into `prospects.rank_inputs`. Keys not included keep their
    * existing value. */
   rankInputPatches?: Record<string, boolean | number>;
+  /** D-057: when the client has already seen the duplicate warning
+   * and the rep clicked "Continue anyway", set this to true so the
+   * server skips the duplicate check and proceeds with the create.
+   * Ignored on update (only create runs the check). */
+  acknowledgeDuplicates?: boolean;
+}
+
+/** D-057: a peer prospect already owned by the same rep whose name
+ * matches the one being added. The client renders a small list of
+ * these so the rep can either back out or continue with the create. */
+export interface DuplicateProspect {
+  id: string;
+  contactName: string;
+  workflowKey: string;
+  workflowName: string;
+  stage: ProspectStage;
+  sourcingStatus: SourcingStatus;
 }
 
 export interface UpsertSourcingRowResult {
@@ -70,6 +87,11 @@ export interface UpsertSourcingRowResult {
   /** The full row state after the upsert, so the client can update
    * its local cache without a re-fetch. */
   row?: SourcingRow;
+  /** Set when D-057 found duplicates and the input didn't carry an
+   * `acknowledgeDuplicates: true` flag. `ok` is false in this case
+   * but `error` is null — the warning isn't a failure, just a
+   * "confirm before we create." */
+  duplicates?: DuplicateProspect[];
 }
 
 /* ── Helpers ──────────────────────────────────────────────────────── */
@@ -96,6 +118,16 @@ function clampMoney(v: number | null | undefined): number | null {
 const SOURCING_STATUSES: SourcingStatus[] = ['undecided', 'pursue', 'qualify', 'reject'];
 function isSourcingStatus(v: unknown): v is SourcingStatus {
   return typeof v === 'string' && (SOURCING_STATUSES as readonly string[]).includes(v);
+}
+
+/** Server-side projection of a duplicate prospect (D-057). */
+interface DuplicateRow {
+  id: string;
+  contact_name: string;
+  workflow_key: string;
+  workflow_name: string;
+  stage: ProspectStage;
+  sourcing_status: SourcingStatus;
 }
 
 /* ── Load rank-factor config for a workflow ───────────────────────── */
@@ -263,6 +295,36 @@ async function createRow(
     WHERE workflow_key = ${input.workflowKey} AND active = true`;
   if (!workflow) {
     return { ok: false, error: 'That workflow is no longer available.' };
+  }
+
+  // D-057: duplicate-check. Match on lower(contact_name) within the
+  // rep's own prospects. Owner-scoped — preserves the D-019
+  // visibility rule (a rep never sees another rep's prospects, even
+  // for collision-checking). The rep can override by re-submitting
+  // with `acknowledgeDuplicates: true`.
+  if (!input.acknowledgeDuplicates) {
+    const duplicates = await sql<DuplicateRow>`
+      SELECT p.id, p.contact_name, p.workflow_key, p.stage, p.sourcing_status,
+             w.name AS workflow_name
+      FROM prospects p
+      JOIN workflows w ON w.workflow_key = p.workflow_key
+      WHERE p.owner_id = ${userId}
+        AND lower(p.contact_name) = lower(${contactName})
+      ORDER BY p.created_at DESC
+      LIMIT 5`;
+    if (duplicates.length > 0) {
+      return {
+        ok: false,
+        duplicates: duplicates.map((d) => ({
+          id: d.id,
+          contactName: d.contact_name,
+          workflowKey: d.workflow_key,
+          workflowName: d.workflow_name,
+          stage: d.stage,
+          sourcingStatus: d.sourcing_status,
+        })),
+      };
+    }
   }
 
   const [factors, bands] = await Promise.all([

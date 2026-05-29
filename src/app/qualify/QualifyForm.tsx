@@ -40,7 +40,11 @@ import {
 } from '@/lib/prospects';
 import { needsOverride, type SourcingStatus } from '@/lib/sourcing';
 import { HelpBox } from '@/components/HelpBox';
-import { upsertSourcingRow } from '@/app/sourcing/actions';
+import {
+  upsertSourcingRow,
+  type DuplicateProspect,
+} from '@/app/sourcing/actions';
+import { DuplicateWarning } from '@/components/DuplicateWarning';
 
 export interface QualifyFormWorkflow {
   key: string;
@@ -122,6 +126,10 @@ export function QualifyForm({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [savedAt, setSavedAt] = useState<number | null>(null);
+  // D-057: same duplicate-warning pattern as Sourcing. Only fires
+  // in create mode (the server check skips update). Reset on
+  // workflow change via the key={wf.key} on the parent.
+  const [pendingDuplicates, setPendingDuplicates] = useState<DuplicateProspect[]>([]);
 
   // Live score from the local draft.
   const scored = scoreProspect(workflow.factors, inputs);
@@ -160,8 +168,16 @@ export function QualifyForm({
    * one-click Qualify path (D-042). The override doesn't reach the
    * needsOverride check because by definition Qualify is a positive
    * call and the rep clicked it at score ≥ 7 — band is qualified or
-   * borderline, neither a forced-reason case. */
-  async function onSave(overrideStatus?: SourcingStatus) {
+   * borderline, neither a forced-reason case.
+   *
+   * D-057: `acknowledgeDuplicates=true` is sent only when the rep
+   * has clicked "Continue anyway" on the warning panel for this
+   * exact submission. Default false — the server holds the create
+   * and returns the duplicates list for any other path. */
+  async function onSave(
+    overrideStatus?: SourcingStatus,
+    acknowledgeDuplicates = false,
+  ) {
     if (!canSave && !overrideStatus) return;
     const effectiveStatus = overrideStatus ?? status;
     setBusy(true);
@@ -179,6 +195,7 @@ export function QualifyForm({
               rankInputPatches: inputs,
               sourcingStatus: effectiveStatus,
               sourcingNote: override ? reason.trim() : null,
+              acknowledgeDuplicates,
             }
           : {
               id: prospectId,
@@ -187,6 +204,12 @@ export function QualifyForm({
               sourcingNote: override ? reason.trim() : null,
             },
       );
+      // D-057: surface the warning panel on a duplicates-only result
+      // and pause until the rep chooses Continue / Cancel.
+      if (!res.ok && res.duplicates && res.duplicates.length > 0) {
+        setPendingDuplicates(res.duplicates);
+        return;
+      }
       if (!res.ok || !res.row) {
         setError(res.error ?? 'Could not save.');
         return;
@@ -197,6 +220,7 @@ export function QualifyForm({
       setServerScore(res.row.rankScore);
       setServerStage(res.row.stage);
       setSavedAt(Date.now());
+      setPendingDuplicates([]);
       if (isCreate) {
         // Carry the just-created prospect forward into edit mode —
         // the rep stays on Qualify with the new record loaded.
@@ -384,6 +408,17 @@ export function QualifyForm({
               </span>
             )}
           </div>
+
+          {/* D-057: duplicate warning panel — only fires on create. */}
+          {pendingDuplicates.length > 0 && (
+            <DuplicateWarning
+              duplicates={pendingDuplicates}
+              contactName={identity.contactName.trim()}
+              onContinue={() => onSave(undefined, true)}
+              onCancel={() => setPendingDuplicates([])}
+              busy={busy}
+            />
+          )}
         </div>
       </div>
 

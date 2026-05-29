@@ -42,8 +42,14 @@ import {
   type SourcingStatus,
 } from '@/lib/sourcing';
 import { HelpBox } from '@/components/HelpBox';
+import { DuplicateWarning } from '@/components/DuplicateWarning';
 import { getHelpEntry } from '@/lib/help-content';
-import { upsertSourcingRow, type UpsertSourcingRowInput } from './actions';
+import {
+  upsertSourcingRow,
+  type DuplicateProspect,
+  type UpsertSourcingRowInput,
+  type UpsertSourcingRowResult,
+} from './actions';
 
 /** Map a sourcing column key to the help-content factor key. Column
  * keys for first-class intake fields use camelCase (`grossVolume`);
@@ -182,12 +188,14 @@ export function SourcingClient({
 
   const wf = workflows.find((w) => w.key === selectedKey) ?? workflows[0] ?? null;
 
-  /* Upsert helper used by both the add form and the in-table edit. */
+  /* Upsert helper used by both the add form and the in-table edit.
+     Returns the full result so the add form can inspect `.duplicates`
+     (D-057) and surface the warning panel. */
   const handleSave = useCallback(
     async (
       id: string | null,
       patch: UpsertSourcingRowInput,
-    ): Promise<SourcingRow | null> => {
+    ): Promise<UpsertSourcingRowResult> => {
       const res = await upsertSourcingRow(patch);
       if (res.ok && res.row) {
         setRows((prev) => {
@@ -207,14 +215,20 @@ export function SourcingClient({
         } else {
           setFormError(null);
         }
-        return res.row;
+        return res;
+      }
+      // D-057: a duplicate response isn't a true error — let the
+      // caller render the warning panel instead of dropping the
+      // result into the error slot.
+      if (res.duplicates && res.duplicates.length > 0) {
+        return res;
       }
       if (id) {
         setRowErrors((prev) => ({ ...prev, [id]: res.error ?? 'Could not save.' }));
       } else {
         setFormError(res.error ?? 'Could not add the prospect.');
       }
-      return null;
+      return res;
     },
     [],
   );
@@ -382,11 +396,15 @@ function AddProspectForm({
 }: {
   workflow: SourcingWorkflow;
   formError: string | null;
-  onAdd: (patch: UpsertSourcingRowInput) => Promise<SourcingRow | null>;
+  onAdd: (patch: UpsertSourcingRowInput) => Promise<UpsertSourcingRowResult>;
 }) {
   const [draft, setDraft] = useState<RowDraft>(() => emptyDraft());
   const [adding, setAdding] = useState(false);
   const addingRef = useRef(false);
+  // D-057: when the server reports duplicates, we pause and surface
+  // them inline so the rep can either back out or continue. State
+  // resets on a successful create and on workflow change.
+  const [pendingDuplicates, setPendingDuplicates] = useState<DuplicateProspect[]>([]);
 
   const liveScore = computeLiveScore(workflow, draft.rankInputs);
   const band = classifyBand(liveScore, workflow.bands);
@@ -404,8 +422,7 @@ function AddProspectForm({
     draft.contactName.trim().length > 0 &&
     draft.orgName.trim().length > 0;
 
-  async function handleAdd() {
-    if (!canAdd) return;
+  async function submitAdd(acknowledgeDuplicates: boolean) {
     if (addingRef.current) return;
     addingRef.current = true;
     setAdding(true);
@@ -421,13 +438,34 @@ function AddProspectForm({
         sourcingStatus: draft.sourcingStatus,
         sourcingNote: override ? draft.sourcingNote.trim() : null,
         rankInputPatches: draft.rankInputs,
+        acknowledgeDuplicates,
       };
-      const created = await onAdd(patch);
-      if (created) setDraft(emptyDraft());
+      const result = await onAdd(patch);
+      if (result.ok && result.row) {
+        setDraft(emptyDraft());
+        setPendingDuplicates([]);
+        return;
+      }
+      // D-057: surface the warning if the server reports duplicates
+      // and we haven't already acknowledged them.
+      if (result.duplicates && result.duplicates.length > 0) {
+        setPendingDuplicates(result.duplicates);
+      }
     } finally {
       addingRef.current = false;
       setAdding(false);
     }
+  }
+
+  async function handleAdd() {
+    if (!canAdd) return;
+    await submitAdd(false);
+  }
+  function dismissDuplicates() {
+    setPendingDuplicates([]);
+  }
+  async function continueWithDuplicates() {
+    await submitAdd(true);
   }
 
   const intakeCols = workflow.columns.filter(
@@ -581,6 +619,20 @@ function AddProspectForm({
           <span style={{ fontSize: '0.74rem', color: 'var(--bad)' }}>{formError}</span>
         )}
       </div>
+
+      {/* D-057: duplicate-warning panel. The server holds the
+          create when it spots a name match within the rep's own
+          prospects; the rep either backs out (Cancel) or
+          re-submits with the ack flag (Continue anyway). */}
+      {pendingDuplicates.length > 0 && (
+        <DuplicateWarning
+          duplicates={pendingDuplicates}
+          contactName={draft.contactName.trim()}
+          onContinue={continueWithDuplicates}
+          onCancel={dismissDuplicates}
+          busy={adding}
+        />
+      )}
     </div>
   );
 }
@@ -899,7 +951,7 @@ function SourcingTable({
   onSave: (
     id: string | null,
     patch: UpsertSourcingRowInput,
-  ) => Promise<SourcingRow | null>;
+  ) => Promise<UpsertSourcingRowResult>;
 }) {
   const cols = workflow.columns;
 
@@ -1155,7 +1207,7 @@ function TableRow({
   onSave: (
     id: string | null,
     patch: UpsertSourcingRowInput,
-  ) => Promise<SourcingRow | null>;
+  ) => Promise<UpsertSourcingRowResult>;
   error?: string;
   anotherRowIsActive: boolean;
 }) {
