@@ -5,7 +5,7 @@
 > dated history. README.md is the local-dev quickstart; this is the
 > full operating reference.
 
-**Last updated:** 2026-05-26 · Phases A, B, C, D, Phase E, P8 unification, and the **V1 Sourcing close** all complete on master. Open: Phase D §9 follow-ups (duplicate-check on Qualify, cross-sell, mobile pass), tutorials for the four non-real-estate workflows. **Send-to-client flow discarded** as a miscommunication. V2 (anything bigger Dean has been holding) starts on a branch off master so live users aren't broken mid-stride. Decision log includes D-034 (Sourcing decides "worth qualifying," not "qualified"). See `SOURCING-PLAN.md` and `LAUNCH-AUDIT.md` for prior context.
+**Last updated:** 2026-05-28 · V2 (F0 → F13) shipped on master. **Phase R shipped on branch v2-1** — admin-only `/reports` route, nightly snapshot table, six dashboard cards (Pipeline Velocity as the hero). 176 / 176 tests passing repo-wide. R6 (email digest extension) deferred per D-074. Decisions D-068 → D-074 in §10; full spec in `REPORTS-PLAN.md`. Open: Phase D §9 follow-ups (duplicate-check on Qualify ✓ landed in F8, cross-sell, mobile pass — Dashboard + Clients done in F11), tutorials for the four non-real-estate workflows (Corp HS drafted in F10), per-rep `/reports/me` view (D-068 follow-up). **Send-to-client flow discarded** as a miscommunication. Decision log includes D-034 (Sourcing decides "worth qualifying," not "qualified"). See `REPORTS-PLAN.md`, `V2-PLAN.md`, `SOURCING-PLAN.md`, and `LAUNCH-AUDIT.md` for phase context.
 
 > **Heads-up for readers — `/research` is now `/qualify`.** Renamed in
 > Phase E (D-023). Historical references to "Research" or `/research`
@@ -519,6 +519,28 @@ without touching code.
 **Sequencing note.** This re-sequence pushes the calculator ~2 days
 and Week 3 starts ~Day 17. The Week 4 admin-editor task is removed
 (built here instead). Realistic landing: Day 30-32.
+
+---
+
+### Phase R — Reports (in flight, 2026-05-28)
+
+Admin-only `/reports` route inside Ops, a `daily_metric_snapshot`
+table populated by a new nightly cron, and six dashboard cards
+designed around three recurring decisions ("Is my pipeline
+healthy?", "Which workflow do I push?", "Which rep deserves my
+time?"). Pipeline Velocity is the hero card.
+
+Specification in **`REPORTS-PLAN.md`** — full schema, rollup math,
+card-by-card design, test list. Decisions D-068 → D-074 in §10
+below. Build sequence R0 → R7; R6 (digest extension) is the only
+deferrable step.
+
+The architecture is intentionally small: one new Postgres table,
+one new cron route, one new admin-gated page. No third-party
+analytics, no Looker/Mixpanel/PostHog, no data egress. Everything
+runs in the existing Neon + Vercel + Resend stack.
+
+**Status: R0–R5 + R7 shipped on branch v2-1 (2026-05-28). R6 (digest email extension) deferred per D-074 — rolls forward to a follow-up phase.**
 
 ---
 
@@ -1646,6 +1668,108 @@ page scrolled anyway and the toggle/sign-out dropped below the fold.
 Sticky-aside also avoids the trap where shell-level `overflow: hidden`
 silently disables `position: sticky` for every nested side panel
 (calculator summary, qualify score, tracking list).
+
+### D-068 · Reports `/reports` route is admin-only in v1 (2026-05-28)
+
+**Decision.** The Phase R reports surface is gated to admin users
+only — same pattern as `/team` and `/rates`. Reps do not see
+analytics in v1.
+
+**Rationale.** Dean is the only admin and the only person making
+the three decisions the cards answer ("Is my pipeline healthy?",
+"Which workflow do I push?", "Which rep deserves my time?"). Adding
+rep-scoped auth doubles the route surface for a feature that isn't
+yet validated. The snapshot schema already supports rep-scoping via
+`rep_id`, so a future `/reports/me` view is one phase of work when
+Dean wants it. Captured in REPORTS-PLAN.md §9.
+
+### D-069 · Pipeline Velocity is the hero card (2026-05-28)
+
+**Decision.** Pipeline Velocity sits at the top of `/reports` —
+full width, big number, sparkline trend, vs.-prior-period arrow.
+The other five cards stack below in a two-column grid.
+
+**Formula.** `velocity_per_day = (active_qualified_prospects ×
+workflow_close_rate × workflow_avg_value) ÷ workflow_avg_cycle_days`,
+summed across all workflows. Expected dollars per day from the
+current pipeline.
+
+**Rationale.** It's the single best 5-second daily check-in
+number — it's a leading indicator (moves before revenue moves) and
+it survives every shift in mix or volume. The other five cards
+answer specific questions; Pipeline Velocity is the "everything is
+roughly OK / not OK" gauge.
+
+### D-070 · Snapshot grain — `(date × rep × workflow × stage)` (2026-05-28)
+
+**Decision.** The `daily_metric_snapshot` table stores one row per
+`(snapshot_date, rep_id, workflow_key, stage)` tuple. This is the
+finest grain that powers every Phase R card without storing
+per-prospect detail in the snapshot itself.
+
+**Capacity.** Worst case ~5 reps × 5 workflows × 8 stages × 365
+days = ~73K rows/year. Trivial for Neon's free tier and indexable
+for sub-millisecond date-range scans.
+
+**Rationale.** Per-prospect detail stays in the live event tables
+(`prospect_stage_events`, `prospect_contacts`); the snapshot is
+strictly an aggregate. This keeps the snapshot row count bounded
+even as the prospect table grows unbounded, and it leaves room to
+add fields without restructuring the key.
+
+### D-071 · Separate snapshot cron, runs at midnight CT (2026-05-28)
+
+**Decision.** The snapshot rollup runs in a **new** cron route at
+05:00 UTC (00:00 CT) — not chained off the existing 13:00 UTC
+digest cron. New entry in `vercel.json`, same `CRON_SECRET` gate
+as the digest route.
+
+**Rationale.** Running the rollup at the end of the business day
+gives the cleanest "yesterday is closed" semantics. By the time
+the digest cron fires 8 hours later at 8 AM CT, yesterday's
+snapshot has been live and any rollup failure has been
+alert-surfaced. Chaining the two responsibilities into one handler
+was considered and rejected because it muddies failure modes — a
+failed rollup would silently break the digest's "yesterday" block.
+
+### D-072 · No third-party analytics tooling (2026-05-28)
+
+**Decision.** Explicitly out of scope: Mixpanel, PostHog, Segment,
+Plausible, Google Analytics, any external dashboarding or BI tool.
+Phase R lives entirely in Postgres + the Ops UI + the existing
+Vercel + Resend stack.
+
+**Rationale.** Phase R is meant to answer three recurring
+decisions, not build a BI department. A third-party tool would
+lock in a learning curve, monthly cost, and a privacy footprint
+for a feature that needs to be a 5-second daily check-in, not a
+slice-and-dice exploration. Reconsider only if usage outgrows the
+snapshot model.
+
+### D-073 · Vanity metrics explicitly cut (2026-05-28)
+
+**Decision.** Out of scope for Phase R: email opens, click counts,
+page views, time-on-site, A/B test arms, prospect view duration.
+
+**Rationale.** Vanity numbers that don't predict closes, and they
+can't be captured without a third-party SDK we've already ruled
+out (D-072). The leading indicators that *do* predict closes —
+reply rate, time-to-second-touch, score-to-close correlation — are
+all computable from already-captured events
+(`prospect_contacts`, `prospect_stage_events`, `prospects.rank_score`).
+
+### D-074 · Digest email extension (R6) is the only deferrable Phase R step (2026-05-28)
+
+**Decision.** R1–R5 (schema, rollup, cron, page, six cards) ship
+as a unit. **R6** — appending a "Yesterday's snapshot" three-card
+block to the existing 6am Resend digest for Dean — is explicitly
+**deferrable**. If the R1–R5 build runs long, R6 rolls forward to
+a later phase without blocking the rest of Phase R from shipping.
+
+**Rationale.** The `/reports` page is the primary surface; the
+email block is a convenience. The block can land any time after
+the snapshot table is populated since it reads from the same
+source.
 
 ---
 

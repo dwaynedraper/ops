@@ -12,12 +12,67 @@ lives in `README.md`. This file is the time-ordered receipt.
 
 ## [Unreleased]
 
-### Planned next
+### Phase R — Reports (shipped 2026-05-28)
+Admin-only `/reports` route, a nightly snapshot table populated by a
+new cron at midnight CT, and six dashboard cards designed around the
+three recurring decisions Dean has to make ("Is my pipeline healthy?",
+"Which workflow do I push?", "Which rep deserves my time?").
+Specification in `REPORTS-PLAN.md`. Decisions D-068 → D-074. **R6
+deferred per D-074.**
+
+#### Added
+- **Schema** — new `daily_metric_snapshot` table on
+  `(snapshot_date, rep_id, workflow_key, stage)` PK with three indexes
+  (date, rep+date, workflow+date). Additive, idempotent.
+- **Rollup** — `src/lib/reports/rollup.ts` splits into a pure
+  `buildSnapshotRows` assembler (11 unit tests) and a `computeSnapshot`
+  orchestrator that runs five Postgres queries against
+  `prospect_stage_events`, `prospects`, `prospect_contacts`, `quotes`,
+  and a cycle-time CTE.
+- **Upsert** — `src/lib/reports/upsert.ts` wraps a transactional
+  DELETE-then-INSERT keyed by `snapshot_date` (6 unit tests, including
+  the guardrail against mixed-date batches).
+- **Cron** — `/api/cron/snapshot` mirrors the digest route's
+  `CRON_SECRET` gate, computes the CT-anchored "yesterday" window,
+  runs the rollup, upserts, and surfaces partial failures as
+  non-2xx (10 integration tests). New `vercel.json` cron entry
+  `0 5 * * *` (05:00 UTC = midnight CT).
+- **Query layer** — `src/lib/reports/query.ts` exports
+  `loadReportsData(range)` returning six card-shaped slices, plus a
+  `resolveRange` helper for the four range presets (7d / 30d / 90d
+  / YTD).
+- **Page** — `src/app/reports/page.tsx`, `super_admin`-gated via
+  `auth()` (`notFound()` for non-admin). Date range picker in the
+  header is pure server-rendered Next links (no client state).
+- **Cards** — six server components in `src/app/reports/cards/`:
+  PipelineVelocityCard (hero, pure-SVG sparkline), FunnelCard
+  (six-stage waterfall), WorkflowRoiCard (sorted by $/close),
+  RepLeaderboardCard (with Active Partner badge), ScoreValidationCard
+  (closed-vs-rejected histogram across five score buckets),
+  StalePipelineCard (live query, links into `/qualify/[id]`).
+- **Sidebar** — Reports link added at the top of `ADMIN_LINKS` (gated
+  to `super_admin`).
+
+#### Deferred (per D-074)
+- **R6 · Email digest extension** — the "Yesterday's snapshot" block
+  on Dean's morning digest email. R1–R5 + R7 ship without it; R6
+  rolls forward to a follow-up phase. The snapshot table is the
+  source it would read from, so no foundation work is wasted.
+
+#### Verification
+- 27 new tests (rollup: 11, upsert: 6, snapshot cron route: 10).
+- Repo-wide `vitest run` — 176 / 176 tests passing.
+- `tsc --noEmit` clean.
+- `eslint src/app/reports src/lib/reports src/app/api/cron/snapshot` clean.
+
+### Planned next (after Phase R)
 - Phase D recommended additions still open: duplicate check on
   Qualify, cross-sell linked prospects, mobile pass (PHASE-D-PLAN §9).
 - Tutorials for the four workflows beyond real-estate (corporate,
   story portraits, saga, 10%) as their sources of names and the
   motions firm up.
+- Per-rep `/reports/me` view (the deferred D-068 follow-up). Snapshot
+  schema already supports it.
 
 ### Removed from the plan
 - Send-to-client flow (emailing the quote PDF from inside ops) —
@@ -25,7 +80,9 @@ lives in `README.md`. This file is the time-ordered receipt.
   entries that reference it stay as historical record.
 
 ### Setup needed for this release
-- Run `npm run db:migrate` — applies the Phase E P2 migration
+- **Run `npm run db:migrate`** — applies the Phase R schema (new
+  `daily_metric_snapshot` table + three indexes). Additive and
+  idempotent; safe to re-run. Plus the still-active Phase E P2 migration
   (`sides_count`, `gross_volume`, `source_url`, `sourcing_note`,
   `sourcing_status` on `prospects`, plus the `sourcing_status`
   index) and the P4.5 idempotent reweighting + branded_email
