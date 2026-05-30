@@ -178,6 +178,11 @@ export interface ReportsData {
 /**
  * Load every card's data in one call. The snapshot table is the source
  * for cards 1–5; card 6 reads live.
+ *
+ * Each loader runs in isolation via Promise.allSettled — if one card's
+ * SQL throws (a missing column, an empty table on a fresh deploy,
+ * whatever), it logs and renders empty defaults rather than taking
+ * down the entire /reports page.
  */
 export async function loadReportsData(range: DateRange): Promise<ReportsData> {
   const [
@@ -188,12 +193,12 @@ export async function loadReportsData(range: DateRange): Promise<ReportsData> {
     scoreValidation,
     stalePipeline,
   ] = await Promise.all([
-    loadPipelineVelocity(range),
-    loadFunnel(range),
-    loadWorkflowRoi(range),
-    loadRepLeaderboard(range),
-    loadScoreValidation(range),
-    loadStalePipeline(),
+    safe('velocity',       () => loadPipelineVelocity(range), { perDay: 0, sparkline: [], pctChange: 0 }),
+    safe('funnel',         () => loadFunnel(range),           { stages: [] }),
+    safe('workflowRoi',    () => loadWorkflowRoi(range),      { rows: [] }),
+    safe('repLeaderboard', () => loadRepLeaderboard(range),   { rows: [] }),
+    safe('scoreValidation',() => loadScoreValidation(range),  { buckets: [] }),
+    safe('stalePipeline',  () => loadStalePipeline(),         { rows: [] }),
   ]);
   return {
     range,
@@ -204,6 +209,24 @@ export async function loadReportsData(range: DateRange): Promise<ReportsData> {
     scoreValidation,
     stalePipeline,
   };
+}
+
+/**
+ * Try-catch wrapper for each card loader. Errors are logged so Vercel
+ * function logs surface the actual failure, but the card renders with
+ * an empty default rather than taking down the page.
+ */
+async function safe<T>(
+  cardId: string,
+  loader: () => Promise<T>,
+  fallback: T,
+): Promise<T> {
+  try {
+    return await loader();
+  } catch (err) {
+    console.error(`[reports] card "${cardId}" failed:`, err);
+    return fallback;
+  }
 }
 
 // ─── Per-card loaders ──────────────────────────────────────────────────
@@ -288,34 +311,22 @@ async function loadPipelineVelocity(range: DateRange): Promise<PipelineVelocityD
     return sum + (Number(r.active_prospects) * Number(r.close_rate) * Number(r.avg_deal_value)) / cycle;
   }, 0);
 
-  // Sparkline — recompute per-day velocity for each snapshot date in
-  // the range. Cheap because the table is small.
+  // Sparkline — for v1 we use daily realized revenue as the trend
+  // line. Computing the full velocity formula per day is mathematically
+  // dubious (close rate is a multi-day signal) and the SQL gets gnarly
+  // (window function nested in an aggregate). Daily revenue is a
+  // cleaner "is money flowing today?" signal and the hero number
+  // (perDay) above still uses the proper formula across the range.
   interface SparkRow {
     snapshot_date: string;
     value: number;
   }
   const spark = await sql<SparkRow>`
-    WITH per_day AS (
-      SELECT snapshot_date, workflow_key,
-             SUM(CASE WHEN stage IN ('qualified','contacting','responded','signed')
-                      THEN prospects_in_stage ELSE 0 END)::numeric AS active_prospects,
-             SUM(quotes_accepted_today)::numeric AS closes,
-             SUM(revenue_closed_today)::numeric AS revenue,
-             AVG(NULLIF(avg_cycle_days_into_stage, 0))
-               FILTER (WHERE stage = 'client') AS cycle_days
-      FROM daily_metric_snapshot
-      WHERE snapshot_date >= ${range.start}::date
-        AND snapshot_date <= ${range.end}::date
-      GROUP BY snapshot_date, workflow_key
-    )
     SELECT snapshot_date::text AS snapshot_date,
-           COALESCE(SUM(
-             CASE WHEN COALESCE(cycle_days,0) > 0 AND COALESCE(closes,0) > 0
-                  THEN active_prospects * (closes / NULLIF(SUM(closes) OVER (PARTITION BY snapshot_date), 0))
-                       * (revenue / NULLIF(closes,0)) / cycle_days
-                  ELSE 0 END
-           ), 0)::numeric AS value
-    FROM per_day
+           COALESCE(SUM(revenue_closed_today), 0)::numeric AS value
+    FROM daily_metric_snapshot
+    WHERE snapshot_date >= ${range.start}::date
+      AND snapshot_date <= ${range.end}::date
     GROUP BY snapshot_date
     ORDER BY snapshot_date
   `;
