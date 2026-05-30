@@ -100,16 +100,24 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
 
     /**
      * Attach role, displayName, and status from ops_profiles to the
-     * session — and bump `last_seen_at` to now() as a side effect, so
-     * the admin Team page reflects actual activity (when the user was
-     * last using the tool) instead of their last sign-in.
+     * session — and bump `last_seen_at` to now() at most once per
+     * minute as a side effect, so the admin Team page reflects actual
+     * activity (when the user was last using the tool) instead of
+     * their last sign-in.
      *
-     * Cheap: one UPDATE by primary key with RETURNING, single round
-     * trip. Runs on every session lookup. A missing profile defaults
-     * to status 'invited' — gated, never silently in.
+     * The 60-second throttle keeps the per-request write cost down on
+     * hot navigation. A user actively clicking through a session
+     * triggers one write per minute, not one per click. The Team page
+     * resolution is "today" or "Xd ago," so per-minute precision is
+     * dramatically finer than the UI ever surfaces.
+     *
+     * The throttle is enforced in SQL (one round-trip — UPDATE with a
+     * WHERE on the stale-cutoff, with a fallback SELECT when no row
+     * was updated). A missing profile defaults to status 'invited' —
+     * gated, never silently in.
      */
     async session({ session, user }) {
-      const profile = await sqlOne<{
+      let profile = await sqlOne<{
         role: 'super_admin' | 'partner';
         display_name: string | null;
         status: RepStatus;
@@ -117,8 +125,19 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
         UPDATE ops_profiles
         SET last_seen_at = now()
         WHERE user_id = ${user.id}
+          AND (last_seen_at IS NULL OR last_seen_at < now() - INTERVAL '60 seconds')
         RETURNING role, display_name, status
       `;
+      // No row touched — bumped within the last 60s. Fetch without updating.
+      if (!profile) {
+        profile = await sqlOne<{
+          role: 'super_admin' | 'partner';
+          display_name: string | null;
+          status: RepStatus;
+        }>`
+          SELECT role, display_name, status FROM ops_profiles WHERE user_id = ${user.id}
+        `;
+      }
       session.user.id = user.id;
       session.user.role = profile?.role ?? 'partner';
       session.user.displayName = profile?.display_name ?? null;

@@ -333,7 +333,7 @@ export function ScriptsClient({ workflows }: { workflows: WorkflowScripts[] }) {
         )}
         {!dirty && saved && (
           <span style={{ fontSize: '0.78rem', color: 'var(--good)' }}>
-            Published. Tracking is current.
+            Published. Contact is current.
           </span>
         )}
         {error && <span style={{ fontSize: '0.78rem', color: 'var(--bad)' }}>{error}</span>}

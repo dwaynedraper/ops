@@ -66,7 +66,7 @@ export default async function TutorialsIndexPage() {
             </h1>
             <p style={{ color: 'var(--text-mid)', marginBottom: '1.75rem', maxWidth: '64ch' }}>
               The end-to-end walkthrough for each workflow — Sourcing → Qualify
-              → Tracking → Email. Start with the workflow you&apos;re working
+              → Contact → Email. Start with the workflow you&apos;re working
               today, then come back as you pick up the others.
             </p>
 

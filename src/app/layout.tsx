@@ -4,6 +4,8 @@ import { SpeedInsights } from '@vercel/speed-insights/next';
 import './globals.css';
 import { Providers } from './providers';
 
+const PLAUSIBLE_SCRIPT = process.env.NEXT_PUBLIC_PLAUSIBLE_SCRIPT;
+
 const playfair = Playfair_Display({
   variable: '--font-playfair',
   subsets: ['latin'],
@@ -53,6 +55,19 @@ export default function RootLayout({
             __html: `(function(){try{var t=localStorage.getItem('ss_ops_theme');var root=document.documentElement;root.classList.remove('dark','light');root.classList.add(t==='light'?'light':'dark');}catch(e){}})();`,
           }}
         />
+        {/* Plausible — gated on NEXT_PUBLIC_PLAUSIBLE_SCRIPT. Matches the
+            pattern used across the four sister sites (landing/photos/
+            media/studio). Ops sets robots:noindex above so search
+            engines never see the page anyway; analytics here are for
+            measuring rep activity, not SEO. */}
+        {PLAUSIBLE_SCRIPT && <script async src={PLAUSIBLE_SCRIPT} />}
+        {PLAUSIBLE_SCRIPT && (
+          <script
+            dangerouslySetInnerHTML={{
+              __html: `window.plausible=window.plausible||function(){(plausible.q=plausible.q||[]).push(arguments)},plausible.init=plausible.init||function(i){plausible.o=i||{}};plausible.init()`,
+            }}
+          />
+        )}
       </head>
       <body className="min-h-screen font-sans">
         <Providers>{children}</Providers>
