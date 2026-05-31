@@ -131,7 +131,7 @@ export default async function ClientPage({
     notFound();
   }
 
-  const [noteRows, quoteRows, configRows, catalog] = await Promise.all([
+  const [noteRows, quoteRows, configRows, catalog, existingClient] = await Promise.all([
     sql<NoteRow>`
       SELECT n.id, n.body, n.pinned, n.created_at, u.name AS author_name
       FROM prospect_notes n
@@ -148,6 +148,8 @@ export default async function ClientPage({
     sql<ConfigRow>`
       SELECT key, value FROM rank_config WHERE workflow_key = ${prospectRow.workflow_key}`,
     getCatalog(),
+    sqlOne<{ id: string }>`
+      SELECT id FROM clients WHERE origin_prospect_id = ${id} LIMIT 1`,
   ]);
 
   const cfg = new Map(configRows.map((r) => [r.key, Number(r.value)]));
@@ -216,6 +218,7 @@ export default async function ClientPage({
               quotes={quotes}
               catalog={catalog}
               role={role}
+              existingClientId={existingClient?.id ?? null}
             />
           </div>
         </main>

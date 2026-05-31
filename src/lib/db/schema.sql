@@ -1067,3 +1067,197 @@ BEGIN
   )
   WHERE workflow_key = 'ten_percent';
 END $$;
+
+-- ════════════════════════════════════════════════════════════════════
+-- LAYER 4 — Durable clients (Phase 1 · CLIENTS-AND-JOBS-PLAN.md)
+--
+-- The acquisition pipeline (prospects) wins strangers. Once one signs,
+-- they become a durable `client` that persists across every future
+-- engagement — so a returning client maps back to ONE clients row
+-- instead of a fresh cold prospect, and the client page becomes the
+-- cold-call card: who they are, the relationship, the pinned facts, the
+-- history. Owner-scoped exactly like prospects (D-019).
+--
+-- Additive + idempotent, same discipline as the layers above. The `jobs`
+-- post-sale lifecycle and the quotes.job_id link arrive in Phase 2.
+-- ════════════════════════════════════════════════════════════════════
+
+-- ─── clients ───────────────────────────────────────────────────────
+-- Durable identity. A person OR a business. `origin_prospect_id` keeps
+-- the paper trail from cold lead → client. Never deleted — archived,
+-- matching the rep/prospect rule.
+CREATE TABLE IF NOT EXISTS clients (
+  id                 UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  kind               TEXT NOT NULL DEFAULT 'person'
+                       CHECK (kind IN ('person', 'org')),
+  display_name       TEXT NOT NULL,
+  email              TEXT,
+  phone              TEXT,
+  market_area        TEXT,
+  -- For the cold-call card: how you know them, who referred them.
+  relationship       TEXT,
+  referral_source    TEXT,
+  -- A person can belong to a business (optional self-reference).
+  parent_client_id   UUID REFERENCES clients(id) ON DELETE SET NULL,
+  branch_affinity    TEXT
+                       CHECK (branch_affinity IN ('portraits','realestate','corporate')),
+  owner_id           UUID NOT NULL REFERENCES users(id) ON DELETE RESTRICT,
+  origin_prospect_id UUID REFERENCES prospects(id) ON DELETE SET NULL,
+  status             TEXT NOT NULL DEFAULT 'active'
+                       CHECK (status IN ('active', 'archived')),
+  created_at         TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at         TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS clients_owner_idx  ON clients(owner_id);
+CREATE INDEX IF NOT EXISTS clients_name_idx   ON clients(lower(display_name));
+CREATE INDEX IF NOT EXISTS clients_status_idx ON clients(status);
+CREATE INDEX IF NOT EXISTS clients_origin_idx ON clients(origin_prospect_id);
+
+-- ─── client_notes ──────────────────────────────────────────────────
+-- Mirrors prospect_notes. `pinned` = evergreen facts that float to the
+-- top of the cold-call card (kept to business-context relationship notes
+-- per Dean's preference — "met at the Frisco chamber mixer", "opening a
+-- second office", not deep-personal).
+CREATE TABLE IF NOT EXISTS client_notes (
+  id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  client_id   UUID NOT NULL REFERENCES clients(id) ON DELETE CASCADE,
+  author_id   UUID REFERENCES users(id) ON DELETE SET NULL,
+  body        TEXT NOT NULL,
+  pinned      BOOLEAN NOT NULL DEFAULT FALSE,
+  created_at  TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS client_notes_idx
+  ON client_notes(client_id, pinned DESC, created_at DESC);
+
+-- updated_at trigger for clients (reuses trg_set_updated_at from Layer 3).
+DO $$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgname = 'clients_updated_at') THEN
+    CREATE TRIGGER clients_updated_at BEFORE UPDATE ON clients
+      FOR EACH ROW EXECUTE FUNCTION trg_set_updated_at();
+  END IF;
+END $$;
+
+-- ════════════════════════════════════════════════════════════════════
+-- LAYER 5 — Jobs: the post-sale lifecycle (Phase 2 · CLIENTS-AND-JOBS-PLAN.md)
+--
+-- A `job` is ONE engagement hanging off a durable client — the work that
+-- happens after the close, which the prospect pipeline never modeled.
+-- It carries the full lifecycle (booked → … → complete), the shoot date
+-- (the Wed/Thu rhythm), payment + delivery tracking, and the several
+-- people on the job (job_roles). Quotes attach to a job via quotes.job_id.
+--
+-- Additive + idempotent, same discipline as every layer above.
+-- ════════════════════════════════════════════════════════════════════
+
+-- ─── jobs ──────────────────────────────────────────────────────────
+-- Born when a client books — fresh, or converted from a won prospect.
+-- Reuses workflow_key for branch + vocabulary. The primary contact is
+-- client_id; additional parties live in job_roles.
+CREATE TABLE IF NOT EXISTS jobs (
+  id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  client_id       UUID NOT NULL REFERENCES clients(id) ON DELETE RESTRICT,
+  workflow_key    TEXT REFERENCES workflows(workflow_key) ON DELETE SET NULL,
+  owner_id        UUID NOT NULL REFERENCES users(id) ON DELETE RESTRICT,
+  title           TEXT,
+
+  stage           TEXT NOT NULL DEFAULT 'booked'
+                    CHECK (stage IN (
+                      'booked','prep','shoot','cull','edit',
+                      'deliver','followup','review','complete','cancelled'
+                    )),
+
+  -- Scheduling (the Wed/Thu shoot rhythm).
+  shoot_date      DATE,
+  location        TEXT,
+
+  -- Money. value_price defaults from the accepted quote; override allowed.
+  value_price     NUMERIC(10,2),
+  payment_status  TEXT NOT NULL DEFAULT 'unpaid'
+                    CHECK (payment_status IN ('unpaid','deposit_paid','paid')),
+  deposit_due     DATE,
+  balance_due     DATE,
+
+  -- Delivery + review-ask (drive the dashboard "due" lists in Phase 3).
+  delivery_due    DATE,
+  delivered_at    TIMESTAMPTZ,
+  review_requested_at TIMESTAMPTZ,
+
+  origin_prospect_id UUID REFERENCES prospects(id) ON DELETE SET NULL,
+  notes           TEXT,
+  created_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at      TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS jobs_client_idx ON jobs(client_id);
+CREATE INDEX IF NOT EXISTS jobs_owner_idx  ON jobs(owner_id);
+CREATE INDEX IF NOT EXISTS jobs_stage_idx  ON jobs(stage);
+CREATE INDEX IF NOT EXISTS jobs_shoot_idx  ON jobs(shoot_date);
+
+-- ─── job_roles ─────────────────────────────────────────────────────
+-- The several people on one job. The PRIMARY contact is jobs.client_id
+-- itself; this holds the *additional* parties, each a durable client (so
+-- the homeowner you meet today is on file forever).
+CREATE TABLE IF NOT EXISTS job_roles (
+  id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  job_id      UUID NOT NULL REFERENCES jobs(id) ON DELETE CASCADE,
+  client_id   UUID NOT NULL REFERENCES clients(id) ON DELETE RESTRICT,
+  role        TEXT NOT NULL
+                CHECK (role IN ('billing','subject','gallery_recipient','other')),
+  role_label  TEXT,                                -- free text when role='other'
+  created_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
+  UNIQUE (job_id, client_id, role)
+);
+
+CREATE INDEX IF NOT EXISTS job_roles_job_idx ON job_roles(job_id);
+
+-- ─── job_stage_events ──────────────────────────────────────────────
+-- Append-only stage log, trigger-written, mirroring prospect_stage_events.
+-- Feeds cycle-time reporting and the "stuck in stage" dashboard signal.
+CREATE TABLE IF NOT EXISTS job_stage_events (
+  id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  job_id      UUID NOT NULL REFERENCES jobs(id) ON DELETE CASCADE,
+  from_stage  TEXT,
+  to_stage    TEXT NOT NULL,
+  actor_id    UUID REFERENCES users(id) ON DELETE SET NULL,
+  created_at  TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS job_stage_events_job_idx
+  ON job_stage_events(job_id, created_at);
+
+-- A quote can attach to a job (the job-page inline calculator), exactly
+-- like the prospect_id link from Layer 3.
+ALTER TABLE quotes
+  ADD COLUMN IF NOT EXISTS job_id UUID REFERENCES jobs(id) ON DELETE SET NULL;
+CREATE INDEX IF NOT EXISTS quotes_job_id_idx ON quotes(job_id);
+
+-- The job stage logger: one row on creation, one on every stage change.
+CREATE OR REPLACE FUNCTION trg_log_job_stage_event()
+RETURNS TRIGGER AS $$
+BEGIN
+  IF (TG_OP = 'INSERT') THEN
+    INSERT INTO job_stage_events (job_id, from_stage, to_stage)
+      VALUES (NEW.id, NULL, NEW.stage);
+  ELSIF (TG_OP = 'UPDATE' AND NEW.stage IS DISTINCT FROM OLD.stage) THEN
+    INSERT INTO job_stage_events (job_id, from_stage, to_stage)
+      VALUES (NEW.id, OLD.stage, NEW.stage);
+  END IF;
+  RETURN NULL;
+END;
+$$ LANGUAGE plpgsql;
+
+DO $$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgname = 'jobs_updated_at') THEN
+    CREATE TRIGGER jobs_updated_at BEFORE UPDATE ON jobs
+      FOR EACH ROW EXECUTE FUNCTION trg_set_updated_at();
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgname = 'jobs_stage_event') THEN
+    CREATE TRIGGER jobs_stage_event
+      AFTER INSERT OR UPDATE OF stage ON jobs
+      FOR EACH ROW EXECUTE FUNCTION trg_log_job_stage_event();
+  END IF;
+END $$;

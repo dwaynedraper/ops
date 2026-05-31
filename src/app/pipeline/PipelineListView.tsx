@@ -65,7 +65,7 @@ const STAGE_ORDER: ProspectStage[] = [
   'dormant',
 ];
 
-export function ClientListView({
+export function PipelineListView({
   workflows,
   rows,
   isAdmin,

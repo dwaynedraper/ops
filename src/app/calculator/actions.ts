@@ -34,6 +34,7 @@ export async function saveQuote(
   selection: QuoteSelection,
   client: QuoteClientInfo,
   prospectId: string | null = null,
+  jobId: string | null = null,
 ): Promise<SaveQuoteResult> {
   const session = await auth();
   const userId = session?.user?.id;
@@ -157,8 +158,8 @@ export async function saveQuote(
          (created_by, client_name, client_email, client_phone, project_name,
           target_date, client_notes, status, package_id, package_snapshot,
           subtotal_price, subtotal_cost, total_price, total_cost, total_margin,
-          prospect_id)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,'draft',$8,$9,$10,$11,$12,$13,$14,$15)
+          prospect_id, job_id)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,'draft',$8,$9,$10,$11,$12,$13,$14,$15,$16)
        RETURNING id, quote_number`,
       [
         userId,
@@ -176,6 +177,7 @@ export async function saveQuote(
         totalCost,
         totalMargin,
         prospectId,
+        jobId,
       ],
     );
     const quote = inserted.rows[0];

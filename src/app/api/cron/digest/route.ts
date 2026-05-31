@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import type { NextRequest } from 'next/server';
 import { sql } from '@/lib/db';
 import { computeDigest } from '@/lib/digest';
+import { computeCommandCenter } from '@/lib/command-center';
 import { digestEmailHtml, digestEmailText } from '@/lib/digest-email';
 import { sendEmail, emailConfigured } from '@/lib/mailer';
 
@@ -75,15 +76,22 @@ export async function GET(req: NextRequest) {
   for (const rep of reps) {
     if (!rep.email) continue;
     try {
-      const data = await computeDigest(rep.user_id, now);
+      const [data, command] = await Promise.all([
+        computeDigest(rep.user_id, now),
+        computeCommandCenter(rep.user_id, now),
+      ]);
       const firstName = rep.name.split(/[\s@]/)[0] ?? '';
+      // Combined workload across both engines drives the subject line.
+      const jobWork = command.counts.needsNow + command.counts.shootsThisWeek;
+      const totalWork = data.total + jobWork;
+      const bothClear = data.allClear && command.allClear;
       await sendEmail({
         to: rep.email,
-        subject: data.allClear
+        subject: bothClear
           ? 'Your morning brief — all clear'
-          : `Your morning brief — ${data.total} to work`,
-        html: digestEmailHtml(data, { firstName, dateLabel, appUrl }),
-        text: digestEmailText(data, { firstName, dateLabel, appUrl }),
+          : `Your morning brief — ${totalWork} to work`,
+        html: digestEmailHtml(data, { firstName, dateLabel, appUrl, command }),
+        text: digestEmailText(data, { firstName, dateLabel, appUrl, command }),
       });
       sent += 1;
     } catch (err) {

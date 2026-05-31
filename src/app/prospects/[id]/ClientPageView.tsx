@@ -19,7 +19,13 @@ import { useUnsavedGuard } from '@/components/useUnsavedGuard';
 import { fmtMoney } from '@/lib/pricing';
 import { STAGE_LABEL, type ProspectStage, type ScoreBand } from '@/lib/prospects';
 import type { Catalog, QuoteClientInfo, Branch } from '@/lib/catalog';
-import { updateProspectDetails, addNote, setNotePinned, advanceStage } from './actions';
+import {
+  updateProspectDetails,
+  addNote,
+  setNotePinned,
+  advanceStage,
+  createClientFromProspect,
+} from './actions';
 
 // ─── DTOs (page.tsx builds these) ─────────────────────────────────────
 
@@ -115,6 +121,7 @@ export function ClientPageView({
   quotes,
   catalog,
   role,
+  existingClientId,
 }: {
   prospect: ProspectDetail;
   allowedStages: ProspectStage[];
@@ -122,6 +129,7 @@ export function ClientPageView({
   quotes: QuoteHistoryItem[];
   catalog: Catalog;
   role: 'super_admin' | 'partner';
+  existingClientId: string | null;
 }) {
   const router = useRouter();
   const undo = useUndo();
@@ -164,11 +172,11 @@ export function ClientPageView({
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
       <Link
-        href="/clients"
+        href="/pipeline"
         className="btn-ghost"
         style={{ alignSelf: 'flex-start', padding: '0.2rem 0' }}
       >
-        ← Clients
+        ← Pipeline
       </Link>
 
       {/* ─── Header ──────────────────────────────────────────────────── */}
@@ -267,6 +275,11 @@ export function ClientPageView({
           <p style={{ fontSize: '0.78rem', color: 'var(--bad)', marginTop: '0.6rem' }}>{error}</p>
         )}
       </div>
+
+      {/* ─── Set up client (Phase 1 convert bridge) ─────────────────── */}
+      {(prospect.stage === 'signed' || prospect.stage === 'client') && (
+        <ConvertCard prospectId={prospect.id} existingClientId={existingClientId} />
+      )}
 
       {/* ─── Details ─────────────────────────────────────────────────── */}
       <DetailsEditor prospect={prospect} />
@@ -732,6 +745,66 @@ function NoteRow({
       >
         {note.pinned ? 'Unpin' : 'Pin'}
       </button>
+    </div>
+  );
+}
+
+// ─── Convert bridge: won prospect → durable client (Phase 1) ──────────
+
+function ConvertCard({
+  prospectId,
+  existingClientId,
+}: {
+  prospectId: string;
+  existingClientId: string | null;
+}) {
+  const router = useRouter();
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  if (existingClientId) {
+    return (
+      <div className="surface-tool" style={{ borderColor: 'var(--border-accent)' }}>
+        <div className="eyebrow" style={{ marginBottom: '0.4rem' }}>
+          Client record
+        </div>
+        <p style={{ fontSize: '0.84rem', color: 'var(--text-mid)', marginBottom: '0.7rem' }}>
+          This prospect has a durable client record — future bookings and history live there.
+        </p>
+        <Link href={`/clients/${existingClientId}`} className="btn-primary">
+          View client record →
+        </Link>
+      </div>
+    );
+  }
+
+  async function onConvert() {
+    setBusy(true);
+    setError(null);
+    const res = await createClientFromProspect({ prospectId });
+    if (res.ok && res.clientId) {
+      router.push(`/clients/${res.clientId}`);
+    } else {
+      setError(res.error ?? 'Could not set up the client.');
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="surface-tool" style={{ borderColor: 'var(--border-accent)' }}>
+      <div className="eyebrow" style={{ marginBottom: '0.4rem' }}>
+        They signed — set up the client
+      </div>
+      <p style={{ fontSize: '0.84rem', color: 'var(--text-mid)', marginBottom: '0.7rem' }}>
+        Create a durable client record so future bookings skip the pipeline and the whole
+        history lives in one place. Pinned facts come across automatically.
+      </p>
+      <button className="btn-primary" disabled={busy} onClick={onConvert}>
+        {busy ? 'Setting up…' : 'Create client record'}
+      </button>
+      {error && (
+        <p style={{ fontSize: '0.78rem', color: 'var(--bad)', marginTop: '0.6rem' }}>{error}</p>
+      )}
     </div>
   );
 }

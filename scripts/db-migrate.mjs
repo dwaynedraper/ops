@@ -3,56 +3,41 @@
 /**
  * Sharp Sighted Ops — schema migrator.
  *
- *   npm run db:migrate            # apply src/lib/db/schema.sql to DATABASE_URL
- *   npm run db:migrate -- --check # connect and list tables, don't apply
+ *   npm run db:migrate              # apply schema to the TESTING db (.env.local)
+ *   npm run db:migrate:prod         # apply schema to PRODUCTION (.env.production) — confirms
+ *   npm run db:check                # list tables on testing, don't apply
+ *   npm run db:check:prod           # list tables on prod, don't apply
+ *   npm run db:migrate:fresh        # DROP catalog/quote tables then re-apply (testing)
  *
- * Reads DATABASE_URL from .env.local first, then process.env. The
- * schema file is idempotent (every CREATE has IF NOT EXISTS), so this
- * is safe to run repeatedly.
+ * Target selection is deterministic: the npm script you run picks the
+ * database via its env file, and that file is authoritative over any
+ * exported DATABASE_URL (see scripts/db-env.mjs). Writes to prod, and any
+ * --fresh run, require a typed confirmation. The schema is idempotent
+ * (every CREATE has IF NOT EXISTS), so re-running is safe.
  */
 
-import { readFileSync, existsSync } from 'node:fs';
+import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 import pg from 'pg';
+import { resolveDatabaseEnv, printTarget, confirmIfNeeded } from './db-env.mjs';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const rootDir = join(__dirname, '..');
 const schemaPath = join(rootDir, 'src', 'lib', 'db', 'schema.sql');
-const envPath = join(rootDir, '.env.local');
 
-// ─── Tiny .env.local loader (avoids adding dotenv as a runtime dep) ───
-function loadEnvLocal() {
-  if (!existsSync(envPath)) return;
-  const raw = readFileSync(envPath, 'utf8');
-  for (const line of raw.split('\n')) {
-    const trimmed = line.trim();
-    if (!trimmed || trimmed.startsWith('#')) continue;
-    const eq = trimmed.indexOf('=');
-    if (eq === -1) continue;
-    const key = trimmed.slice(0, eq).trim();
-    let value = trimmed.slice(eq + 1).trim();
-    if (
-      (value.startsWith('"') && value.endsWith('"')) ||
-      (value.startsWith("'") && value.endsWith("'"))
-    ) {
-      value = value.slice(1, -1);
-    }
-    if (!(key in process.env)) process.env[key] = value;
-  }
-}
+const argv = process.argv.slice(2);
+const prod = argv.includes('--prod');
+const check = argv.includes('--check');
+const freshCatalog = argv.includes('--fresh-catalog');
+const freshCrm = argv.includes('--fresh-crm');
+const autoYes = argv.includes('--yes') || argv.includes('-y');
 
-loadEnvLocal();
-
-const connectionString = process.env.DATABASE_URL;
-if (!connectionString) {
-  console.error('✗ DATABASE_URL is not set. Add it to .env.local and try again.');
+const resolved = resolveDatabaseEnv({ rootDir, prod, argv });
+if (!resolved.ok) {
+  console.error(`\n  ✗ ${resolved.error}\n`);
   process.exit(1);
 }
-
-const check = process.argv.includes('--check');
-const freshCatalog = process.argv.includes('--fresh-catalog');
-const freshCrm = process.argv.includes('--fresh-crm');
 
 // Catalog + quote tables, in FK-safe drop order. The --fresh-catalog
 // flag drops these before re-applying the schema, so a structural
@@ -86,23 +71,29 @@ const CRM_TABLES = [
   'workflows',
 ];
 
-const client = new pg.Client({
-  connectionString,
-  ssl: connectionString.includes('localhost') ? false : { rejectUnauthorized: false },
+const mode = check
+  ? 'CHECK (read-only)'
+  : [freshCatalog && 'FRESH-CATALOG', freshCrm && 'FRESH-CRM', 'APPLY'].filter(Boolean).join(' + ');
+
+printTarget({
+  title: 'Sharp Sighted Ops · DB migrator',
+  resolved,
+  schemaPath,
+  mode,
 });
 
-const banner = '\n  Sharp Sighted Ops · DB migrator\n';
+const client = new pg.Client({
+  connectionString: resolved.connectionString,
+  ssl: resolved.connectionString.includes('localhost') ? false : { rejectUnauthorized: false },
+});
 
 (async () => {
-  console.log(banner);
-  console.log(`  Target  : ${maskUrl(connectionString)}`);
-  console.log(`  Schema  : ${schemaPath}`);
-  const mode = check
-    ? 'CHECK (read-only)'
-    : [freshCatalog && 'FRESH-CATALOG', freshCrm && 'FRESH-CRM', 'APPLY']
-        .filter(Boolean)
-        .join(' + ');
-  console.log(`  Mode    : ${mode}\n`);
+  const destructive = (freshCatalog || freshCrm) && !check;
+  const okToProceed = await confirmIfNeeded({ resolved, check, destructive, autoYes });
+  if (!okToProceed) {
+    process.exitCode = 1;
+    return;
+  }
 
   try {
     await client.connect();
@@ -169,13 +160,3 @@ const banner = '\n  Sharp Sighted Ops · DB migrator\n';
     await client.end();
   }
 })();
-
-function maskUrl(url) {
-  try {
-    const u = new URL(url);
-    if (u.password) u.password = '***';
-    return u.toString();
-  } catch {
-    return '(unparseable URL)';
-  }
-}

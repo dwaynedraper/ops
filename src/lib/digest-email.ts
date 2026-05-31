@@ -7,11 +7,100 @@
  */
 
 import type { DigestData, DigestItem } from '@/lib/digest';
+import type { CommandData } from '@/lib/command-center';
 
 export interface DigestEmailParams {
   firstName: string;
   dateLabel: string; // e.g. "Tuesday, May 26"
   appUrl: string; // origin, no trailing slash
+  /** The job-side command center (Phase 3). Optional so callers that only
+   * have the prospect digest still render. */
+  command?: CommandData;
+}
+
+const ACCENT2 = '#38bdf8'; // brand cyan, for the job-side section header
+
+function fmtUsd(n: number): string {
+  return '$' + Math.round(n).toLocaleString('en-US');
+}
+
+/** A compact job-side line: "Sarah Chen · Fall family" + a reason tag. */
+function jobRow(
+  clientName: string | null,
+  title: string | null,
+  reason: string,
+  reasonColor: string,
+  href: string,
+): string {
+  const sub = title ? ` &middot; ${esc(title)}` : '';
+  return `<tr>
+    <td style="padding:8px 0;border-bottom:1px solid rgba(255,255,255,0.07);">
+      <a href="${esc(href)}" style="text-decoration:none;color:${INK};font-family:Helvetica,Arial,sans-serif;font-size:14px;font-weight:bold;">
+        ${esc(clientName ?? 'Client')}<span style="color:${MUTED};font-weight:normal;">${sub}</span>
+      </a>
+    </td>
+    <td align="right" style="padding:8px 0;border-bottom:1px solid rgba(255,255,255,0.07);font-family:Helvetica,Arial,sans-serif;font-size:10px;font-weight:bold;letter-spacing:0.08em;text-transform:uppercase;color:${reasonColor};white-space:nowrap;">
+      ${esc(reason)}
+    </td>
+  </tr>`;
+}
+
+/** The job-side block of the email (shoots, needs-now, money, deliver).
+ * Returns '' when there's nothing on the job side today. */
+function commandSection(command: CommandData, base: string): string {
+  const out: string[] = [];
+
+  if (command.thisWeek.length > 0) {
+    out.push(
+      section(
+        'Shoots this week',
+        command.thisWeek
+          .map((j) => jobRow(j.clientName, j.title, j.reason ?? 'Booked', ACCENT2, `${base}/jobs/${j.id}`))
+          .join(''),
+      ),
+    );
+  }
+  if (command.needsNow.length > 0) {
+    out.push(
+      section(
+        'Jobs needing action',
+        command.needsNow
+          .map((j) => jobRow(j.clientName, j.title, j.reason ?? 'Action', WARN, `${base}/jobs/${j.id}`))
+          .join(''),
+      ),
+    );
+  }
+  if (command.money.lines.length > 0) {
+    const header =
+      command.money.outstanding > 0 ? `Money — ${fmtUsd(command.money.outstanding)} outstanding` : 'Money';
+    out.push(
+      section(
+        header,
+        command.money.lines
+          .map((j) =>
+            jobRow(
+              j.clientName,
+              j.title,
+              j.valuePrice !== null ? fmtUsd(j.valuePrice) : (j.reason ?? 'Owed'),
+              j.paymentStatus === 'deposit_paid' ? WARN : RUST,
+              `${base}/jobs/${j.id}`,
+            ),
+          )
+          .join(''),
+      ),
+    );
+  }
+  if (command.toDeliver.length > 0) {
+    out.push(
+      section(
+        'To deliver',
+        command.toDeliver
+          .map((j) => jobRow(j.clientName, j.title, j.reason ?? 'Deliver', ACCENT2, `${base}/jobs/${j.id}`))
+          .join(''),
+      ),
+    );
+  }
+  return out.join('');
 }
 
 const INK = '#faf5ec';
@@ -99,14 +188,22 @@ export function digestEmailHtml(data: DigestData, p: DigestEmailParams): string 
     );
   }
 
-  const intro = data.allClear
+  const cmd = p.command;
+  const bothClear = data.allClear && (!cmd || cmd.allClear);
+
+  const intro = bothClear
     ? 'Nothing is waiting on you this morning — a clean slate. A good day to put fresh names in the pipeline.'
     : `Your brief for today: ${[
+        cmd && cmd.counts.needsNow > 0 &&
+          `${cmd.counts.needsNow} job${cmd.counts.needsNow === 1 ? '' : 's'} needing action`,
+        cmd && cmd.counts.shootsThisWeek > 0 &&
+          `${cmd.counts.shootsThisWeek} shoot${cmd.counts.shootsThisWeek === 1 ? '' : 's'} this week`,
         data.replies.length > 0 &&
           `${data.replies.length} repl${data.replies.length === 1 ? 'y' : 'ies'} to act on`,
         data.dueNow.length > 0 &&
           `${data.dueNow.length} follow-up${data.dueNow.length === 1 ? '' : 's'} due`,
         data.closeOuts.length > 0 && `${data.closeOuts.length} to close out`,
+        cmd && cmd.money.outstanding > 0 && `${fmtUsd(cmd.money.outstanding)} outstanding`,
       ]
         .filter(Boolean)
         .join(', ')}.`;
@@ -122,11 +219,14 @@ export function digestEmailHtml(data: DigestData, p: DigestEmailParams): string 
         </td></tr>`
       : '';
 
-  const body = data.allClear
+  // Job side first — shoots and deadlines lead the brief — then the
+  // prospect outreach sections.
+  const cmdHtml = cmd ? commandSection(cmd, base) : '';
+  const body = bothClear
     ? `<tr><td style="padding:6px 36px 0 36px;">
         <a href="${esc(base)}/" style="font-family:Helvetica,Arial,sans-serif;font-size:13px;color:${RUST};">Open Dashboard &rarr;</a>
       </td></tr>`
-    : sections.join('');
+    : cmdHtml + sections.join('');
 
   return `<!doctype html>
 <html lang="en">
@@ -167,11 +267,40 @@ export function digestEmailHtml(data: DigestData, p: DigestEmailParams): string 
 
 export function digestEmailText(data: DigestData, p: DigestEmailParams): string {
   const base = p.appUrl.replace(/\/$/, '');
+  const cmd = p.command;
+  const bothClear = data.allClear && (!cmd || cmd.allClear);
   const lines: string[] = [`Good morning, ${p.firstName || 'there'} — ${p.dateLabel}`, ''];
 
-  if (data.allClear) {
+  if (bothClear) {
     lines.push('Nothing is waiting on you this morning. A clean slate.');
   } else {
+    // Job side first.
+    if (cmd) {
+      const jobList = (title: string, rows: CommandData['needsNow'], tagFor: (j: CommandData['needsNow'][number]) => string) => {
+        if (rows.length === 0) return;
+        lines.push(`${title}:`);
+        for (const j of rows) {
+          lines.push(`  - ${j.clientName ?? 'Client'}${j.title ? ` (${j.title})` : ''} — ${tagFor(j)}`);
+        }
+        lines.push('');
+      };
+      jobList('Shoots this week', cmd.thisWeek, (j) => j.reason ?? 'booked');
+      jobList('Jobs needing action', cmd.needsNow, (j) => j.reason ?? 'action');
+      if (cmd.money.lines.length > 0) {
+        lines.push(
+          cmd.money.outstanding > 0 ? `Money (${fmtUsd(cmd.money.outstanding)} outstanding):` : 'Money:',
+        );
+        for (const j of cmd.money.lines) {
+          lines.push(
+            `  - ${j.clientName ?? 'Client'}${j.title ? ` (${j.title})` : ''} — ${
+              j.valuePrice !== null ? fmtUsd(j.valuePrice) : (j.reason ?? 'owed')
+            }`,
+          );
+        }
+        lines.push('');
+      }
+      jobList('To deliver', cmd.toDeliver, (j) => j.reason ?? 'deliver');
+    }
     const list = (title: string, items: DigestItem[], tagFor: (i: DigestItem) => string) => {
       if (items.length === 0) return;
       lines.push(`${title}:`);

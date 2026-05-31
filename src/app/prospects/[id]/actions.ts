@@ -11,7 +11,7 @@
  */
 
 import { revalidatePath } from 'next/cache';
-import { sql } from '@/lib/db';
+import { sql, sqlOne } from '@/lib/db';
 import { actionError } from '@/lib/action-error';
 import { loadOwnedProspect } from '@/lib/prospect-access';
 import { STAGE_NEXT, type ProspectStage } from '@/lib/prospects';
@@ -151,5 +151,71 @@ export async function advanceStage(input: {
       ok: false,
       error: actionError(err, 'Could not update the stage.'),
     };
+  }
+}
+
+/**
+ * Convert a won prospect into a durable client (Phase 1 bridge — see
+ * CLIENTS-AND-JOBS-PLAN.md). Reads the prospect's identity + pinned notes,
+ * creates the clients row (stamping origin_prospect_id), and carries the
+ * pinned facts across. Idempotent: if a client already exists for this
+ * prospect, returns it instead of making a second. The first Job is set
+ * up in Phase 2.
+ */
+export async function createClientFromProspect(input: {
+  prospectId: string;
+}): Promise<{ ok: boolean; clientId?: string; error?: string }> {
+  const loaded = await loadOwnedProspect(input.prospectId);
+  if ('error' in loaded) return { ok: false, error: loaded.error };
+
+  try {
+    // Never create a second client for the same prospect.
+    const existing = await sqlOne<{ id: string }>`
+      SELECT id FROM clients WHERE origin_prospect_id = ${input.prospectId} LIMIT 1`;
+    if (existing) return { ok: true, clientId: existing.id };
+
+    const p = await sqlOne<{
+      contact_name: string;
+      org_name: string | null;
+      email: string | null;
+      phone: string | null;
+      market_area: string | null;
+      branch: 'portraits' | 'realestate' | 'corporate' | null;
+    }>`
+      SELECT p.contact_name, p.org_name, p.email, p.phone, p.market_area, w.branch
+      FROM prospects p
+      LEFT JOIN workflows w ON w.workflow_key = p.workflow_key
+      WHERE p.id = ${input.prospectId}`;
+    if (!p) return { ok: false, error: 'That prospect is no longer in the pipeline.' };
+
+    // The contact is who you deal with → the client is a person named for
+    // them; the org (brokerage, company) rides along in the relationship
+    // line for now. Businesses + roles get first-class records in Phase 2.
+    const displayName = p.contact_name.trim() || p.org_name || 'New client';
+    const relationship = p.org_name
+      ? `${p.org_name} · signed from the pipeline`
+      : 'Signed from the pipeline';
+
+    const created = await sqlOne<{ id: string }>`
+      INSERT INTO clients
+        (kind, display_name, email, phone, market_area, relationship,
+         branch_affinity, owner_id, origin_prospect_id)
+      VALUES ('person', ${displayName}, ${p.email}, ${p.phone}, ${p.market_area},
+              ${relationship}, ${p.branch}, ${loaded.userId}, ${input.prospectId})
+      RETURNING id`;
+    if (!created) return { ok: false, error: 'Could not set up the client.' };
+
+    // Carry the pinned evergreen facts across to the client's notes.
+    await sql`
+      INSERT INTO client_notes (client_id, author_id, body, pinned)
+      SELECT ${created.id}, author_id, body, true
+      FROM prospect_notes
+      WHERE prospect_id = ${input.prospectId} AND pinned = true`;
+
+    revalidatePath(`/prospects/${input.prospectId}`);
+    revalidatePath('/clients');
+    return { ok: true, clientId: created.id };
+  } catch (err) {
+    return { ok: false, error: actionError(err, 'Could not set up the client.') };
   }
 }

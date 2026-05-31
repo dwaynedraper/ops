@@ -5,22 +5,28 @@ import { sql, sqlOne } from '@/lib/db';
 import { Sidebar } from '@/components/Sidebar';
 import { Footer } from '@/components/Footer';
 import { DigestOptIn } from '@/components/DigestOptIn';
+import { fmtMoney } from '@/lib/pricing';
 import { STAGE_LABEL, type ProspectStage } from '@/lib/prospects';
+import { JOB_STAGE_LABEL } from '@/lib/jobs';
 import { computeDigest, type DigestItem } from '@/lib/digest';
+import { computeCommandCenter, type CommandRow } from '@/lib/command-center';
 
 /**
- * Dashboard — the daily working surface (D-062, D-063).
+ * Dashboard — the Command Center (D-062, D-063, Phase 3).
  *
- * V2 (F12) folded the standalone /today route into the Dashboard. The
- * digest computation in `lib/digest.ts` is unchanged — it still
- * powers both this page and the morning email cron, so the page and
- * the email always agree.
+ * One screen that runs the day. It composes two engines, both owner-scoped
+ * (D-019): the prospect digest (lib/digest.ts — replies, follow-ups,
+ * close-outs) and the job command center (lib/command-center.ts — shoots,
+ * deliveries, money, prints, reviews). Sections run top-down by urgency:
  *
- * Owner-scoped (D-019): every count and queue is the signed-in rep's
- * own pipeline. The digest panels (replies, follow-ups, close-outs)
- * carry the "what needs you today" intent; the pipeline-by-workflow
- * section underneath gives the cross-workflow funnel view that the
- * old /today page didn't have.
+ *   1. This week        — shoots in the next 7 days (Wed/Thu rhythm)
+ *   2. Needs you now     — the merged "do this next" feed
+ *   3. Money             — outstanding balances + deposits
+ *   4. To send / deliver — prospect close-outs + job handoffs & reviews
+ *   5. Pipeline          — the cross-workflow funnel (retained)
+ *
+ * The digest engine still powers the morning email, so screen and inbox
+ * agree (D-063); the command center now rides along in that email too.
  */
 export const dynamic = 'force-dynamic';
 
@@ -62,6 +68,18 @@ const DATE_FMT = new Intl.DateTimeFormat('en-US', {
   month: 'long',
   day: 'numeric',
 });
+const SHOOT_FMT = new Intl.DateTimeFormat('en-US', {
+  weekday: 'short',
+  month: 'short',
+  day: 'numeric',
+  timeZone: 'UTC',
+});
+
+function shootLabel(date: string | null): string {
+  if (!date) return 'No date';
+  const d = new Date(`${date}T00:00:00Z`);
+  return Number.isNaN(d.getTime()) ? 'No date' : SHOOT_FMT.format(d);
+}
 
 export default async function Dashboard() {
   const session = await auth();
@@ -71,18 +89,12 @@ export default async function Dashboard() {
     .toString()
     .split(/[\s@]/)[0];
 
-  // Logged-out users get redirected, consistent with every other page.
-  // proxy.ts normally catches this first; this is the defense-in-depth.
   if (!user) {
     redirect('/signin');
   }
 
   const now = new Date();
-  // F12 (D-063): the digest computation lives in `lib/digest.ts` and
-  // is shared with the morning-email cron route, so the page and the
-  // email always agree. The Dashboard runs it alongside the pipeline
-  // queries.
-  const [workflowRows, countRows, targetRows, digest, profile] = await Promise.all([
+  const [workflowRows, countRows, targetRows, digest, command, profile] = await Promise.all([
     sql<WorkflowRow>`
       SELECT workflow_key, name, accent FROM workflows
       WHERE active = true ORDER BY sort_order, name`,
@@ -94,11 +106,11 @@ export default async function Dashboard() {
     sql<TargetRow>`
       SELECT workflow_key, value FROM rank_config WHERE key = 'qualified_target_count'`,
     computeDigest(user.id, now),
+    computeCommandCenter(user.id, now),
     sqlOne<{ digest_email: boolean }>`
       SELECT digest_email FROM ops_profiles WHERE user_id = ${user.id}`,
   ]);
 
-  // workflow_key → stage → count
   const counts = new Map<string, Map<ProspectStage, number>>();
   for (const r of countRows) {
     const m = counts.get(r.workflow_key) ?? new Map<ProspectStage, number>();
@@ -106,22 +118,20 @@ export default async function Dashboard() {
     counts.set(r.workflow_key, m);
   }
   const countOf = (wf: string, s: ProspectStage) => counts.get(wf)?.get(s) ?? 0;
-
   const targetByWf = new Map(targetRows.map((r) => [r.workflow_key, Number(r.value)]));
 
-  // Digest breakdown for the morning brief (D-063 — folded in from
-  // the old /today route).
-  const { replies, dueNow, closeOuts, waiting, soonestWait, allClear } = digest;
+  const { replies, dueNow, closeOuts } = digest;
+
+  // The unified morning summary — both engines in one line.
   const summaryParts: string[] = [];
-  if (replies.length > 0) {
-    summaryParts.push(`${replies.length} repl${replies.length === 1 ? 'y' : 'ies'} to act on`);
-  }
-  if (dueNow.length > 0) {
-    summaryParts.push(`${dueNow.length} follow-up${dueNow.length === 1 ? '' : 's'} due`);
-  }
-  if (closeOuts.length > 0) {
-    summaryParts.push(`${closeOuts.length} to close out`);
-  }
+  if (command.counts.needsNow > 0) summaryParts.push(`${command.counts.needsNow} need${command.counts.needsNow === 1 ? 's' : ''} action`);
+  if (command.counts.shootsThisWeek > 0) summaryParts.push(`${command.counts.shootsThisWeek} shoot${command.counts.shootsThisWeek === 1 ? '' : 's'} this week`);
+  if (replies.length > 0) summaryParts.push(`${replies.length} repl${replies.length === 1 ? 'y' : 'ies'}`);
+  if (dueNow.length > 0) summaryParts.push(`${dueNow.length} follow-up${dueNow.length === 1 ? '' : 's'} due`);
+  if (command.money.outstanding > 0) summaryParts.push(`${fmtMoney(command.money.outstanding)} outstanding`);
+
+  const everythingClear =
+    command.allClear && replies.length === 0 && dueNow.length === 0 && closeOuts.length === 0;
 
   return (
     <div className="app-shell">
@@ -144,74 +154,98 @@ export default async function Dashboard() {
             >
               Good morning, <em style={{ color: 'var(--accent)' }}>{firstName || 'partner'}</em>.
             </h1>
-            <p style={{ color: 'var(--text-mid)', marginBottom: '2rem', maxWidth: '52ch' }}>
-              {allClear
+            <p style={{ color: 'var(--text-mid)', marginBottom: '2rem', maxWidth: '60ch' }}>
+              {everythingClear
                 ? 'Nothing is waiting on you this morning — a clean slate.'
-                : `Your morning brief: ${summaryParts.join(' · ')}.`}
+                : `Your day: ${summaryParts.join(' · ')}.`}
             </p>
 
-            {/* ─── Replies waiting on you (D-063) ────────────────────── */}
-            {replies.length > 0 && (
-              <DigestSection
-                title="Replies waiting on you"
-                hint="Someone wrote back — take it to their client page and quote the work."
+            {/* ─── 1. This week — shoots ──────────────────────────────── */}
+            {command.thisWeek.length > 0 && (
+              <Section
+                title="This week"
+                hint="Your booked shoots in the next seven days — Wednesdays and Thursdays do the heavy lifting."
+                action={{ href: '/jobs', label: 'Open Jobs →' }}
               >
-                {replies.map((i) => (
-                  <DigestRow
-                    key={i.id}
-                    item={i}
-                    href={`/prospects/${i.id}`}
-                    tag="Replied"
-                    tagColor="var(--good)"
-                  />
+                {command.thisWeek.map((j) => (
+                  <JobRow key={`week-${j.id}`} job={j} trail={shootLabel(j.shootDate)} trailColor="var(--accent)" />
                 ))}
-              </DigestSection>
+              </Section>
             )}
 
-            {/* ─── Follow-ups due (D-063) ────────────────────────────── */}
-            {dueNow.length > 0 && (
-              <DigestSection
-                title="Follow-ups due today"
-                hint="Work these top-down — highest score first. The composer is in Contact."
-                action={{ href: '/contact', label: 'Open Contact →' }}
+            {/* ─── 2. Needs you now — the merged feed ─────────────────── */}
+            {(command.needsNow.length > 0 || replies.length > 0 || dueNow.length > 0) && (
+              <Section
+                title="Needs you now"
+                hint="Worked top-down: the most time-sensitive thing first. Don't decide — just start at the top."
               >
+                {command.needsNow.map((j) => (
+                  <JobRow
+                    key={`now-${j.id}`}
+                    job={j}
+                    trail={j.reason ?? JOB_STAGE_LABEL[j.stage]}
+                    trailColor="var(--warn)"
+                  />
+                ))}
+                {replies.map((i) => (
+                  <ProspectRow key={`reply-${i.id}`} item={i} href={`/prospects/${i.id}`} tag="Replied" tagColor="var(--good)" />
+                ))}
                 {dueNow.map((i) => (
-                  <DigestRow
-                    key={i.id}
+                  <ProspectRow
+                    key={`due-${i.id}`}
                     item={i}
                     href="/contact"
                     tag={`${i.status === 'due' ? 'Due' : 'Ready'} · ${i.nextLabel}`}
                     tagColor={i.status === 'due' ? 'var(--warn)' : 'var(--accent)'}
                   />
                 ))}
-              </DigestSection>
+              </Section>
             )}
 
-            {/* ─── Close-outs (D-063) ────────────────────────────────── */}
-            {closeOuts.length > 0 && (
-              <DigestSection
-                title="Ready to close out"
-                hint="The full cycle ran with no reply. Close them so the board stays honest."
-                action={{ href: '/contact', label: 'Open Contact →' }}
+            {/* ─── 3. Money ───────────────────────────────────────────── */}
+            {command.money.lines.length > 0 && (
+              <Section
+                title="Money"
+                hint={
+                  command.money.outstanding > 0
+                    ? `${fmtMoney(command.money.outstanding)} in unpaid work, plus balances in progress.`
+                    : 'Balances and deposits in progress.'
+                }
               >
-                {closeOuts.map((i) => (
-                  <DigestRow
-                    key={i.id}
-                    item={i}
-                    href="/contact"
-                    tag="No reply"
-                    tagColor="var(--text-faint)"
+                {command.money.lines.map((j) => (
+                  <JobRow
+                    key={`money-${j.id}`}
+                    job={j}
+                    trail={j.valuePrice !== null ? fmtMoney(j.valuePrice) : (j.reason ?? '')}
+                    trailColor={j.paymentStatus === 'deposit_paid' ? 'var(--warn)' : 'var(--bad)'}
+                    subReason={j.reason}
                   />
                 ))}
-              </DigestSection>
+              </Section>
             )}
 
-            {/* ─── All clear ─────────────────────────────────────────── */}
-            {allClear && (
+            {/* ─── 4. To send / to deliver ────────────────────────────── */}
+            {(command.toDeliver.length > 0 || closeOuts.length > 0) && (
+              <Section
+                title="To send & deliver"
+                hint="Galleries and prints to hand off, reviews to ask for, and outreach cycles to close out."
+                action={closeOuts.length > 0 ? { href: '/contact', label: 'Open Contact →' } : undefined}
+              >
+                {command.toDeliver.map((j) => (
+                  <JobRow key={`deliver-${j.id}`} job={j} trail={j.reason ?? 'Deliver'} trailColor="var(--brand-cyan)" />
+                ))}
+                {closeOuts.map((i) => (
+                  <ProspectRow key={`close-${i.id}`} item={i} href="/contact" tag="No reply" tagColor="var(--text-faint)" />
+                ))}
+              </Section>
+            )}
+
+            {/* ─── All clear ──────────────────────────────────────────── */}
+            {everythingClear && (
               <div className="surface-card" style={{ marginBottom: '1.5rem' }}>
                 <p style={{ fontSize: '0.9rem', color: 'var(--text)', marginBottom: '0.85rem' }}>
-                  No replies, no follow-ups due, nothing to close. The cycle is current.
-                  A good morning to put fresh names in the pipeline.
+                  No shoots due, nothing overdue, no replies waiting, nothing owed. The board is
+                  current — a good morning to put fresh names in the pipeline.
                 </p>
                 <Link href="/qualify" className="btn-primary">
                   Qualify new prospects
@@ -219,18 +253,7 @@ export default async function Dashboard() {
               </div>
             )}
 
-            {/* ─── In motion (ambient) ───────────────────────────────── */}
-            {waiting.length > 0 && (
-              <p style={{ fontSize: '0.8rem', color: 'var(--text-faint)', marginBottom: '2rem' }}>
-                {waiting.length} prospect{waiting.length === 1 ? ' is' : 's are'} mid-cycle,
-                inside the follow-up window
-                {soonestWait !== null
-                  ? ` — the next comes due in ${soonestWait} day${soonestWait === 1 ? '' : 's'}.`
-                  : '.'}
-              </p>
-            )}
-
-            {/* ─── Pipeline by workflow ──────────────────────────────── */}
+            {/* ─── 5. Pipeline by workflow ────────────────────────────── */}
             <section>
               <div className="eyebrow" style={{ marginBottom: '0.85rem' }}>
                 Pipeline by workflow
@@ -254,9 +277,7 @@ export default async function Dashboard() {
                           marginBottom: '0.6rem',
                         }}
                       >
-                        <div
-                          style={{ fontSize: '0.92rem', fontWeight: 600, color: 'var(--text)' }}
-                        >
+                        <div style={{ fontSize: '0.92rem', fontWeight: 600, color: 'var(--text)' }}>
                           <span
                             aria-hidden
                             style={{
@@ -273,12 +294,7 @@ export default async function Dashboard() {
                         {hit ? (
                           <Link
                             href="/contact"
-                            style={{
-                              fontSize: '0.74rem',
-                              fontWeight: 600,
-                              color: 'var(--good)',
-                              textDecoration: 'none',
-                            }}
+                            style={{ fontSize: '0.74rem', fontWeight: 600, color: 'var(--good)', textDecoration: 'none' }}
                           >
                             {qualified} / {target} qualified — start contacting →
                           </Link>
@@ -297,10 +313,7 @@ export default async function Dashboard() {
                       >
                         {TILE_STAGES.map((s) => (
                           <div key={s} style={{ display: 'flex', alignItems: 'baseline', gap: '0.4rem' }}>
-                            <span
-                              className="money"
-                              style={{ fontSize: '1.05rem', color: 'var(--text)' }}
-                            >
+                            <span className="money" style={{ fontSize: '1.05rem', color: 'var(--text)' }}>
                               {countOf(w.workflow_key, s)}
                             </span>
                             <span style={{ fontSize: '0.7rem', color: 'var(--text-faint)' }}>
@@ -315,7 +328,6 @@ export default async function Dashboard() {
               </div>
             </section>
 
-            {/* ─── Email opt-in (folded from /today, D-063) ─────────── */}
             <DigestOptIn enabled={profile?.digest_email ?? false} />
           </div>
         </main>
@@ -326,9 +338,9 @@ export default async function Dashboard() {
   );
 }
 
-// ─── Digest section + row helpers (folded from /today, D-063) ────────
+// ─── Section shell ────────────────────────────────────────────────────
 
-function DigestSection({
+function Section({
   title,
   hint,
   action,
@@ -357,15 +369,81 @@ function DigestSection({
           </Link>
         )}
       </div>
-      <p style={{ fontSize: '0.78rem', color: 'var(--text-muted)', marginBottom: '0.7rem' }}>
-        {hint}
-      </p>
+      <p style={{ fontSize: '0.78rem', color: 'var(--text-muted)', marginBottom: '0.7rem' }}>{hint}</p>
       <div style={{ display: 'flex', flexDirection: 'column', gap: '0.4rem' }}>{children}</div>
     </section>
   );
 }
 
-function DigestRow({
+// ─── Job row (command center) ─────────────────────────────────────────
+
+function JobRow({
+  job,
+  trail,
+  trailColor,
+  subReason,
+}: {
+  job: CommandRow;
+  trail: string;
+  trailColor: string;
+  subReason?: string | null;
+}) {
+  const accent = job.workflowAccent ?? 'var(--text-faint)';
+  return (
+    <Link
+      href={`/jobs/${job.id}`}
+      className="surface-tool list-row-responsive"
+      style={{
+        display: 'flex',
+        alignItems: 'center',
+        gap: '0.85rem',
+        padding: '0.7rem 0.9rem',
+        textDecoration: 'none',
+        color: 'inherit',
+        borderLeft: `3px solid ${accent}`,
+      }}
+    >
+      <span style={{ flex: 1, minWidth: 0 }}>
+        <span
+          style={{
+            display: 'block',
+            fontSize: '0.88rem',
+            fontWeight: 600,
+            color: 'var(--text)',
+            overflow: 'hidden',
+            textOverflow: 'ellipsis',
+            whiteSpace: 'nowrap',
+          }}
+        >
+          {job.clientName ?? 'Client'}
+          {job.title ? <span style={{ color: 'var(--text-muted)', fontWeight: 400 }}> · {job.title}</span> : null}
+        </span>
+        <span style={{ display: 'block', fontSize: '0.74rem', color: 'var(--text-muted)' }}>
+          {job.workflowName ?? JOB_STAGE_LABEL[job.stage]}
+          {subReason && trail !== subReason ? ` · ${subReason}` : ''}
+        </span>
+      </span>
+      <span
+        className="list-row-trail"
+        style={{
+          fontSize: '0.66rem',
+          letterSpacing: '0.08em',
+          textTransform: 'uppercase',
+          fontWeight: 700,
+          color: trailColor,
+          flexShrink: 0,
+          textAlign: 'right',
+        }}
+      >
+        {trail}
+      </span>
+    </Link>
+  );
+}
+
+// ─── Prospect row (digest) ────────────────────────────────────────────
+
+function ProspectRow({
   item,
   href,
   tag,

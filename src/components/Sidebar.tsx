@@ -6,7 +6,7 @@
  * Four sections, separated by section headers with top borders:
  *   1. Dashboard (single link, no header)
  *   2. TOOLS — Quote Calculator, Tutorials
- *   3. SALES — Sourcing, Qualify, Contact, Client List
+ *   3. SALES — Sourcing, Qualify, Contact, Pipeline, Clients, Jobs
  *   4. PRICING & ADMIN — super-admin only
  *
  * The aside uses `.app-shell-aside` (position: sticky, height: 100vh)
@@ -39,7 +39,9 @@ const SALES_LINKS: NavLink[] = [
   { href: '/sourcing', label: 'Sourcing' },
   { href: '/qualify', label: 'Qualify' },
   { href: '/contact', label: 'Contact' },
-  { href: '/clients', label: 'Client List' },
+  { href: '/pipeline', label: 'Pipeline' },
+  { href: '/clients', label: 'Clients' },
+  { href: '/jobs', label: 'Jobs' },
 ];
 
 // Pricing & Admin — super_admin only (also re-checked server-side on

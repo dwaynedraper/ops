@@ -46,6 +46,7 @@ export function CalculatorClient({
   catalog,
   role,
   prospectId,
+  jobId,
   initialClient,
   onSaved,
   defaultBranch,
@@ -54,6 +55,8 @@ export function CalculatorClient({
   role: 'super_admin' | 'partner';
   /** When set, saved quotes link to this prospect (client-page embed). */
   prospectId?: string;
+  /** When set, saved quotes link to this job (job-page embed). */
+  jobId?: string;
   /** Pre-fills the client-info card (e.g. from a prospect record). */
   initialClient?: QuoteClientInfo;
   /** Called after a quote saves — lets an embedding page refresh. */
@@ -207,7 +210,7 @@ export function CalculatorClient({
     setSaving(true);
     setResult(null);
     try {
-      const res = await saveQuote(selection, client, prospectId ?? null);
+      const res = await saveQuote(selection, client, prospectId ?? null, jobId ?? null);
       setResult(res);
       if (res.ok) onSaved?.();
     } catch (err) {

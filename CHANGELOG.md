@@ -12,6 +12,129 @@ lives in `README.md`. This file is the time-ordered receipt.
 
 ## [Unreleased]
 
+### CRM — Phase 3: the Command Center dashboard + next-action engine (2026-05-31)
+The dashboard stops being acquisition-only and becomes the screen that runs
+the whole day. It composes two owner-scoped engines: the existing prospect
+digest (replies / follow-ups / close-outs) and a new **job command center**
+(shoots, deliveries, money, prints, reviews). No schema change — pure read
+layer over the Phase 2 tables. Design in `CLIENTS-AND-JOBS-PLAN.md` §6–7.
+
+#### Added
+- **`lib/command-center.ts`** — the job-side engine. A pure core
+  (`evaluateJob`, `buildCommandSections`) scores each live job by two
+  signals from the interview — **time-sensitive/overdue** (shoot imminent,
+  delivery/balance/deposit past due) and **going cold** (untouched ≥14d) —
+  and buckets jobs into four lenses: this-week shoots, needs-now, money
+  (with an outstanding total), and to-deliver (prints/gallery handoff +
+  ripe review-asks). `computeCommandCenter` is the thin DB loader. 17 unit
+  tests in `command-center.test.ts`.
+- **Dashboard rebuild** (`app/page.tsx`) — five urgency-ordered sections:
+  This week → Needs you now (job signals + prospect replies/follow-ups,
+  merged) → Money → To send & deliver → Pipeline by workflow (retained).
+  One combined "your day" summary line; a true all-clear only when both
+  engines are quiet.
+- **Digest email extended** — `digest-email.ts` now renders the job side
+  (shoots this week, jobs needing action, money outstanding, to deliver)
+  above the prospect sections, in both HTML and text. The cron
+  (`/api/cron/digest`) computes the command center alongside the digest and
+  folds it into the subject's workload count — so the morning email matches
+  the dashboard, the way screen and email already agreed for prospects.
+
+#### Notes
+- Tunables (shoot-soon 2d, this-week 7d, stalled 14d, review-ripe 3d) are
+  constants in `command-center.ts` for now; they become admin-editable in
+  Phase 4 alongside rep performance on the dashboard.
+
+### CRM — Phase 2: jobs, the lifecycle, roles, quoting cross-over (2026-05-31)
+The post-sale half. Where Phase 1 holds onto *who*, Phase 2 tracks *the
+work*: every booking is a Job that runs booked → prep → shoot → cull →
+edit → deliver → follow-up → review → complete, with a shoot date, payment
+status, delivery dates, and the several people on the job. Full design in
+`CLIENTS-AND-JOBS-PLAN.md`. **Run `npm run db:migrate` to apply — additive
++ idempotent (three new tables + `quotes.job_id`, no changes to existing
+columns).**
+
+#### Added
+- **Schema (Layer 5)** — `jobs` (one engagement off a client: lifecycle
+  `stage`, `shoot_date`, `value_price`, `payment_status`, `deposit_due` /
+  `balance_due` / `delivery_due`, `origin_prospect_id`), `job_roles` (the
+  additional parties — billing / subject / gallery_recipient / other — each
+  a durable client), and `job_stage_events` (trigger-written stage log,
+  mirroring `prospect_stage_events`). New `quotes.job_id` link + index.
+  Triggers `jobs_updated_at` and `jobs_stage_event` reuse the shared
+  helpers.
+- **`/jobs`** — the board: every job in a column by lifecycle stage, with a
+  search and a show-closed toggle. Cards carry the workflow accent + value +
+  payment color.
+- **`/jobs/[id]`** — the job page: header + visual **stage rail**, the
+  stage-action buttons (validated against `JOB_STAGE_NEXT`; `deliver` stamps
+  `delivered_at`, `review` stamps the ask), a schedule/value editor,
+  payment toggle, the **roles editor** (search a client, attach a role), the
+  embedded calculator (quotes save with `job_id`), and quote history.
+- **"+ New job"** — on the client page (`createJobForClient`): one click
+  from a returning client to a fresh booked Job, branch pre-set from the
+  client's affinity. No funnel.
+- **Cold-call card v2** — the client page now leads with the **Jobs**
+  history and computes **lifetime value** from paid jobs (falling back to
+  accepted-quote sum only before the first job exists). The Phase-1 "+ New
+  job (Phase 2)" stub is now the real button.
+- **Libs** — `lib/jobs.ts` (lifecycle types, stage flow + transition map,
+  payment/role labels, pure helpers; 18 unit tests in `lib/jobs.test.ts`)
+  and `lib/job-access.ts` (`loadOwnedJob`, the D-019 gate).
+- **Sidebar** — a **Jobs** link added to the SALES section.
+
+#### Changed
+- **`saveQuote`** takes an optional fourth arg `jobId`; the calculator
+  threads it through when embedded on a job page. The prospect path
+  (`prospectId`) is unchanged.
+
+### CRM — Phase 1: durable clients + the returning-client door (2026-05-31)
+The acquisition pipeline (`prospects`) wins strangers; this adds the layer
+that holds onto them after they sign. Full design in
+`CLIENTS-AND-JOBS-PLAN.md`. **Run `npm run db:migrate` to apply — additive
+and idempotent (two new tables, no changes to existing ones).**
+
+#### Added
+- **Schema (Layer 4)** — `clients` (durable identity: person or business,
+  with `origin_prospect_id` back to the cold lead and a soft `status` for
+  archive-never-delete) and `client_notes` (pinned facts + timeline, mirrors
+  `prospect_notes`). New `clients_updated_at` trigger reuses
+  `trg_set_updated_at`.
+- **`/clients`** — the durable roster (search by name / email / market,
+  show-archived toggle, monogram rows), owner-scoped like the pipeline.
+- **`/clients/new`** — the search-first add door: a live duplicate
+  typeahead (`searchClients`) so a returning client links to their existing
+  record instead of forking a new one; a create form for genuinely new
+  people. The on-ramp the cold funnel never had.
+- **`/clients/[id]`** — the cold-call card: who they are, relationship,
+  pinned facts + notes timeline, and history (lifetime value + the quotes
+  carried through the origin prospect). A disabled "+ New job" stub marks
+  where Phase 2 lands.
+- **Convert bridge** — a won prospect (`signed` / `client`) gets a "Create
+  client record" action on its page (`createClientFromProspect`): copies
+  identity + pinned facts, stamps `origin_prospect_id`, idempotent against
+  double-convert.
+- **Libs** — `lib/clients.ts` (pure helpers + types, unit-tested in
+  `lib/clients.test.ts`) and `lib/client-access.ts` (`loadOwnedClient`,
+  the D-019 owner gate).
+
+#### Changed
+- **Navigation rename** — the old `/clients` route (really "everyone in the
+  pipeline") is now **`/pipeline`** ("Pipeline"); `/clients` is the new
+  durable roster. Sidebar gains both links; the prospect page back-link now
+  points at `/pipeline`. (`git mv` preserved history.)
+
+#### Notes
+- Tutorial copy in `lib/tutorials-content.ts` still references the old
+  `/clients` = pipeline meaning; a copy pass is queued for a later phase.
+- Jobs, roles, and `quotes.job_id` are intentionally **not** here — they're
+  Phase 2.
+
+### Pricing — portrait deliverable counts updated (2026-05-30)
+Verse 8→10, Story 16→20, Saga 35→30 hand-edited finals. Updated
+`scripts/db-seed.mjs` package descriptions to match. Supersedes the
+prior 8 / 16 / 35 spec; re-run the seed to propagate.
+
 ### Phase R — Reports (shipped 2026-05-28)
 Admin-only `/reports` route, a nightly snapshot table populated by a
 new cron at midnight CT, and six dashboard cards designed around the
