@@ -12,6 +12,7 @@
 import Link from 'next/link';
 import {
   glanceGrid,
+  clockLabelUpper,
   BLOCK_TYPE_COLOR,
   type GlanceCell,
   type BlockType,
@@ -23,6 +24,15 @@ export interface GlanceItem {
   kind: 'block' | 'shoot';
   blockType: BlockType | null;
   startClock: string | null; // 'HH:MM'
+  durationMin: number;
+}
+
+/** Compact duration tag: 60→"1h", 90→"1.5h", 30→"30m". */
+function durationTag(min: number): string {
+  if (min <= 0) return '';
+  if (min % 60 === 0) return `${min / 60}h`;
+  if (min < 60) return `${min}m`;
+  return `${(min / 60).toFixed(1).replace(/\.0$/, '')}h`;
 }
 
 const WEEKDAY_HEADERS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
@@ -61,7 +71,7 @@ export function GlanceStrip({ today, items }: { today: string; items: GlanceItem
           <div
             key={w}
             style={{
-              fontSize: '0.6rem',
+              fontSize: '0.7rem',
               letterSpacing: '0.14em',
               textTransform: 'uppercase',
               color: 'var(--text-faint)',
@@ -102,7 +112,7 @@ function GlanceDay({ cell, items }: { cell: GlanceCell; items: GlanceItem[] }) {
           padding: '0.35rem 0.4rem',
         }}
       >
-        <div style={{ fontSize: '0.7rem', color: 'var(--text-faint)' }}>{cell.dayNum}</div>
+        <div style={{ fontSize: '0.8rem', color: 'var(--text-faint)' }}>{cell.dayNum}</div>
       </div>
     );
   }
@@ -115,41 +125,44 @@ function GlanceDay({ cell, items }: { cell: GlanceCell; items: GlanceItem[] }) {
       href={`/calendar?date=${cell.date}`}
       style={{
         display: 'block',
-        minHeight: 64,
+        minHeight: 76,
         borderRadius: 'var(--radius-sm)',
         border: cell.isToday ? '1px solid var(--accent)' : '1px solid var(--border)',
         background: cell.isToday ? 'var(--accent-dim)' : 'var(--surface-tool-2)',
-        padding: '0.35rem 0.4rem',
+        padding: '0.4rem 0.45rem',
         textDecoration: 'none',
         color: 'inherit',
       }}
     >
       {/* Day name is the loudest label; date number secondary. */}
-      <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', gap: '0.25rem', marginBottom: '0.3rem' }}>
+      <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', gap: '0.25rem', marginBottom: '0.35rem' }}>
         <span
           style={{
-            fontSize: '0.74rem',
+            fontSize: '0.88rem',
             fontWeight: 700,
             color: cell.isToday ? 'var(--accent)' : 'var(--text)',
           }}
         >
           {cell.isToday ? 'Today' : cell.weekdayShort}
         </span>
-        <span style={{ fontSize: '0.62rem', color: 'var(--text-faint)' }}>{cell.dayNum}</span>
+        <span style={{ fontSize: '0.74rem', color: 'var(--text-faint)' }}>{cell.dayNum}</span>
       </div>
 
       <div style={{ display: 'flex', flexDirection: 'column', gap: '0.18rem' }}>
         {shown.map((it, i) => {
           const color = it.kind === 'shoot' ? 'var(--brand-cyan)' : BLOCK_TYPE_COLOR[it.blockType ?? 'other'];
+          // Timed blocks read "Title 9:00 AM (1h)"; untimed shoots stay bare.
+          const time = it.startClock ? clockLabelUpper(it.startClock) : '';
+          const dur = it.kind === 'block' ? durationTag(it.durationMin) : '';
           return (
             <div
               key={i}
               style={{
-                fontSize: '0.62rem',
-                lineHeight: 1.25,
+                fontSize: '0.74rem',
+                lineHeight: 1.3,
                 color: 'var(--text)',
                 borderLeft: `3px solid ${color}`,
-                paddingLeft: '0.3rem',
+                paddingLeft: '0.35rem',
                 overflow: 'hidden',
                 textOverflow: 'ellipsis',
                 whiteSpace: 'nowrap',
@@ -158,11 +171,16 @@ function GlanceDay({ cell, items }: { cell: GlanceCell; items: GlanceItem[] }) {
             >
               {it.kind === 'shoot' ? '📷 ' : ''}
               {it.title}
+              {time ? (
+                <span style={{ color: 'var(--text-faint)' }}>
+                  {' '}{time}{dur ? ` (${dur})` : ''}
+                </span>
+              ) : null}
             </div>
           );
         })}
         {extra > 0 && (
-          <div style={{ fontSize: '0.6rem', color: 'var(--text-faint)' }}>+{extra} more</div>
+          <div style={{ fontSize: '0.72rem', color: 'var(--text-faint)' }}>+{extra} more</div>
         )}
       </div>
     </Link>

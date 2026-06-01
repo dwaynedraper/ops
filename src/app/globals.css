@@ -77,9 +77,17 @@
   --surface-tool-2: #1c2027;
 
   --text:           #faf5ec;
-  --text-mid:       #b5ad9f;
-  --text-muted:     #7a746c;
-  --text-faint:     #58534c;
+  /* Dark-mode secondary grays — brightened for WCAG AA contrast on the
+     working surfaces (accessibility, per Dean). Verified ratios on
+     --surface #1a1917 (worst case --surface-3 in parens):
+       mid   #d8d2c6 → 11.7:1 (9.2)   muted #a8a298 → 6.9:1 (5.4)
+       faint #85807a → 4.5:1 (3.5)
+     The prior values (#b5ad9f / #7a746c / #58534c) put muted at 3.8:1 and
+     faint at 2.3:1 — both under the 4.5:1 normal-text bar. Light mode is
+     already AA-compliant and is left as-is. */
+  --text-mid:       #d8d2c6;
+  --text-muted:     #a8a298;
+  --text-faint:     #85807a;
 
   --accent:         #c25f3e;       /* terracotta primary action */
   --accent-light:   #d77956;
@@ -149,6 +157,11 @@
 /* ─── Base styles ─────────────────────────────────────────────────────── */
 html {
   scroll-behavior: smooth;
+  /* The single readability lever. Every rem in Ops keys off this root, so
+     lifting it scales all text — and the whitespace around it — together,
+     proportionally, rather than hand-bumping hundreds of sizes. Raised from
+     the 16px browser default for legibility (accessibility, per Dean). */
+  font-size: 17.5px;
 }
 
 body {
@@ -157,8 +170,10 @@ body {
   font-family: var(--font-montserrat), sans-serif;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
-  font-size: 14px;
-  line-height: 1.5;
+  /* In rem (≈15px at the 17.5px root) so body-inherited text tracks the
+     root lever instead of being pinned in px. */
+  font-size: 0.857rem;
+  line-height: 1.55;
 }
 
 @media (prefers-reduced-motion: no-preference) {

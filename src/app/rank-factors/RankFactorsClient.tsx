@@ -280,6 +280,7 @@ export function RankFactorsClient({ workflows }: { workflows: WorkflowConfig[] }
         >
           <div className="eyebrow">{wf.name} · rank factors</div>
           <span style={{ fontSize: '0.72rem', color: 'var(--text-faint)' }}>
+            {factors.filter((f) => f.active && f.isGate).length} gates ·{' '}
             {factors.filter((f) => f.active && !f.isGate).length} scoring · total weight {activeWeight}
           </span>
         </div>
@@ -300,8 +301,10 @@ export function RankFactorsClient({ workflows }: { workflows: WorkflowConfig[] }
         </button>
         <p style={{ fontSize: '0.72rem', color: 'var(--text-faint)', marginTop: '0.6rem' }}>
           A maxed-out prospect always scores 10 — weights set each factor&apos;s share.
-          Gates are yes/no and don&apos;t score; mark a factor a gate to make it an
-          entry requirement. Deactivate a factor to drop it without losing its history.
+          Gates are yes/no and <strong>carry a weight like any factor</strong> (a gate
+          answered yes earns its weight); a gate <em>also</em> must be answered yes for a
+          prospect to enter the pipeline. Deactivate a factor to drop it without losing
+          its history.
         </p>
       </div>
 
@@ -439,21 +442,21 @@ function FactorCard({
           </select>
         )}
 
-        {!f.isGate && (
-          <label style={{ display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
-            <span style={{ fontSize: '0.72rem', color: 'var(--text-faint)' }}>Weight</span>
-            <input
-              type="number"
-              step="0.5"
-              min={0}
-              className="input"
-              value={f.weight}
-              onChange={(e) => onPatch(f.localId, { weight: e.target.value })}
-              style={{ width: 64, textAlign: 'right' }}
-              aria-label="Weight"
-            />
-          </label>
-        )}
+        {/* Weight applies to every factor, gates included — a gate answered
+            yes earns its weight (and is also an entry requirement). */}
+        <label style={{ display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
+          <span style={{ fontSize: '0.72rem', color: 'var(--text-faint)' }}>Weight</span>
+          <input
+            type="number"
+            step="0.5"
+            min={0}
+            className="input"
+            value={f.weight}
+            onChange={(e) => onPatch(f.localId, { weight: e.target.value })}
+            style={{ width: 64, textAlign: 'right' }}
+            aria-label="Weight"
+          />
+        </label>
         {!f.isGate && f.kind === 'number' && (
           <label style={{ display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
             <span style={{ fontSize: '0.72rem', color: 'var(--text-faint)' }}>Full credit at</span>

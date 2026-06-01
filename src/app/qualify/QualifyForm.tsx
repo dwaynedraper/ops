@@ -254,8 +254,9 @@ export function QualifyForm({
               Entry gate
             </div>
             <p style={{ fontSize: '0.78rem', color: 'var(--text-muted)', marginBottom: '0.9rem' }}>
-              Both gates have to be true for this {workflow.contactNoun.toLowerCase()} to
-              enter the pipeline. They also each add 1.0 to the score.
+              {gateFactors.length === 1 ? 'This gate has' : 'All gates have'} to be true for
+              this {workflow.contactNoun.toLowerCase()} to enter the pipeline. Each also adds
+              its weight (shown per gate) to the score.
             </p>
             <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
               {gateFactors.map((f) => (

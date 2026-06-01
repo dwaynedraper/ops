@@ -159,6 +159,16 @@ export function clockLabel(hhmm: string): string {
   return `${h}:${String(m).padStart(2, '0')}${ampm}`;
 }
 
+/** 'HH:MM' (24h) → uppercase '2:00 PM' (the dashboard-glance style). */
+export function clockLabelUpper(hhmm: string): string {
+  const min = minutesOfDay(hhmm);
+  let h = Math.floor(min / 60);
+  const m = min % 60;
+  const ampm = h >= 12 ? 'PM' : 'AM';
+  h = h % 12 || 12;
+  return `${h}:${String(m).padStart(2, '0')} ${ampm}`;
+}
+
 /** End clock for a start 'HH:MM' + duration minutes, as 'HH:MM' (clamped to
  * 23:59 so a block never visually spills past the day in the column view). */
 export function endClock(startHHMM: string, durationMin: number): string {

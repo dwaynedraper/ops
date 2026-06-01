@@ -8,6 +8,7 @@ import {
   glanceGrid,
   minutesOfDay,
   clockLabel,
+  clockLabelUpper,
   endClock,
   blockBox,
   isBlockType,
@@ -101,6 +102,12 @@ describe('time-column helpers', () => {
     expect(clockLabel('14:00')).toBe('2:00pm');
     expect(clockLabel('09:30')).toBe('9:30am');
     expect(clockLabel('00:00')).toBe('12:00am');
+  });
+  it('clockLabelUpper is the glance style (9:00 AM)', () => {
+    expect(clockLabelUpper('09:00')).toBe('9:00 AM');
+    expect(clockLabelUpper('14:00')).toBe('2:00 PM');
+    expect(clockLabelUpper('00:00')).toBe('12:00 AM');
+    expect(clockLabelUpper('12:00')).toBe('12:00 PM');
   });
   it('endClock adds duration and clamps to end of day', () => {
     expect(endClock('14:00', 60)).toBe('15:00');
