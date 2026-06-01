@@ -11,7 +11,9 @@ import { revalidatePath } from 'next/cache';
 import { sql } from '@/lib/db';
 import { actionError } from '@/lib/action-error';
 import { loadOwnedJob } from '@/lib/job-access';
-import { JOB_STAGE_NEXT, type JobStage, type PaymentStatus, type JobRole } from '@/lib/jobs';
+import { recomputePaymentStatus } from '@/lib/job-payments-db';
+import { JOB_STAGE_NEXT, type JobStage, type JobRole } from '@/lib/jobs';
+import type { PaymentKind } from '@/lib/money';
 
 export interface ActionResult {
   ok: boolean;
@@ -96,25 +98,114 @@ export async function advanceJobStage(input: {
   }
 }
 
-export async function setJobPayment(input: {
+const PAYMENT_KINDS: PaymentKind[] = ['deposit', 'balance', 'payment', 'refund'];
+
+/**
+ * Add a payment row to a job — either an expected one (a deposit/balance
+ * with a due date) or a received one (money that landed, with the date).
+ * After the insert, the job's payment_status cache is recomputed from all
+ * its rows. Empty received date on a received row defaults to today.
+ */
+export async function addJobPayment(input: {
   jobId: string;
-  paymentStatus: PaymentStatus;
+  kind: PaymentKind;
+  amount: string;
+  status: 'expected' | 'received';
+  dueOn: string;
+  receivedOn: string;
+  method: string;
+  note: string;
 }): Promise<ActionResult> {
   const loaded = await loadOwnedJob(input.jobId);
   if ('error' in loaded) return { ok: false, error: loaded.error };
 
-  const valid: PaymentStatus[] = ['unpaid', 'deposit_paid', 'paid'];
-  if (!valid.includes(input.paymentStatus)) {
-    return { ok: false, error: 'Unknown payment status.' };
+  if (!PAYMENT_KINDS.includes(input.kind)) return { ok: false, error: 'Unknown payment kind.' };
+  const amount = Number(input.amount);
+  if (!Number.isFinite(amount) || amount <= 0) {
+    return { ok: false, error: 'Enter an amount greater than zero.' };
+  }
+  const received = input.status === 'received';
+  const dueOn = orNull(input.dueOn);
+  // A received row needs a date; default to today if the user left it blank.
+  const receivedOn = received ? orNull(input.receivedOn) ?? 'today' : null;
+  if (!received && !dueOn) {
+    return { ok: false, error: 'An expected payment needs a due date.' };
   }
 
   try {
-    await sql`
-      UPDATE jobs SET payment_status = ${input.paymentStatus} WHERE id = ${input.jobId}`;
+    if (receivedOn === 'today') {
+      await sql`
+        INSERT INTO job_payments
+          (job_id, kind, amount, status, due_on, received_on, method, note, created_by)
+        VALUES (${input.jobId}, ${input.kind}, ${amount}, 'received',
+                ${dueOn}, CURRENT_DATE, ${orNull(input.method)}, ${orNull(input.note)},
+                ${loaded.userId})`;
+    } else {
+      await sql`
+        INSERT INTO job_payments
+          (job_id, kind, amount, status, due_on, received_on, method, note, created_by)
+        VALUES (${input.jobId}, ${input.kind}, ${amount}, ${input.status},
+                ${dueOn}, ${receivedOn}, ${orNull(input.method)}, ${orNull(input.note)},
+                ${loaded.userId})`;
+    }
+    await recomputePaymentStatus(input.jobId);
     revalidatePath(`/jobs/${input.jobId}`);
+    revalidatePath('/jobs');
+    revalidatePath('/');
     return { ok: true };
   } catch (err) {
-    return { ok: false, error: actionError(err, 'Could not update payment.') };
+    return { ok: false, error: actionError(err, 'Could not add the payment.') };
+  }
+}
+
+/** Mark an expected payment row received (stamps received_on, default today). */
+export async function markPaymentReceived(input: {
+  jobId: string;
+  paymentId: string;
+  receivedOn: string;
+}): Promise<ActionResult> {
+  const loaded = await loadOwnedJob(input.jobId);
+  if ('error' in loaded) return { ok: false, error: loaded.error };
+
+  const when = orNull(input.receivedOn);
+  try {
+    if (when) {
+      await sql`
+        UPDATE job_payments SET status = 'received', received_on = ${when}
+        WHERE id = ${input.paymentId} AND job_id = ${input.jobId}`;
+    } else {
+      await sql`
+        UPDATE job_payments SET status = 'received', received_on = CURRENT_DATE
+        WHERE id = ${input.paymentId} AND job_id = ${input.jobId}`;
+    }
+    await recomputePaymentStatus(input.jobId);
+    revalidatePath(`/jobs/${input.jobId}`);
+    revalidatePath('/jobs');
+    revalidatePath('/');
+    return { ok: true };
+  } catch (err) {
+    return { ok: false, error: actionError(err, 'Could not update the payment.') };
+  }
+}
+
+/** Delete a payment row, then recompute status. */
+export async function deleteJobPayment(input: {
+  jobId: string;
+  paymentId: string;
+}): Promise<ActionResult> {
+  const loaded = await loadOwnedJob(input.jobId);
+  if ('error' in loaded) return { ok: false, error: loaded.error };
+
+  try {
+    await sql`
+      DELETE FROM job_payments WHERE id = ${input.paymentId} AND job_id = ${input.jobId}`;
+    await recomputePaymentStatus(input.jobId);
+    revalidatePath(`/jobs/${input.jobId}`);
+    revalidatePath('/jobs');
+    revalidatePath('/');
+    return { ok: true };
+  } catch (err) {
+    return { ok: false, error: actionError(err, 'Could not delete the payment.') };
   }
 }
 

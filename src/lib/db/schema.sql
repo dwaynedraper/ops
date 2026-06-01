@@ -1261,3 +1261,188 @@ BEGIN
       FOR EACH ROW EXECUTE FUNCTION trg_log_job_stage_event();
   END IF;
 END $$;
+
+-- ════════════════════════════════════════════════════════════════════
+-- LAYER 6 — Money: dated payments (Phase 5A · MONEY-AND-LEDGER-PLAN.md)
+--
+-- `jobs.payment_status` (Layer 5) is a single flag — it can't say WHEN a
+-- payment landed or WHEN the next is expected. `job_payments` makes each
+-- money event its own dated row: an 'expected' row carries a due_on; marking
+-- it 'received' stamps received_on. `jobs.payment_status` stays as a fast
+-- denormalized cache, recomputed from these rows by the action layer
+-- (lib/money.ts · derivePaymentStatus), so every existing query that reads
+-- the flag keeps working — the flag now just tells the truth about partials.
+--
+-- This is the keystone for the dashboard cash strip, the per-job paid ring,
+-- and the Wave export. Additive + idempotent, same discipline as Layers 1–5.
+-- ════════════════════════════════════════════════════════════════════
+
+CREATE TABLE IF NOT EXISTS job_payments (
+  id            UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  job_id        UUID NOT NULL REFERENCES jobs(id) ON DELETE CASCADE,
+  kind          TEXT NOT NULL DEFAULT 'payment'
+                  CHECK (kind IN ('deposit', 'balance', 'payment', 'refund')),
+  amount        NUMERIC(10,2) NOT NULL,
+  status        TEXT NOT NULL DEFAULT 'expected'
+                  CHECK (status IN ('expected', 'received')),
+  -- The two dates Dean asked for by name:
+  due_on        DATE,         -- when we EXPECT it (for 'expected' rows)
+  received_on   DATE,         -- when it actually landed (for 'received' rows)
+  method        TEXT,         -- 'check','zelle','card','cash', freeform
+  note          TEXT,
+  -- Wave bookkeeping hint: the income account this maps to. Optional —
+  -- the export resolves a default from the job's branch when null.
+  wave_category TEXT,
+  created_by    UUID REFERENCES users(id) ON DELETE SET NULL,
+  created_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
+
+  -- A row is well-formed for its status: received rows carry a date.
+  CHECK (status = 'expected' OR received_on IS NOT NULL)
+);
+
+CREATE INDEX IF NOT EXISTS job_payments_job_idx      ON job_payments(job_id, due_on);
+CREATE INDEX IF NOT EXISTS job_payments_status_idx   ON job_payments(status, received_on);
+CREATE INDEX IF NOT EXISTS job_payments_received_idx ON job_payments(received_on);
+
+DO $$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgname = 'job_payments_updated_at') THEN
+    CREATE TRIGGER job_payments_updated_at BEFORE UPDATE ON job_payments
+      FOR EACH ROW EXECUTE FUNCTION trg_set_updated_at();
+  END IF;
+END $$;
+
+-- ────────────────────────────────────────────────────────────────────
+-- Backfill: every job already marked paid gets one received payment row
+-- for its value, dated its last update — so the new dated-rows world
+-- starts consistent with the old flag. Idempotent: only inserts when the
+-- job has no payment rows yet. Jobs with a partial 'deposit_paid' flag but
+-- no rows can't have their split reconstructed, so they seed a single
+-- received row at value (Dean can split it by hand if needed); 'unpaid'
+-- jobs seed nothing.
+-- ────────────────────────────────────────────────────────────────────
+INSERT INTO job_payments (job_id, kind, amount, status, received_on, note)
+SELECT j.id, 'payment', j.value_price, 'received', j.updated_at::date,
+       'Backfilled from payment_status'
+FROM jobs j
+WHERE j.payment_status IN ('paid', 'deposit_paid')
+  AND j.value_price IS NOT NULL
+  AND NOT EXISTS (SELECT 1 FROM job_payments p WHERE p.job_id = j.id);
+
+-- ════════════════════════════════════════════════════════════════════
+-- LAYER 7 — Ledger: expenses + mileage (Phase 5C · MONEY-AND-LEDGER-PLAN.md)
+--
+-- Money-out events, dated and categorized, that ride the same export pipe
+-- as payments and (optionally) link to a job for true per-job profit
+-- (value − expenses − mileage). The mileage rate is an editable setting,
+-- snapshotted onto each mileage row at entry so a year-end rate change
+-- never rewrites past deductions (2026 IRS business rate = 0.725).
+--
+-- Additive + idempotent, same discipline as Layers 1–6.
+-- ════════════════════════════════════════════════════════════════════
+
+-- ─── ledger_settings ───────────────────────────────────────────────
+-- Editable key/value config for the ledger (super-admin). Seeded with the
+-- current mileage rate; the seed only inserts when absent so an edited
+-- value is never clobbered.
+CREATE TABLE IF NOT EXISTS ledger_settings (
+  key         TEXT PRIMARY KEY,
+  value       NUMERIC(12,4) NOT NULL,
+  label       TEXT NOT NULL,
+  notes       TEXT,
+  updated_at  TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+INSERT INTO ledger_settings (key, value, label, notes)
+VALUES ('mileage_rate_per_mile', 0.725, 'Mileage rate ($/mile)',
+        'IRS business standard mileage rate. 2026 = 0.725. Update each year; '
+        'existing mileage rows keep the rate they were logged at.')
+ON CONFLICT (key) DO NOTHING;
+
+-- ─── expenses ──────────────────────────────────────────────────────
+CREATE TABLE IF NOT EXISTS expenses (
+  id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  owner_id    UUID NOT NULL REFERENCES users(id) ON DELETE RESTRICT,
+  job_id      UUID REFERENCES jobs(id) ON DELETE SET NULL,   -- optional link
+  spent_on    DATE NOT NULL,
+  vendor      TEXT,
+  amount      NUMERIC(10,2) NOT NULL,
+  category    TEXT NOT NULL DEFAULT 'general',  -- maps to a Wave expense account
+  billable    BOOLEAN NOT NULL DEFAULT FALSE,   -- rebillable to the client?
+  note        TEXT,
+  created_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at  TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS expenses_owner_idx ON expenses(owner_id, spent_on);
+CREATE INDEX IF NOT EXISTS expenses_job_idx   ON expenses(job_id);
+
+-- ─── mileage_logs ──────────────────────────────────────────────────
+CREATE TABLE IF NOT EXISTS mileage_logs (
+  id            UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  owner_id      UUID NOT NULL REFERENCES users(id) ON DELETE RESTRICT,
+  job_id        UUID REFERENCES jobs(id) ON DELETE SET NULL,
+  drove_on      DATE NOT NULL,
+  purpose       TEXT,
+  miles         NUMERIC(8,1) NOT NULL,
+  -- Rate snapshotted at entry, seeded from ledger_settings. Editing the
+  -- setting next year never rewrites these rows.
+  rate_per_mile NUMERIC(6,3) NOT NULL,
+  amount        NUMERIC(10,2) NOT NULL,          -- miles * rate, at entry
+  note          TEXT,
+  created_at    TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS mileage_owner_idx ON mileage_logs(owner_id, drove_on);
+CREATE INDEX IF NOT EXISTS mileage_job_idx   ON mileage_logs(job_id);
+
+DO $$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgname = 'expenses_updated_at') THEN
+    CREATE TRIGGER expenses_updated_at BEFORE UPDATE ON expenses
+      FOR EACH ROW EXECUTE FUNCTION trg_set_updated_at();
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgname = 'ledger_settings_updated_at') THEN
+    CREATE TRIGGER ledger_settings_updated_at BEFORE UPDATE ON ledger_settings
+      FOR EACH ROW EXECUTE FUNCTION trg_set_updated_at();
+  END IF;
+END $$;
+
+-- ════════════════════════════════════════════════════════════════════
+-- LAYER 8 — The call stage (Phase 5E · MONEY-AND-LEDGER-PLAN.md §5)
+--
+-- Reps communicate by email only and close by sending a Sprout scheduling
+-- link; the prospect self-books a call with Dean. `call_booked` records
+-- that booking, set by Dean (who sees it land), sitting between 'responded'
+-- and 'signed'. Adds the stage to the CHECK and a nullable `call_at` for
+-- the scheduled time. Idempotent — the CHECK swap only runs while the old
+-- constraint (without call_booked) is in place, mirroring the earlier
+-- 'passed' → 'rejected' rename block.
+-- ════════════════════════════════════════════════════════════════════
+
+ALTER TABLE prospects
+  ADD COLUMN IF NOT EXISTS call_at TIMESTAMPTZ;
+
+DO $$
+DECLARE
+  stage_check_name TEXT;
+BEGIN
+  SELECT conname INTO stage_check_name
+  FROM pg_constraint
+  WHERE conrelid = 'prospects'::regclass
+    AND contype = 'c'
+    AND pg_get_constraintdef(oid) LIKE '%stage%'
+    AND pg_get_constraintdef(oid) LIKE '%''signed''%'
+    AND pg_get_constraintdef(oid) NOT LIKE '%call_booked%';
+
+  IF stage_check_name IS NOT NULL THEN
+    EXECUTE format('ALTER TABLE prospects DROP CONSTRAINT %I', stage_check_name);
+    ALTER TABLE prospects ADD CONSTRAINT prospects_stage_check
+      CHECK (stage IN (
+        'researching', 'qualified', 'contacting',
+        'responded', 'call_booked', 'signed', 'client',
+        'rejected', 'dormant'
+      ));
+  END IF;
+END $$;

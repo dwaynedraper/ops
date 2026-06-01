@@ -9,6 +9,15 @@
  *
  * Reuses the `HelpBlock` types from help-content.ts so the renderer
  * is the same shape on both surfaces.
+ *
+ * Phase 5F refresh (2026-05-31): the acquisition steps (Source → Qualify →
+ * Contact) are unchanged and accurate. Updated the surrounding facts to the
+ * post–Clients/Jobs world: the pipeline list lives at /pipeline; a signed
+ * prospect becomes a durable Client at /clients that owns Jobs; reps are
+ * email-only and close by sending the Sprout booking link (the prospect
+ * self-books a call with Dean → the `call_booked` stage); and the post-sale
+ * life — booking, shoot, delivery, dated payments, the cash strip, and the
+ * monthly Wave export on /books — is described in "What happens next."
  */
 
 import type { HelpBlock } from './help-content';
@@ -172,39 +181,44 @@ const realEstateTutorial: TutorialEntry = {
       body: [
         {
           kind: 'paragraph',
-          text: "v1 keeps sending **manual** on purpose — you copy the script from Contact, paste into your own email client, and send. Ops doesn't auto-send. Two reasons: you keep ownership of the relationship, and you can adjust the wording before it leaves your hands.",
-        },
-        {
-          kind: 'paragraph',
-          text: 'Once they reply, click **They replied** on Contact. The card moves into the Responded column. From there, you either run a discovery call (and build a quote on [/calculator](/calculator)), or close them out.',
+          text: "Sending is **email only, and manual** — you copy the script from Contact, paste into your own email client, and send. Reps don't cold-call; the relationship stays yours to steer, and you can tune the wording before it leaves your hands. Ops tracks **what** was sent and **when**, not the send itself.",
         },
         {
           kind: 'callout',
           tone: 'info',
-          text: 'Quote-building is a separate motion — open the per-prospect record at `/prospects/[id]` for the mini-CRM and the embedded calculator. Saving a quote attaches it to the prospect, so the quote history follows them through the rest of the cycle.',
+          text: "Your closing move is the **booking link**, not a phone number. Every script ends with the Sprout scheduling link (the `{{booking_link}}` placeholder) — the agent picks a time and books a call with **Dean** directly. Reps never set up or take the call.",
+        },
+        {
+          kind: 'paragraph',
+          text: 'Once they reply, click **They replied** on Contact — the card moves to Responded. When the agent actually books through the link, Dean marks them **Call booked**, and they surface in the "Calls booked" list on his dashboard. Quote-building lives on the per-prospect record at `/prospects/[id]` — the mini-CRM with the embedded calculator; a saved quote follows the prospect through the rest of the cycle.',
         },
       ],
     },
 
     {
       id: 'next',
-      title: 'What happens next',
+      title: 'What happens next — the post-sale life',
       body: [
         {
           kind: 'paragraph',
-          text: 'After signed, the agent becomes a **Client**. They stay on [/clients](/clients) — searchable, with their full history attached. The pipeline funnel on the Dashboard counts them; the supervisor report (admin only) gives Dean the across-team view.',
+          text: 'When an agent signs, set up their **durable Client record** — the button is right on the signed prospect. From then on they live on [/clients](/clients) (the roster of everyone who has worked with you), searchable the instant the phone rings, with every job and dollar attached. The old pipeline list — every prospect and lead in motion — now lives at [/pipeline](/pipeline).',
+        },
+        {
+          kind: 'paragraph',
+          text: 'A returning client never goes back through Sourcing/Qualify. Open them on [/clients](/clients) (or **+ Add / returning client**) and hit **+ New job** — straight to a booked Job, no funnel.',
         },
         {
           kind: 'list',
           items: [
-            'If they **sign** — congrats. Run the shoot, deliver the media, ask for the referral.',
-            "If they **no-reply** through the cycle — log Dormant. Don't fret it. Real estate is a long game.",
-            "If they **pass on Sourcing or Qualify** — that's data too. The row stays for the team's reference.",
+            'A **Job** carries the whole post-sale lifecycle on [/jobs](/jobs): booked → prep → shoot → cull → edit → deliver → follow-up → review. Set the shoot date (your Wed/Thu), the roles, and the deliverables.',
+            '**Payments are dated rows** on the job — record the deposit when it lands ("received May 24"), schedule the balance ("expected Jun 7"). The job shows a paid ring; your dashboard shows the cash strip — collected, outstanding, and last-in / next-expected at a glance.',
+            'Log **expenses and mileage** on [/ledger](/ledger) as they happen; link them to a job for true profit (value − costs).',
+            'At month end, [/books](/books) exports clean **Date / Description / Amount** CSVs for **Wave** — income, expenses, mileage. Export, upload, done.',
           ],
         },
         {
           kind: 'paragraph',
-          text: 'Every step of this is **editable config**. Rank-factor weights, contact scripts, the bands — all live in [/rank-factors](/rank-factors), [/scripts](/scripts), and the seed file. Talk to Dean if the system needs to learn something new.',
+          text: 'Every step is **editable config**. Rank-factor weights, contact scripts, the bands, the mileage rate — all live in [/rank-factors](/rank-factors), [/scripts](/scripts), [/ledger](/ledger), and the seed file. Talk to Dean if the system needs to learn something new.',
         },
         {
           kind: 'callout',
@@ -355,30 +369,31 @@ const corporateTutorial: TutorialEntry = {
       body: [
         {
           kind: 'paragraph',
-          text: "Same manual-send rule as real-estate. Copy the filled script from Contact, paste into your own inbox, send. You keep the relationship; you can tune wording before it goes out. The system tracks **what** was sent and **when**, not the send itself.",
+          text: "Same **email-only, manual-send** rule as real-estate. Copy the filled script from Contact, paste into your own inbox, send. Reps don't cold-call — the close is the booking link, and the prospect self-books a call with Dean. Ops tracks **what** was sent and **when**, not the send itself.",
         },
         {
           kind: 'callout',
           tone: 'info',
-          text: "The Corporate Team Day quote on [/calculator](/calculator) starts at **$600 base + a per-person rate** (currently $70–$90 depending on team size). The whole job is one on-site session, same-day-clean turnaround. Most teams hit the math the first time a new client looks them up online.",
+          text: "When the firm books through the link, Dean marks them **Call booked** and they land in the 'Calls booked' list on his dashboard. The Corporate Team Day quote on [/calculator](/calculator) starts at **$600 base + a per-person rate** ($70–$90 by team size) — one on-site session, same-day-clean turnaround.",
         },
       ],
     },
 
     {
       id: 'next',
-      title: 'What happens next',
+      title: 'What happens next — the post-sale life',
       body: [
         {
           kind: 'paragraph',
-          text: 'Corporate has more **retainer potential** than real-estate. A firm you shoot once tends to rebook — new hires every year or two need to match the existing grid. Keep the relationship warm; log the shoot date so the system can surface a re-shoot reminder when the team has turned over enough to need one.',
+          text: 'A booked firm becomes a durable **Client** on [/clients](/clients) — and Corporate has more **rebook potential** than real-estate. A firm you shoot once tends to come back as new hires need to match the grid. Because the client persists, hitting **+ New job** next year carries their whole history forward; no re-qualifying.',
         },
         {
           kind: 'list',
           items: [
-            'If they **book** — congrats. Schedule the Team Day, deliver the headshots, ask for an intro to a partner firm.',
-            "If they **no-reply** — log Dormant after the cycle. Corporate is slower than real-estate; cold-cycle quiet often turns into a six-month-later inbound.",
-            "If they **pass** — note the reason on the rejection. Mismatched timing today can be a yes next quarter.",
+            'The **Job** ([/jobs](/jobs)) runs booked → prep → shoot → cull → edit → deliver → follow-up → review. Attach **roles** — the office manager who schedules, the partner who pays (billing), the team being shot (subjects).',
+            '**Payments are dated rows** — deposit on booking, balance on delivery. The cash strip on your dashboard shows collected vs. outstanding with the last-in / next-expected dates.',
+            '**Expenses + mileage** to the on-site go on [/ledger](/ledger); link them to the job to see the true margin on a Team Day.',
+            'Month-end, [/books](/books) exports the **Wave** CSVs (income / expenses / mileage).',
           ],
         },
         {

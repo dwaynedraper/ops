@@ -20,6 +20,7 @@ export type ProspectStage =
   | 'qualified'
   | 'contacting'
   | 'responded'
+  | 'call_booked'
   | 'signed'
   | 'client'
   | 'rejected'
@@ -188,6 +189,7 @@ export const STAGE_LABEL: Record<ProspectStage, string> = {
   qualified: 'Qualified',
   contacting: 'Contacting',
   responded: 'Responded',
+  call_booked: 'Call booked',
   signed: 'Signed',
   client: 'Client',
   rejected: 'Rejected',
@@ -198,13 +200,19 @@ export const STAGE_LABEL: Record<ProspectStage, string> = {
  * Stage moves a rep can make by hand from the client page. The contact
  * cycle (qualified → contacting → responded) is driven by the tracking
  * page, so those steps are deliberately absent here — this map covers the
- * decisions a person makes: qualifying, signing, rejecting, reopening.
+ * decisions a person makes: qualifying, booking a call, signing, rejecting,
+ * reopening.
+ *
+ * `call_booked` (Phase 5E): when a prospect self-books a call via the Sprout
+ * link, Dean moves them here. It's reachable from `responded`; `signed`
+ * stays directly reachable too, for the simple deals that don't need a call.
  */
 export const STAGE_NEXT: Record<ProspectStage, ProspectStage[]> = {
   researching: ['qualified', 'rejected'],
   qualified: ['rejected', 'dormant'],
   contacting: ['dormant'],
-  responded: ['signed', 'rejected', 'dormant'],
+  responded: ['call_booked', 'signed', 'rejected', 'dormant'],
+  call_booked: ['signed', 'rejected', 'dormant'],
   signed: ['client'],
   client: [],
   rejected: ['qualified'],

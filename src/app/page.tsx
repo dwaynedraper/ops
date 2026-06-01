@@ -10,6 +10,8 @@ import { STAGE_LABEL, type ProspectStage } from '@/lib/prospects';
 import { JOB_STAGE_LABEL } from '@/lib/jobs';
 import { computeDigest, type DigestItem } from '@/lib/digest';
 import { computeCommandCenter, type CommandRow } from '@/lib/command-center';
+import { computeRepPulse, PULSE_WINDOW_DAYS, type RepPulseRow } from '@/lib/rep-pulse';
+import { computeCashStrip, type CashStrip } from '@/lib/cash';
 
 /**
  * Dashboard — the Command Center (D-062, D-063, Phase 3).
@@ -51,6 +53,7 @@ const QUALIFIED_STAGES: ProspectStage[] = [
   'qualified',
   'contacting',
   'responded',
+  'call_booked',
   'signed',
   'client',
 ];
@@ -59,6 +62,7 @@ const TILE_STAGES: ProspectStage[] = [
   'qualified',
   'contacting',
   'responded',
+  'call_booked',
   'signed',
   'client',
 ];
@@ -94,22 +98,46 @@ export default async function Dashboard() {
   }
 
   const now = new Date();
-  const [workflowRows, countRows, targetRows, digest, command, profile] = await Promise.all([
-    sql<WorkflowRow>`
-      SELECT workflow_key, name, accent FROM workflows
-      WHERE active = true ORDER BY sort_order, name`,
-    sql<StageCountRow>`
-      SELECT workflow_key, stage, COUNT(*)::int AS n
-      FROM prospects
-      WHERE owner_id = ${user.id}
-      GROUP BY workflow_key, stage`,
-    sql<TargetRow>`
-      SELECT workflow_key, value FROM rank_config WHERE key = 'qualified_target_count'`,
-    computeDigest(user.id, now),
-    computeCommandCenter(user.id, now),
-    sqlOne<{ digest_email: boolean }>`
-      SELECT digest_email FROM ops_profiles WHERE user_id = ${user.id}`,
-  ]);
+  const isAdmin = role === 'super_admin';
+  const [workflowRows, countRows, targetRows, digest, command, profile, repPulse, cash] =
+    await Promise.all([
+      sql<WorkflowRow>`
+        SELECT workflow_key, name, accent FROM workflows
+        WHERE active = true ORDER BY sort_order, name`,
+      sql<StageCountRow>`
+        SELECT workflow_key, stage, COUNT(*)::int AS n
+        FROM prospects
+        WHERE owner_id = ${user.id}
+        GROUP BY workflow_key, stage`,
+      sql<TargetRow>`
+        SELECT workflow_key, value FROM rank_config WHERE key = 'qualified_target_count'`,
+      computeDigest(user.id, now),
+      computeCommandCenter(user.id, now),
+      sqlOne<{ digest_email: boolean }>`
+        SELECT digest_email FROM ops_profiles WHERE user_id = ${user.id}`,
+      // Team pulse + cash strip are super-admin-only, whole-business views —
+      // skip both queries entirely for partners.
+      isAdmin ? computeRepPulse(now) : Promise.resolve([] as RepPulseRow[]),
+      isAdmin ? computeCashStrip(now) : Promise.resolve(null),
+    ]);
+
+  // Calls booked — Dean's own queue of prospects who self-booked a call via
+  // the Sprout link (Phase 5E). Owner-scoped to the viewer; in practice the
+  // calls route to Dean, who owns / closes them.
+  const callsBooked = await sql<{
+    id: string;
+    contact_name: string;
+    org_name: string | null;
+    call_at: Date | null;
+    workflow_name: string | null;
+    accent: string | null;
+  }>`
+    SELECT p.id, p.contact_name, p.org_name, p.call_at,
+           w.name AS workflow_name, w.accent
+    FROM prospects p
+    LEFT JOIN workflows w ON w.workflow_key = p.workflow_key
+    WHERE p.stage = 'call_booked' AND p.owner_id = ${user.id}
+    ORDER BY p.call_at ASC NULLS LAST, p.updated_at DESC`;
 
   const counts = new Map<string, Map<ProspectStage, number>>();
   for (const r of countRows) {
@@ -159,6 +187,61 @@ export default async function Dashboard() {
                 ? 'Nothing is waiting on you this morning — a clean slate.'
                 : `Your day: ${summaryParts.join(' · ')}.`}
             </p>
+
+            {/* ─── Cash strip (super-admin) — felt before read ────────── */}
+            {isAdmin && cash && !cash.empty && <CashStripBar cash={cash} />}
+
+            {/* ─── Calls booked — your call queue (Phase 5E) ──────────── */}
+            {callsBooked.length > 0 && (
+              <Section
+                title="Calls booked"
+                hint="Prospects who scheduled a call with you through the booking link. Yours to take."
+              >
+                {callsBooked.map((c) => {
+                  const when = c.call_at
+                    ? new Intl.DateTimeFormat('en-US', {
+                        weekday: 'short',
+                        month: 'short',
+                        day: 'numeric',
+                        hour: 'numeric',
+                        minute: '2-digit',
+                      }).format(new Date(c.call_at))
+                    : 'Time TBD';
+                  return (
+                    <Link
+                      key={c.id}
+                      href={`/prospects/${c.id}`}
+                      className="surface-tool list-row-responsive"
+                      style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '0.85rem',
+                        padding: '0.7rem 0.9rem',
+                        textDecoration: 'none',
+                        color: 'inherit',
+                        borderLeft: `3px solid ${c.accent ?? 'var(--brand-cyan)'}`,
+                      }}
+                    >
+                      <span style={{ flex: 1, minWidth: 0 }}>
+                        <span style={{ display: 'block', fontSize: '0.88rem', fontWeight: 600, color: 'var(--text)' }}>
+                          {c.contact_name}
+                          {c.org_name ? <span style={{ color: 'var(--text-muted)', fontWeight: 400 }}> · {c.org_name}</span> : null}
+                        </span>
+                        <span style={{ display: 'block', fontSize: '0.74rem', color: 'var(--text-muted)' }}>
+                          {c.workflow_name ?? 'Prospect'}
+                        </span>
+                      </span>
+                      <span
+                        className="list-row-trail"
+                        style={{ fontSize: '0.72rem', fontWeight: 600, color: 'var(--brand-cyan)', flexShrink: 0, textAlign: 'right' }}
+                      >
+                        {when}
+                      </span>
+                    </Link>
+                  );
+                })}
+              </Section>
+            )}
 
             {/* ─── 1. This week — shoots ──────────────────────────────── */}
             {command.thisWeek.length > 0 && (
@@ -251,6 +334,25 @@ export default async function Dashboard() {
                   Qualify new prospects
                 </Link>
               </div>
+            )}
+
+            {/* ─── Team pulse (super-admin) ───────────────────────────── */}
+            {isAdmin && repPulse.length > 0 && (
+              <section style={{ marginBottom: '1.75rem' }}>
+                <div className="eyebrow" style={{ marginBottom: '0.3rem' }}>
+                  Team pulse
+                </div>
+                <p style={{ fontSize: '0.78rem', color: 'var(--text-muted)', marginBottom: '0.7rem' }}>
+                  Last {PULSE_WINDOW_DAYS} days — who&apos;s closing. Revenue counts jobs marked paid.
+                </p>
+                <div className="surface-card">
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '0.6rem' }}>
+                    {repPulse.slice(0, 5).map((r, i) => (
+                      <RepPulseLine key={r.repId} rep={r} rank={i + 1} top={i < 2} />
+                    ))}
+                  </div>
+                </div>
+              </section>
             )}
 
             {/* ─── 5. Pipeline by workflow ────────────────────────────── */}
@@ -438,6 +540,156 @@ function JobRow({
         {trail}
       </span>
     </Link>
+  );
+}
+
+// ─── Cash strip (super-admin) ─────────────────────────────────────────
+
+function CashStripBar({ cash }: { cash: CashStrip }) {
+  const fmtDay = (iso: string): string => {
+    const d = new Date(`${iso}T00:00:00Z`);
+    return Number.isNaN(d.getTime())
+      ? iso
+      : new Intl.DateTimeFormat('en-US', { month: 'short', day: 'numeric', timeZone: 'UTC' }).format(d);
+  };
+
+  return (
+    <section
+      className="surface-card"
+      style={{ marginBottom: '1.75rem', padding: '1rem 1.25rem' }}
+    >
+      <div
+        style={{
+          display: 'flex',
+          gap: '2rem',
+          flexWrap: 'wrap',
+          alignItems: 'flex-end',
+        }}
+      >
+        {/* Collected — solid, confident */}
+        <Stat label="Collected this month" value={fmtMoney(cash.collectedThisMonth)} kind="solid" />
+        {/* Outstanding — ghosted: same green, outline only */}
+        <Stat label="Outstanding" value={fmtMoney(cash.outstanding)} kind="ghost" />
+        {/* Out — muted, down-arrow; reads as outflow, not alarm */}
+        {cash.outThisMonth > 0 && (
+          <Stat label="Out this month" value={`↓ ${fmtMoney(cash.outThisMonth)}`} kind="muted" />
+        )}
+      </div>
+
+      {(cash.lastIn || cash.nextExpected) && (
+        <div
+          style={{
+            marginTop: '0.8rem',
+            paddingTop: '0.7rem',
+            borderTop: '1px solid var(--border)',
+            fontSize: '0.78rem',
+            color: 'var(--text-muted)',
+            display: 'flex',
+            gap: '1.25rem',
+            flexWrap: 'wrap',
+          }}
+        >
+          {cash.lastIn && (
+            <span>
+              Last in:{' '}
+              <strong style={{ color: 'var(--good)' }}>
+                {fmtDay(cash.lastIn.date)} · {fmtMoney(cash.lastIn.amount)}
+              </strong>{' '}
+              <span style={{ color: 'var(--text-faint)' }}>({cash.lastIn.label})</span>
+            </span>
+          )}
+          {cash.nextExpected && (
+            <span>
+              Next expected:{' '}
+              <strong style={{ color: 'var(--text)' }}>
+                {fmtDay(cash.nextExpected.date)} · {fmtMoney(cash.nextExpected.amount)}
+              </strong>{' '}
+              <span style={{ color: 'var(--text-faint)' }}>({cash.nextExpected.label})</span>
+            </span>
+          )}
+        </div>
+      )}
+    </section>
+  );
+}
+
+function Stat({ label, value, kind }: { label: string; value: string; kind: 'solid' | 'ghost' | 'muted' }) {
+  const color =
+    kind === 'solid' ? 'var(--good)' : kind === 'muted' ? 'var(--text-mid)' : 'transparent';
+  return (
+    <div>
+      <div
+        className="money"
+        style={{
+          fontSize: '1.5rem',
+          lineHeight: 1,
+          color,
+          // Ghosted: outlined green text, no fill — "same money, not here yet."
+          WebkitTextStroke: kind === 'ghost' ? '1px var(--good)' : undefined,
+          opacity: kind === 'ghost' ? 0.8 : 1,
+        }}
+      >
+        {value}
+      </div>
+      <div
+        style={{
+          fontSize: '0.6rem',
+          letterSpacing: '0.12em',
+          textTransform: 'uppercase',
+          color: 'var(--text-faint)',
+          fontWeight: 700,
+          marginTop: '0.25rem',
+        }}
+      >
+        {label}
+      </div>
+    </div>
+  );
+}
+
+// ─── Rep pulse line (super-admin) ─────────────────────────────────────
+
+function RepPulseLine({ rep, rank, top }: { rep: RepPulseRow; rank: number; top: boolean }) {
+  return (
+    <div
+      style={{
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'space-between',
+        gap: '0.75rem',
+      }}
+    >
+      <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem', minWidth: 0 }}>
+        <span
+          style={{
+            fontSize: '0.8rem',
+            fontWeight: 700,
+            color: top ? 'var(--accent)' : 'var(--text-faint)',
+            minWidth: '1.2rem',
+          }}
+        >
+          {rank}
+        </span>
+        <span
+          style={{
+            fontSize: '0.86rem',
+            color: 'var(--text)',
+            overflow: 'hidden',
+            textOverflow: 'ellipsis',
+            whiteSpace: 'nowrap',
+          }}
+        >
+          {rep.repName}
+        </span>
+      </div>
+      <div style={{ display: 'flex', alignItems: 'baseline', gap: '0.85rem', flexShrink: 0 }}>
+        <span style={{ fontSize: '0.72rem', color: 'var(--text-faint)' }}>{rep.booked} booked</span>
+        <span style={{ fontSize: '0.72rem', color: 'var(--text-faint)' }}>{rep.signed} signed</span>
+        <span className="money" style={{ fontSize: '0.9rem', color: 'var(--text)' }}>
+          {fmtMoney(rep.revenue)}
+        </span>
+      </div>
+    </div>
   );
 }
 

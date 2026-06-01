@@ -139,5 +139,7 @@ export interface JobListItem {
   shootDateLabel: string | null;
   valuePrice: number | null;
   paymentStatus: PaymentStatus;
+  /** 0..1 collected fraction for the board ring (Phase 5B). */
+  paidFraction: number;
   updatedAtLabel: string;
 }

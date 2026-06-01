@@ -81,6 +81,7 @@ const STAGE_COLOR: Record<ProspectStage, string> = {
   qualified: 'var(--good)',
   contacting: 'var(--accent)',
   responded: 'var(--warn)',
+  call_booked: 'var(--brand-cyan)',
   signed: 'var(--good)',
   client: 'var(--brand-cyan)',
   rejected: 'var(--text-faint)',
@@ -99,6 +100,8 @@ function stageActionLabel(stage: ProspectStage): string {
   switch (stage) {
     case 'qualified':
       return 'Mark as qualified';
+    case 'call_booked':
+      return 'Call booked';
     case 'signed':
       return 'Mark as signed';
     case 'client':

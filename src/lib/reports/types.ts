@@ -18,6 +18,7 @@ export const ALL_STAGES = [
   'qualified',
   'contacting',
   'responded',
+  'call_booked',
   'signed',
   'client',
   'rejected',

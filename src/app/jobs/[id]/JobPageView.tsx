@@ -28,11 +28,13 @@ import {
   type JobRole,
 } from '@/lib/jobs';
 import type { Catalog, Branch, QuoteClientInfo } from '@/lib/catalog';
+import type { PaymentRow } from '@/lib/money';
+import { jobProfit } from '@/lib/ledger';
 import { searchClients, type ClientSearchHit } from '@/app/clients/actions';
+import { PaymentsCard } from './PaymentsCard';
 import {
   updateJobDetails,
   advanceJobStage,
-  setJobPayment,
   addJobRole,
   removeJobRole,
 } from './actions';
@@ -82,12 +84,18 @@ export function JobPageView({
   job,
   roles,
   quotes,
+  payments,
+  expensesTotal,
+  mileageTotal,
   catalog,
   role,
 }: {
   job: JobDetail;
   roles: JobRoleItem[];
   quotes: JobQuoteItem[];
+  payments: PaymentRow[];
+  expensesTotal: number;
+  mileageTotal: number;
   catalog: Catalog;
   role: 'super_admin' | 'partner';
 }) {
@@ -181,8 +189,13 @@ export function JobPageView({
       {/* Schedule + value */}
       <JobDetailsEditor job={job} />
 
-      {/* Payment */}
-      <PaymentCard jobId={job.id} paymentStatus={job.paymentStatus} />
+      {/* Payments — dated rows (Phase 5A) */}
+      <PaymentsCard jobId={job.id} rows={payments} jobValue={job.valuePrice} />
+
+      {/* Profitability (Phase 5C) — only once a cost exists */}
+      {(expensesTotal > 0 || mileageTotal > 0) && (
+        <ProfitStrip value={job.valuePrice} expenses={expensesTotal} mileage={mileageTotal} />
+      )}
 
       {/* Roles */}
       <RolesEditor jobId={job.id} primaryName={job.clientName} roles={roles} />
@@ -514,52 +527,59 @@ function DFieldFull({ label, children }: { label: string; children: React.ReactN
   );
 }
 
-// ─── Payment ──────────────────────────────────────────────────────────
+// ─── Profitability strip (Phase 5C) ──────────────────────────────────
 
-function PaymentCard({ jobId, paymentStatus }: { jobId: string; paymentStatus: PaymentStatus }) {
-  const router = useRouter();
-  const [busy, setBusy] = useState(false);
-  const opts: PaymentStatus[] = ['unpaid', 'deposit_paid', 'paid'];
-
-  async function set(p: PaymentStatus) {
-    if (p === paymentStatus) return;
-    setBusy(true);
-    const res = await setJobPayment({ jobId, paymentStatus: p });
-    if (res.ok) router.refresh();
-    else setBusy(false);
-  }
-
+function ProfitStrip({
+  value,
+  expenses,
+  mileage,
+}: {
+  value: number | null;
+  expenses: number;
+  mileage: number;
+}) {
+  const p = jobProfit(value, expenses, mileage);
   return (
     <div className="surface-tool">
-      <div className="eyebrow" style={{ marginBottom: '0.7rem' }}>
-        Payment
+      <div className="eyebrow" style={{ marginBottom: '0.7rem' }}>Profitability</div>
+      <div style={{ display: 'flex', gap: '1.5rem', flexWrap: 'wrap', alignItems: 'flex-end' }}>
+        <ProfitNum label="Value" value={value !== null ? fmtMoney(value) : '—'} tone="text" />
+        <ProfitNum label="Expenses" value={`↓ ${fmtMoney(p.expenses)}`} tone="muted" />
+        <ProfitNum label="Mileage" value={`↓ ${fmtMoney(p.mileage)}`} tone="muted" />
+        <ProfitNum
+          label="Net"
+          value={fmtMoney(p.net)}
+          tone={p.net >= 0 ? 'good' : 'bad'}
+          strong
+        />
       </div>
-      <div role="group" aria-label="Payment status" style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
-        {opts.map((p) => {
-          const active = p === paymentStatus;
-          const color = p === 'paid' ? 'var(--good)' : p === 'deposit_paid' ? 'var(--warn)' : 'var(--text-faint)';
-          return (
-            <button
-              key={p}
-              type="button"
-              disabled={busy}
-              aria-pressed={active}
-              onClick={() => set(p)}
-              style={{
-                fontSize: '0.78rem',
-                fontWeight: 600,
-                padding: '0.45rem 0.85rem',
-                border: `1px solid ${active ? color : 'var(--border)'}`,
-                borderRadius: 'var(--radius-sm)',
-                background: active ? `${color}22` : 'transparent',
-                color: active ? color : 'var(--text-mid)',
-                cursor: 'pointer',
-              }}
-            >
-              {PAYMENT_LABEL[p]}
-            </button>
-          );
-        })}
+      <p style={{ fontSize: '0.7rem', color: 'var(--text-faint)', marginTop: '0.6rem' }}>
+        Net = value − expenses − mileage linked to this job.
+      </p>
+    </div>
+  );
+}
+
+function ProfitNum({
+  label,
+  value,
+  tone,
+  strong,
+}: {
+  label: string;
+  value: string;
+  tone: 'text' | 'muted' | 'good' | 'bad';
+  strong?: boolean;
+}) {
+  const color =
+    tone === 'good' ? 'var(--good)' : tone === 'bad' ? 'var(--bad)' : tone === 'muted' ? 'var(--text-mid)' : 'var(--text)';
+  return (
+    <div>
+      <div className="money" style={{ fontSize: strong ? '1.4rem' : '1.15rem', lineHeight: 1, color }}>
+        {value}
+      </div>
+      <div style={{ fontSize: '0.6rem', letterSpacing: '0.12em', textTransform: 'uppercase', color: 'var(--text-faint)', fontWeight: 700, marginTop: '0.2rem' }}>
+        {label}
       </div>
     </div>
   );

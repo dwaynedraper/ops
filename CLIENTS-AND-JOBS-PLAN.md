@@ -346,11 +346,18 @@ job sits; repeat business stops vanishing.
 - [x] Dashboard sections: This week · Needs you now · Money · To send & deliver · Pipeline.
 - [x] Digest email + cron extended to chase job items (shoots, deliveries, money).
 
-### Phase 4 — Team pulse + tuning + polish
+### Phase 4 — Team pulse + master-view toggles + polish  ← **SHIPPED 2026-05-31**
 *What you'll feel:* the full Machine.
-- Top-2 rep performance on the dashboard.
-- Admin-tunable next-action weights; review-ask automation; prints-to-
-  deliver tracking; mobile pass.
+- [x] Top rep performance (last 30d) on the dashboard — super-admin, live.
+- [x] Master-view quick toggles on the Jobs board — Sent · Done · Paid.
+- [x] Mobile: new surfaces reuse the responsive shell (sidebar collapses,
+  filter bars stack, list rows wrap, card grids reflow to one column).
+- [~] **Deferred by design:** admin-tunable next-action weights (constants
+  in `lib/command-center.ts` for now); review-ask *automation* (needs
+  client email — out of scope until the newsletter phase; the dashboard
+  already surfaces ripe review-asks). Image galleries, email send, and
+  payment processing are intentionally Sprout's job — Ops records status
+  (sent / finished / paid) only.
 
 ---
 

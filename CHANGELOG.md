@@ -12,6 +12,186 @@ lives in `README.md`. This file is the time-ordered receipt.
 
 ## [Unreleased]
 
+### CRM — Phase 5F: in-app tutorial refresh (2026-05-31)
+Written **last, on purpose** (V2-PLAN sequencing), so the guidance
+describes the finished app in one pass rather than chasing each phase. No
+schema, no behavior — content only in `lib/tutorials-content.ts`.
+
+#### Changed
+- The Source → Qualify → Contact steps were already accurate and stayed.
+  Refreshed the surrounding facts to the post–Clients/Jobs world:
+  - `/clients` is now the durable **roster**; the prospect/lead pipeline
+    list is `/pipeline` (the old "pipeline funnel on /clients" line is gone).
+  - "Send the email" now states the **email-only** model and that the close
+    is the **Sprout booking link** (prospect self-books → Dean marks
+    `call_booked`), not a rep-run call.
+  - "What happens next" rewritten into the real **post-sale life**: set up
+    the durable Client, **+ New job** for returns (no funnel), the Job
+    lifecycle, **dated payments** + the cash strip, the **ledger**
+    (expenses/mileage), and the monthly **Wave export** on `/books`.
+  - Corporate's rebook/retainer note reframed around durable Clients.
+
+### CRM — Phase 5E: the call stage (call_booked) (2026-05-31)
+Reps email only and close by sending the Sprout scheduling link; the
+prospect self-books a call with Dean. `call_booked` gives that handoff a
+real lifecycle stage so booked calls land on Dean's dashboard, not in his
+head. **Run `npm run db:migrate` — additive + idempotent (adds the stage to
+the CHECK and a nullable `call_at`).**
+
+#### Added
+- **Schema (Layer 8)** — `call_booked` inserted between `responded` and
+  `signed` in the prospects stage CHECK (idempotent swap, same pattern as
+  the old `passed`→`rejected` rename), plus a nullable `call_at` for the
+  scheduled time.
+- **Lifecycle wiring** — `ProspectStage` type, `STAGE_LABEL`, `STAGE_NEXT`
+  (`responded → call_booked → signed`, with `signed` still directly
+  reachable), and every stage color/tone map across Qualify, Pipeline, and
+  the client page. Reports `ALL_STAGES` and the dashboard qualified/tile
+  stages include it.
+- **"Calls booked" dashboard surface** — Dean's queue of prospects who
+  self-booked, with the call time, sorted soonest first.
+
+#### Notes
+- The Sprout booking link was **already** seeded into every workflow's
+  outreach scripts (`{{booking_link}}` → `handoff_links`, real Sprout URL),
+  so the email-only/self-book model already existed in the messaging; 5E
+  adds the lifecycle stage it lands on. No seed change needed.
+- Reps move a prospect to `responded`; **Dean** sets `call_booked` when the
+  booking lands. Email-only is the operating model — no enforcement code,
+  by design.
+
+### CRM — Phase 5D: Books page + Wave export (2026-05-31)
+The monthly close becomes "export, upload" instead of an evening of
+re-keying. No schema change — read layer + CSV builder over Phases 5A/5C.
+
+#### Added
+- **`lib/wave-export.ts`** (pure, 10 tests) — `toWaveCsv` emits Wave's
+  Date / Description / Amount (verified 2026-05 against Wave Help Center:
+  MM/DD/YYYY dates, positive = money in / negative = out, and the special
+  characters `# & $ *` stripped from descriptions because Wave flags them).
+  CSV-escapes commas/quotes; income positive, expenses + mileage negative.
+- **`lib/books.ts`** (pure month helpers tested, 8 tests) — `resolveMonth`
+  / `shiftMonth` and `loadBooks` (a month's received payments, expenses,
+  mileage + totals), plus the three Wave-row builders.
+- **`/books` page** (super-admin) — month nav, a totals strip (income /
+  expenses / mileage / net), and the three sections, each with a one-click
+  **Export CSV for Wave** download.
+- **`/books/export` route** — `?month=YYYY-MM&type=income|expenses|mileage`,
+  admin-gated, streams the CSV fresh (no storage), mirroring the quote-PDF
+  route pattern.
+- **Sidebar** — Books link in the admin section.
+
+### CRM — Phase 5C: expense + mileage ledger (2026-05-31)
+Every cost captured the moment it happens, dated and categorized, ready for
+the Wave export. **Run `npm run db:migrate` — additive + idempotent (three
+new tables; seeds the mileage rate at 0.725 only if absent).**
+
+#### Added
+- **Schema (Layer 7)** — `expenses` (date, vendor, amount, category,
+  billable, optional `job_id`), `mileage_logs` (date, purpose, miles,
+  snapshotted `rate_per_mile`, computed `amount`, optional `job_id`), and
+  `ledger_settings` (editable key/value; seeds `mileage_rate_per_mile` =
+  0.725, the 2026 IRS business rate). Triggers for both updated_at tables.
+- **`lib/ledger.ts`** (pure, 6 tests) — category list + labels,
+  `mileageAmount` (miles × rate, snapshot-safe), `jobProfit` (value −
+  expenses − mileage).
+- **`/ledger` page** — two fast quick-add forms (expense / mileage,
+  mobile-friendly for logging from the truck) and this month's lists.
+  Outflow reads calm: muted tone, down-arrow, never red. Mileage shows a
+  live dollar preview; the rate is editable inline (super-admin), and a
+  rate change never rewrites existing rows (each kept its snapshot).
+- **Per-job profitability** — the job page shows Value − Expenses − Mileage
+  = Net once any cost is linked.
+- **Cash strip "Out this month"** now reflects real expense + mileage
+  totals (was a 0 placeholder in 5B).
+- **Sidebar** — Ledger link in the SALES section.
+
+### CRM — Phase 5B: cash strip + per-job paid ring (2026-05-31)
+The money you can feel before you read it. No schema change — pure reads
+over Phase 5A's `job_payments`.
+
+#### Added
+- **`lib/cash.ts`** — `computeCashStrip`: collected-this-month (refunds
+  subtract), total outstanding across open jobs, and the heartbeat dates
+  (last received with who/amount, next expected with who/amount). `out
+  this month` is wired to 0 until 5C adds the ledger.
+- **Dashboard cash strip** (super-admin) above "This week": **Collected**
+  solid `--good`, **Outstanding** the same green *ghosted* (outlined, no
+  fill — "same money, not here yet"), **Out** muted with a down-arrow.
+  Beneath it the heartbeat line: "Last in: May 24 · $450 (Sarah Chen) ·
+  Next expected: Jun 7 · $450." Red stays reserved for overdue.
+- **Per-job paid ring** — a small SVG ring on every Jobs-board card fills
+  collected ÷ value, so a half-paid job *looks* half-full across the whole
+  board. The board query carries each job's collected sum (no N+1);
+  `JobListItem` gains `paidFraction`.
+
+### CRM — Phase 5A: payments as dated rows (2026-05-31)
+The keystone of the money work (`MONEY-AND-LEDGER-PLAN.md`). A job's
+payment is no longer a single flag — it's a set of dated rows, so the app
+can finally answer "when did the last payment land" and "when's the next
+expected." **Run `npm run db:migrate` — additive + idempotent; includes a
+one-time backfill of existing paid/deposit jobs into a received row.**
+
+#### Added
+- **Schema (Layer 6)** — `job_payments` (one money event per row: kind,
+  amount, `status` expected/received, `due_on`, `received_on`, method,
+  note, `wave_category`; CHECK that received rows carry a date). Trigger
+  `job_payments_updated_at`. Idempotent backfill: each job currently
+  flagged paid/deposit_paid seeds one received row at its value, dated its
+  last update, only when it has no payment rows yet.
+- **`lib/money.ts`** (pure, 12 tests) — `derivePaymentStatus` (the rule the
+  cache is recomputed from), `receivedTotal`/`expectedTotal`,
+  `paidFraction`, `lastReceivedOn`/`nextExpectedOn` for the heartbeat line.
+- **`lib/job-payments-db.ts`** — the server side: `loadJobPayments`,
+  `recomputePaymentStatus` (transaction-aware), and the board helpers
+  `markJobPaidInFull` / `markJobUnpaid`.
+- **Job-page Payments card** — dated schedule (received = solid `--good`,
+  expected = ghosted outline, overdue = `--warn`), a collected/outstanding
+  summary, the **heartbeat line** ("Last in … · Next expected …"), a paid
+  **ring** (collected ÷ value), and add / mark-received / delete controls.
+  Add supports received *or* expected rows; received date defaults to today.
+
+#### Changed
+- **`jobs.payment_status` is now a derived cache**, recomputed from
+  `job_payments` after every change — so the board dots, dashboard money
+  lens, and rep-pulse revenue keep reading the flag, now truthful about
+  partials.
+- **Board "Paid" toggle** writes a real dated received row for the
+  uncollected remainder (and flips any expected rows to received), instead
+  of only flipping the flag — so the cash strip, heartbeat, and Wave export
+  all see it. Un-paying drops the job's payment rows.
+- Replaced the job page's three-state payment toggle with the dated card.
+
+### CRM — Phase 4: team pulse + master-view quick toggles (2026-05-31)
+The finishing pass on the Clients/Jobs arc. No schema change — a live
+read for the pulse, and quick status writes over the Phase 2 columns.
+Design in `CLIENTS-AND-JOBS-PLAN.md` §8.
+
+#### Added
+- **Team pulse on the dashboard** (`lib/rep-pulse.ts` + a card in
+  `app/page.tsx`) — super-admin-only, top reps over the last 30 days:
+  prospects signed (by closer), jobs booked, and revenue from jobs marked
+  paid. A live query (no snapshot/cron dependency); the top two are
+  accent-highlighted. Pure ranker unit-tested (4 tests in
+  `rep-pulse.test.ts`). Partners never run the query.
+- **Master-view quick toggles on the Jobs board** (`app/jobs/actions.ts`
+  + `JobBoardView`) — **Sent · Done · Paid**, one click each, directly on
+  each board card. "Sent" marks deliverables handed off (stage → deliver,
+  stamps delivered_at), "Done" finishes (→ complete) and re-opens, "Paid"
+  flips payment. Deliberately bypasses the strict stage rail — it's the
+  fast master view — but stays owner-checked (D-019).
+
+#### Scope (intentionally NOT built — per Dean, complements Sprout Studio)
+- No image-delivery galleries, no client email send, no payment
+  processing. Ops records *status* only (sent / finished / paid); Sprout
+  owns delivery and money movement.
+- **Deferred:** an admin UI to tune the Command Center thresholds
+  (shoot-soon, this-week, stalled, review-ripe) — they remain constants in
+  `lib/command-center.ts`, trivially editable. Review-ask *automation* is
+  deferred too: it needs client email, which is out of scope until the
+  newsletter/non-shoot-email phase. The dashboard already *surfaces* ripe
+  review-asks; only the auto-send is held back.
+
 ### CRM — Phase 3: the Command Center dashboard + next-action engine (2026-05-31)
 The dashboard stops being acquisition-only and becomes the screen that runs
 the whole day. It composes two owner-scoped engines: the existing prospect

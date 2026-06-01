@@ -6,6 +6,7 @@ import { Footer } from '@/components/Footer';
 import { getCatalog } from '@/lib/catalog';
 import type { Branch } from '@/lib/catalog';
 import type { JobRole, JobStage, PaymentStatus } from '@/lib/jobs';
+import { loadJobPayments } from '@/lib/job-payments-db';
 import {
   JobPageView,
   type JobDetail,
@@ -107,7 +108,7 @@ export default async function JobDetailPage({ params }: { params: Promise<{ id: 
 
   if (!jobRow || (jobRow.owner_id !== user.id && !isAdmin)) notFound();
 
-  const [roleRows, quoteRows, catalog] = await Promise.all([
+  const [roleRows, quoteRows, payments, costRow, catalog] = await Promise.all([
     sql<RoleRow>`
       SELECT r.id, r.client_id, r.role, r.role_label, c.display_name AS client_name
       FROM job_roles r
@@ -121,6 +122,11 @@ export default async function JobDetailPage({ params }: { params: Promise<{ id: 
       FROM quotes
       WHERE job_id = ${id}
       ORDER BY created_at DESC`,
+    loadJobPayments(id),
+    sqlOne<{ expenses: string; mileage: string }>`
+      SELECT
+        COALESCE((SELECT SUM(amount) FROM expenses WHERE job_id = ${id}), 0) AS expenses,
+        COALESCE((SELECT SUM(amount) FROM mileage_logs WHERE job_id = ${id}), 0) AS mileage`,
     getCatalog(),
   ]);
 
@@ -166,7 +172,16 @@ export default async function JobDetailPage({ params }: { params: Promise<{ id: 
       <div style={{ display: 'flex', flexDirection: 'column', minWidth: 0 }}>
         <main className="app-shell-main" style={{ flex: 1 }}>
           <div style={{ maxWidth: 1100, margin: '0 auto' }}>
-            <JobPageView job={job} roles={roles} quotes={quotes} catalog={catalog} role={role} />
+            <JobPageView
+              job={job}
+              roles={roles}
+              quotes={quotes}
+              payments={payments}
+              expensesTotal={Number(costRow?.expenses ?? 0)}
+              mileageTotal={Number(costRow?.mileage ?? 0)}
+              catalog={catalog}
+              role={role}
+            />
           </div>
         </main>
         <Footer />

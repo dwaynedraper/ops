@@ -9,15 +9,18 @@
 
 import { useMemo, useState } from 'react';
 import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 import { fmtMoney } from '@/lib/pricing';
 import {
   JOB_STAGE_FLOW,
   JOB_STAGE_LABEL,
   PAYMENT_LABEL,
   isJobClosed,
+  jobStageIndex,
   type JobStage,
   type JobListItem,
 } from '@/lib/jobs';
+import { quickSetJobStatus, quickSetJobPaid } from './actions';
 
 const CLOSED_STAGES: JobStage[] = ['complete', 'cancelled'];
 
@@ -177,78 +180,220 @@ export function JobBoardView({ jobs, isAdmin }: { jobs: JobListItem[]; isAdmin: 
 function JobCard({ job, isAdmin, closed }: { job: JobListItem; isAdmin: boolean; closed?: boolean }) {
   const accent = job.workflowAccent ?? 'var(--text-faint)';
   return (
-    <Link
-      href={`/jobs/${job.id}`}
+    <div
       style={{
-        display: 'block',
         padding: '0.6rem 0.7rem',
         borderRadius: 'var(--radius-sm)',
         border: '1px solid var(--border)',
         borderLeft: `3px solid ${accent}`,
         background: `${accent}0D`,
-        textDecoration: 'none',
-        color: 'inherit',
-        opacity: closed ? 0.6 : 1,
+        opacity: closed ? 0.7 : 1,
       }}
     >
-      <span
-        style={{
-          display: 'block',
-          fontSize: '0.83rem',
-          fontWeight: 600,
-          color: 'var(--text)',
-          overflow: 'hidden',
-          textOverflow: 'ellipsis',
-          whiteSpace: 'nowrap',
-        }}
+      <Link
+        href={`/jobs/${job.id}`}
+        style={{ display: 'block', textDecoration: 'none', color: 'inherit' }}
       >
-        {job.clientName ?? 'Client'}
-      </span>
-      {job.title && (
         <span
           style={{
             display: 'block',
-            fontSize: '0.73rem',
-            color: 'var(--text-muted)',
+            fontSize: '0.83rem',
+            fontWeight: 600,
+            color: 'var(--text)',
             overflow: 'hidden',
             textOverflow: 'ellipsis',
             whiteSpace: 'nowrap',
           }}
         >
-          {job.title}
+          {job.clientName ?? 'Client'}
         </span>
-      )}
-      <span
-        style={{
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'space-between',
-          gap: '0.4rem',
-          marginTop: '0.35rem',
-        }}
-      >
-        <span style={{ fontSize: '0.7rem', color: 'var(--text-faint)' }}>
-          {job.shootDateLabel ?? 'No date'}
-          {closed ? ` · ${JOB_STAGE_LABEL[job.stage]}` : ''}
-        </span>
-        {job.valuePrice !== null && (
+        {job.title && (
           <span
-            className="money"
             style={{
-              fontSize: '0.74rem',
-              color: job.paymentStatus === 'paid' ? 'var(--good)' : 'var(--text-mid)',
+              display: 'block',
+              fontSize: '0.73rem',
+              color: 'var(--text-muted)',
+              overflow: 'hidden',
+              textOverflow: 'ellipsis',
+              whiteSpace: 'nowrap',
             }}
-            title={PAYMENT_LABEL[job.paymentStatus]}
           >
-            {fmtMoney(job.valuePrice)}
+            {job.title}
           </span>
         )}
-      </span>
-      {isAdmin && job.workflowName && (
-        <span style={{ display: 'block', fontSize: '0.66rem', color: accent, marginTop: '0.2rem' }}>
-          {job.workflowName}
+        <span
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            gap: '0.4rem',
+            marginTop: '0.35rem',
+          }}
+        >
+          <span style={{ fontSize: '0.7rem', color: 'var(--text-faint)' }}>
+            {job.shootDateLabel ?? 'No date'}
+            {closed ? ` · ${JOB_STAGE_LABEL[job.stage]}` : ''}
+          </span>
+          {job.valuePrice !== null && (
+            <span style={{ display: 'inline-flex', alignItems: 'center', gap: '0.35rem' }}>
+              <MiniRing fraction={job.paidFraction} />
+              <span
+                className="money"
+                style={{
+                  fontSize: '0.74rem',
+                  color: job.paymentStatus === 'paid' ? 'var(--good)' : 'var(--text-mid)',
+                }}
+                title={PAYMENT_LABEL[job.paymentStatus]}
+              >
+                {fmtMoney(job.valuePrice)}
+              </span>
+            </span>
+          )}
         </span>
-      )}
-    </Link>
+        {isAdmin && job.workflowName && (
+          <span style={{ display: 'block', fontSize: '0.66rem', color: accent, marginTop: '0.2rem' }}>
+            {job.workflowName}
+          </span>
+        )}
+      </Link>
+
+      <QuickStatusBar job={job} />
+    </div>
+  );
+}
+
+/**
+ * Master-view quick toggles (Phase 4) — Sent · Done · Paid, one click each,
+ * right on the board. Complements Sprout: records status only, no delivery
+ * or payment processing. Sits below the card's clickable area so the
+ * buttons aren't nested in the card link.
+ */
+function QuickStatusBar({ job }: { job: JobListItem }) {
+  const router = useRouter();
+  const [busy, setBusy] = useState(false);
+
+  const sent = jobStageIndex(job.stage) >= jobStageIndex('deliver'); // deliver or later
+  const finished = job.stage === 'complete';
+  const paid = job.paymentStatus === 'paid';
+  const cancelled = job.stage === 'cancelled';
+
+  async function run(fn: () => Promise<{ ok: boolean }>) {
+    if (busy) return;
+    setBusy(true);
+    await fn();
+    router.refresh();
+    setBusy(false);
+  }
+
+  if (cancelled) {
+    return (
+      <div style={{ marginTop: '0.5rem', fontSize: '0.62rem', color: 'var(--text-faint)' }}>
+        Cancelled · reopen from the job page
+      </div>
+    );
+  }
+
+  return (
+    <div
+      style={{
+        display: 'flex',
+        gap: '0.3rem',
+        marginTop: '0.5rem',
+        paddingTop: '0.45rem',
+        borderTop: '1px solid var(--border)',
+        flexWrap: 'wrap',
+      }}
+    >
+      <Pill
+        active={sent && !finished}
+        done={sent}
+        label="Sent"
+        busy={busy}
+        onClick={() => run(() => quickSetJobStatus({ jobId: job.id, status: 'sent' }))}
+      />
+      <Pill
+        active={finished}
+        done={finished}
+        label="Done"
+        busy={busy}
+        onClick={() =>
+          run(() =>
+            quickSetJobStatus({ jobId: job.id, status: finished ? 'reopen' : 'finished' }),
+          )
+        }
+      />
+      <Pill
+        active={paid}
+        done={paid}
+        label="Paid"
+        busy={busy}
+        tone="good"
+        onClick={() => run(() => quickSetJobPaid({ jobId: job.id, paid: !paid }))}
+      />
+    </div>
+  );
+}
+
+/** Tiny collected-fraction ring for a board card. Pure SVG. */
+function MiniRing({ fraction }: { fraction: number }) {
+  const r = 6;
+  const c = 2 * Math.PI * r;
+  const filled = c * Math.max(0, Math.min(1, fraction));
+  if (fraction <= 0) return null;
+  return (
+    <svg width="16" height="16" viewBox="0 0 16 16" role="img" aria-label={`${Math.round(fraction * 100)}% collected`}>
+      <circle cx="8" cy="8" r={r} fill="none" stroke="var(--border)" strokeWidth="2" />
+      <circle
+        cx="8"
+        cy="8"
+        r={r}
+        fill="none"
+        stroke="var(--good)"
+        strokeWidth="2"
+        strokeLinecap="round"
+        strokeDasharray={`${filled} ${c - filled}`}
+        transform="rotate(-90 8 8)"
+      />
+    </svg>
+  );
+}
+
+function Pill({
+  active,
+  done,
+  label,
+  busy,
+  tone = 'accent',
+  onClick,
+}: {
+  active: boolean;
+  done: boolean;
+  label: string;
+  busy: boolean;
+  tone?: 'accent' | 'good';
+  onClick: () => void;
+}) {
+  const color = tone === 'good' ? 'var(--good)' : 'var(--accent)';
+  return (
+    <button
+      type="button"
+      disabled={busy}
+      onClick={onClick}
+      aria-pressed={active}
+      style={{
+        fontSize: '0.6rem',
+        letterSpacing: '0.06em',
+        textTransform: 'uppercase',
+        fontWeight: 700,
+        padding: '0.2rem 0.5rem',
+        borderRadius: 'var(--radius-sm)',
+        border: `1px solid ${done ? color : 'var(--border)'}`,
+        background: done ? `${color}22` : 'transparent',
+        color: done ? color : 'var(--text-faint)',
+        cursor: busy ? 'default' : 'pointer',
+      }}
+    >
+      {done ? `✓ ${label}` : label}
+    </button>
   );
 }

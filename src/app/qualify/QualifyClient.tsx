@@ -45,6 +45,7 @@ const STAGE_META: Record<ProspectStage, { label: string; tone: StageTone }> = {
   qualified: { label: 'Qualified', tone: 'good' },
   contacting: { label: 'Contacting', tone: 'accent' },
   responded: { label: 'Responded', tone: 'warn' },
+  call_booked: { label: 'Call booked', tone: 'cyan' },
   signed: { label: 'Signed', tone: 'good' },
   client: { label: 'Client', tone: 'cyan' },
   rejected: { label: 'Rejected', tone: 'muted' },

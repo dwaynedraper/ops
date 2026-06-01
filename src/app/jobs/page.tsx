@@ -27,6 +27,7 @@ interface JobRow {
   value_price: string | null;
   payment_status: PaymentStatus;
   owner_name: string | null;
+  collected: string | null;
   updated_at: Date;
 }
 
@@ -41,12 +42,17 @@ export default async function JobsPage() {
   const role = user.role ?? 'partner';
   const isAdmin = role === 'super_admin';
 
+  // The collected-so-far sum per job (received minus refunds) rides along
+  // so each board card can show a paid ring without an N+1.
   const jobRows = isAdmin
     ? await sql<JobRow>`
         SELECT j.id, j.client_id, j.title, j.stage, j.workflow_key, j.shoot_date,
                j.value_price, j.payment_status, j.updated_at,
                c.display_name AS client_name, w.name AS workflow_name, w.accent,
-               u.name AS owner_name
+               u.name AS owner_name,
+               COALESCE((SELECT SUM(CASE WHEN p.kind = 'refund' THEN -p.amount ELSE p.amount END)
+                         FROM job_payments p
+                         WHERE p.job_id = j.id AND p.status = 'received'), 0) AS collected
         FROM jobs j
         LEFT JOIN clients c ON c.id = j.client_id
         LEFT JOIN workflows w ON w.workflow_key = j.workflow_key
@@ -56,7 +62,10 @@ export default async function JobsPage() {
         SELECT j.id, j.client_id, j.title, j.stage, j.workflow_key, j.shoot_date,
                j.value_price, j.payment_status, j.updated_at,
                c.display_name AS client_name, w.name AS workflow_name, w.accent,
-               u.name AS owner_name
+               u.name AS owner_name,
+               COALESCE((SELECT SUM(CASE WHEN p.kind = 'refund' THEN -p.amount ELSE p.amount END)
+                         FROM job_payments p
+                         WHERE p.job_id = j.id AND p.status = 'received'), 0) AS collected
         FROM jobs j
         LEFT JOIN clients c ON c.id = j.client_id
         LEFT JOIN workflows w ON w.workflow_key = j.workflow_key
@@ -64,20 +73,28 @@ export default async function JobsPage() {
         WHERE j.owner_id = ${user.id}
         ORDER BY j.updated_at DESC`;
 
-  const jobs: JobListItem[] = jobRows.map((j) => ({
-    id: j.id,
-    clientId: j.client_id,
-    clientName: j.client_name,
-    title: j.title,
-    stage: j.stage,
-    workflowKey: j.workflow_key,
-    workflowName: j.workflow_name,
-    workflowAccent: j.accent,
-    shootDateLabel: j.shoot_date ? DATE_FMT.format(new Date(j.shoot_date)) : null,
-    valuePrice: j.value_price === null ? null : Number(j.value_price),
-    paymentStatus: j.payment_status,
-    updatedAtLabel: UPD_FMT.format(new Date(j.updated_at)),
-  }));
+  const jobs: JobListItem[] = jobRows.map((j) => {
+    const value = j.value_price === null ? null : Number(j.value_price);
+    const collected = Number(j.collected ?? 0);
+    // Ring fills collected ÷ value; with no value, full once anything is in.
+    const frac =
+      value && value > 0 ? Math.max(0, Math.min(1, collected / value)) : collected > 0 ? 1 : 0;
+    return {
+      id: j.id,
+      clientId: j.client_id,
+      clientName: j.client_name,
+      title: j.title,
+      stage: j.stage,
+      workflowKey: j.workflow_key,
+      workflowName: j.workflow_name,
+      workflowAccent: j.accent,
+      shootDateLabel: j.shoot_date ? DATE_FMT.format(new Date(j.shoot_date)) : null,
+      valuePrice: value,
+      paymentStatus: j.payment_status,
+      paidFraction: frac,
+      updatedAtLabel: UPD_FMT.format(new Date(j.updated_at)),
+    };
+  });
 
   return (
     <div className="app-shell">
