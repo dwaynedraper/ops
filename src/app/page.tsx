@@ -12,6 +12,9 @@ import { computeDigest, type DigestItem } from '@/lib/digest';
 import { computeCommandCenter, type CommandRow } from '@/lib/command-center';
 import { computeRepPulse, PULSE_WINDOW_DAYS, type RepPulseRow } from '@/lib/rep-pulse';
 import { computeCashStrip, type CashStrip } from '@/lib/cash';
+import { loadCalendar } from '@/lib/calendar-db';
+import { addDays } from '@/lib/calendar';
+import { GlanceStrip, type GlanceItem } from './GlanceStrip';
 
 /**
  * Dashboard — the Command Center (D-062, D-063, Phase 3).
@@ -121,6 +124,24 @@ export default async function Dashboard() {
       isAdmin ? computeCashStrip(now) : Promise.resolve(null),
     ]);
 
+  // The dashboard 8-day glance (§3.2): today + 7, in the viewer's zone.
+  const TZ = 'America/Chicago';
+  const todayCivil = new Intl.DateTimeFormat('en-CA', {
+    timeZone: TZ,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).format(now); // 'YYYY-MM-DD'
+  const glanceItems: GlanceItem[] = (
+    await loadCalendar(user.id, todayCivil, addDays(todayCivil, 7), TZ)
+  ).map((it) => ({
+    date: it.date,
+    title: it.title,
+    kind: it.kind,
+    blockType: it.blockType,
+    startClock: it.startClock,
+  }));
+
   // Calls booked — Dean's own queue of prospects who self-booked a call via
   // the Sprout link (Phase 5E). Owner-scoped to the viewer; in practice the
   // calls route to Dean, who owns / closes them.
@@ -187,6 +208,9 @@ export default async function Dashboard() {
                 ? 'Nothing is waiting on you this morning — a clean slate.'
                 : `Your day: ${summaryParts.join(' · ')}.`}
             </p>
+
+            {/* ─── The week ahead — 8-day glance (§3.2) ───────────────── */}
+            <GlanceStrip today={todayCivil} items={glanceItems} />
 
             {/* ─── Cash strip (super-admin) — felt before read ────────── */}
             {isAdmin && cash && !cash.empty && <CashStripBar cash={cash} />}

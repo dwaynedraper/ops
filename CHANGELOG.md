@@ -12,6 +12,41 @@ lives in `README.md`. This file is the time-ordered receipt.
 
 ## [Unreleased]
 
+### Calendar — Phase 6A: the in-Ops calendar + dashboard 8-day glance (2026-05-31)
+A real calendar in Ops for the work that isn't a Job — record / edit / post
+/ admin / 10% — built around the accessibility north star (Dean is autistic):
+a block has a **concrete when**, never a "someday." Design in
+`CALENDAR-AND-SYNC-PLAN.md`. Google two-way sync is Phase 6C; this is
+local-first and fully usable on its own. **Run `npm run db:migrate` —
+additive + idempotent (one new table).**
+
+#### Added
+- **Schema (Layer 9)** — `calendar_blocks` (title, type, `start_at` +
+  `duration_min` + IANA `time_zone`, optional `rrule` for 6B, optional
+  `job_id`, `status`, `reminder_min`). Trigger reuses `trg_set_updated_at`.
+- **`lib/calendar.ts`** (pure, 13 tests) — block types/colors, civil-date
+  helpers, day/week slot math, and **`glanceGrid`**: today + 7 laid out in
+  true wall-calendar weekday columns across two rows. Proven across every
+  weekday start, the Saturday wrap, and month/year boundaries — the 8-day
+  window always lands in the 14-cell grid under the right weekday.
+- **`/calendar`** — day + week views (toggle + ‹Today› stepper), an hour
+  grid where the **time reads loudest**, click-a-slot-to-create, and a block
+  editor mirroring a Google event's powers (title, type, date, start,
+  duration, notes, optional job link, mark-done/delete). Jobs render
+  **read-only** as camera-marked shoot items (§4A) — never copied.
+- **Dashboard "The week ahead"** — the 8-day glance strip: today + 7 in
+  wall-calendar columns, **day name loudest** (days beat dates for short-
+  term memory), today's cell marked, out-of-window cells dimmed to hold the
+  shape, type-colored chips, click-through to the day view.
+- **Immediate confirmation email** on create/change ("Booked: Record Reel —
+  Tue Aug 24, 2:00–3:00pm") via the existing Resend mailer — the "it's real
+  now" receipt. Best-effort: a failed email never fails the save.
+- **Sidebar** — Calendar link at the top of TOOLS (a daily surface).
+
+#### Notes
+- Recurrence (RRULE) is stored-ready but the editor UI + the lead-time
+  reminder cron land in **Phase 6B**; two-way Google sync is **Phase 6C**.
+
 ### CRM — Phase 5F: in-app tutorial refresh (2026-05-31)
 Written **last, on purpose** (V2-PLAN sequencing), so the guidance
 describes the finished app in one pass rather than chasing each phase. No

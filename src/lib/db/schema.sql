@@ -1446,3 +1446,61 @@ BEGIN
       ));
   END IF;
 END $$;
+
+-- ════════════════════════════════════════════════════════════════════
+-- LAYER 9 — The calendar (Phase 6A · CALENDAR-AND-SYNC-PLAN.md)
+--
+-- A fixed time block — the spine of the in-Ops calendar, for the work that
+-- isn't a Job (record / edit / post / admin / 10%). Accessibility, not a
+-- feature: a block has a real start time and duration, never a "someday."
+-- Recurrence is stored as an RFC-5545 RRULE — Google's native grammar — so
+-- the Phase 6C two-way sync is a pass-through, not a translation. The sync
+-- columns (google_event_id, etc.) arrive in 6C; this is the local-first
+-- table. Additive + idempotent, same discipline as Layers 1–8.
+-- ════════════════════════════════════════════════════════════════════
+
+CREATE TABLE IF NOT EXISTS calendar_blocks (
+  id            UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  owner_id      UUID NOT NULL REFERENCES users(id) ON DELETE RESTRICT,
+
+  title         TEXT NOT NULL,
+  block_type    TEXT NOT NULL DEFAULT 'other'
+                  CHECK (block_type IN ('record','edit','post','admin','ten_percent','other')),
+  notes         TEXT,
+
+  -- The concrete when. start_at is absolute; time_zone keeps wall-clock
+  -- intent honest across DST (Dean is CT).
+  start_at      TIMESTAMPTZ NOT NULL,
+  duration_min  INTEGER NOT NULL DEFAULT 60 CHECK (duration_min > 0),
+  time_zone     TEXT NOT NULL DEFAULT 'America/Chicago',
+
+  -- RFC-5545 RRULE (6B). NULL = one-off. Stored as Google's grammar for
+  -- loss-free sync.
+  rrule         TEXT,
+
+  -- Optional link to a job (e.g. "edit of" a shoot).
+  job_id        UUID REFERENCES jobs(id) ON DELETE SET NULL,
+
+  -- Lifecycle of the block itself — did the work happen.
+  status        TEXT NOT NULL DEFAULT 'planned'
+                  CHECK (status IN ('planned','done','skipped','canceled')),
+
+  -- Lead time for the "it chases me" reminder, in minutes before start.
+  reminder_min  INTEGER NOT NULL DEFAULT 30 CHECK (reminder_min >= 0),
+  reminder_sent_at TIMESTAMPTZ,
+
+  created_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at    TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS calendar_blocks_owner_start_idx
+  ON calendar_blocks(owner_id, start_at);
+CREATE INDEX IF NOT EXISTS calendar_blocks_job_idx ON calendar_blocks(job_id);
+
+DO $$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgname = 'calendar_blocks_updated_at') THEN
+    CREATE TRIGGER calendar_blocks_updated_at BEFORE UPDATE ON calendar_blocks
+      FOR EACH ROW EXECUTE FUNCTION trg_set_updated_at();
+  END IF;
+END $$;

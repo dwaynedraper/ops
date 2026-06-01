@@ -31,6 +31,7 @@ interface NavLink {
 }
 
 const TOOLS_LINKS: NavLink[] = [
+  { href: '/calendar', label: 'Calendar' },
   { href: '/calculator', label: 'Quote Calculator' },
   { href: '/tutorials', label: 'Tutorials' },
 ];
