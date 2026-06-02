@@ -3,82 +3,125 @@
 import { useSyncExternalStore, type ReactNode } from 'react';
 import { UndoProvider } from '@/components/UndoProvider';
 
-type Theme = 'dark' | 'light';
+type ThemePref = 'system' | 'dark' | 'light';
+type Resolved = 'dark' | 'light';
 
 const STORAGE_KEY = 'ss_ops_theme';
 
 /* ─────────────────────────────────────────────────────────────────────
- * Theme store
+ * Theme store — system-default, three-state, live auto-toggle.
  *
- * The `dark` / `light` class on <html> is the single source of truth.
- * An inline no-FOUC script in layout.tsx sets that class from
- * localStorage before first paint; this store reads it and toggles it.
+ * The `dark` / `light` class on <html> is the single source of truth for
+ * styling and is always RESOLVED (never 'system'). The user's PREFERENCE
+ * — system | dark | light — lives in localStorage. When the preference is
+ * 'system' we resolve via prefers-color-scheme and re-resolve live when the
+ * OS flips (day/night auto-toggle), so the site follows the system without
+ * a reload.
  *
- * We use `useSyncExternalStore` rather than useState + useEffect so that:
- *   - React stays in step with the DOM class without a setState inside an
- *     effect (which triggers cascading renders — react-hooks/set-state-
- *     in-effect),
- *   - the server render and the hydration render agree (getServerSnapshot
- *     returns the same `dark` default layout.tsx puts on <html>).
+ * Default is 'system'. A saved 'dark'/'light' from before this change is
+ * respected (it just reads as a pinned preference). The inline no-FOUC
+ * script in layout.tsx applies the resolved class before first paint using
+ * the same rule, so there's no flash.
  *
- * Namespaced `ss_ops_theme` so it doesn't collide with sharpsighted.studio
- * if both are open in the same browser.
+ * Canonical pattern across Sharp Sighted (mirrors rework-sharpsightedstudio).
  * ───────────────────────────────────────────────────────────────────── */
 
 const listeners = new Set<() => void>();
 
-/** Subscribe a React-provided callback; returns the unsubscribe fn. */
-function subscribe(onStoreChange: () => void): () => void {
-  listeners.add(onStoreChange);
-  return () => {
-    listeners.delete(onStoreChange);
-  };
+function readPref(): ThemePref {
+  try {
+    const v = localStorage.getItem(STORAGE_KEY);
+    if (v === 'dark' || v === 'light' || v === 'system') return v;
+  } catch {
+    /* privacy mode */
+  }
+  return 'system';
 }
 
-/** Client snapshot — read the live class off <html>. */
-function getSnapshot(): Theme {
-  return document.documentElement.classList.contains('light') ? 'light' : 'dark';
+function systemResolved(): Resolved {
+  return typeof window !== 'undefined' &&
+    window.matchMedia('(prefers-color-scheme: dark)').matches
+    ? 'dark'
+    : 'light';
 }
 
-/**
- * Server snapshot — and the value React hydrates with. layout.tsx renders
- * <html className="… dark">, so this must be 'dark' to avoid a mismatch.
- */
-function getServerSnapshot(): Theme {
-  return 'dark';
+function resolve(pref: ThemePref): Resolved {
+  return pref === 'system' ? systemResolved() : pref;
 }
 
-/** Apply a theme: swap the <html> class, persist it, notify subscribers. */
-function setTheme(next: Theme): void {
+/** Apply the resolved class to <html>. */
+function applyResolved(r: Resolved): void {
   const root = document.documentElement;
   root.classList.remove('dark', 'light');
-  root.classList.add(next);
+  root.classList.add(r);
+}
+
+let mediaWired = false;
+/** Wire the OS day/night listener once, on the client. While the preference
+ * is 'system', an OS flip re-resolves the class and notifies React. */
+function ensureMediaListener(): void {
+  if (mediaWired || typeof window === 'undefined') return;
+  mediaWired = true;
+  const mq = window.matchMedia('(prefers-color-scheme: dark)');
+  mq.addEventListener('change', () => {
+    if (readPref() === 'system') {
+      applyResolved(systemResolved());
+      for (const l of listeners) l();
+    }
+  });
+}
+
+function subscribe(onStoreChange: () => void): () => void {
+  ensureMediaListener();
+  listeners.add(onStoreChange);
+  return () => listeners.delete(onStoreChange);
+}
+
+/** Client snapshot — the live PREFERENCE (what the toggle reflects). */
+function getSnapshot(): ThemePref {
+  return readPref();
+}
+
+/** Server snapshot + hydration value. layout.tsx's no-FOUC script may have
+ * already changed the <html> class, but the preference default is 'system'. */
+function getServerSnapshot(): ThemePref {
+  return 'system';
+}
+
+/** Set the preference: persist it, resolve + apply the class, notify. */
+function setPref(next: ThemePref): void {
   try {
     localStorage.setItem(STORAGE_KEY, next);
   } catch {
-    // localStorage can throw in privacy modes — the class still applies.
+    /* class still applies */
   }
+  applyResolved(resolve(next));
   for (const listener of listeners) listener();
 }
 
-/**
- * Provider slot. The theme store is module-level, so the only wrapper here
- * is the UndoProvider — it owns the app-wide "soft commit" undo toasts.
- */
 export function Providers({ children }: { children: ReactNode }) {
   return <UndoProvider>{children}</UndoProvider>;
 }
 
 export interface ThemeCtx {
-  theme: Theme;
-  toggle: () => void;
+  /** The preference: system | dark | light. */
+  theme: ThemePref;
+  /** The resolved appearance right now: dark | light. */
+  resolved: Resolved;
+  /** Set the preference directly (the three-way control). */
+  setTheme: (pref: ThemePref) => void;
+  /** Cycle System → Light → Dark → System (for a single tappable button). */
+  cycle: () => void;
 }
 
-/** Current theme + a toggle, kept in sync with the <html> class. */
+const NEXT: Record<ThemePref, ThemePref> = { system: 'light', light: 'dark', dark: 'system' };
+
 export function useTheme(): ThemeCtx {
   const theme = useSyncExternalStore(subscribe, getSnapshot, getServerSnapshot);
   return {
     theme,
-    toggle: () => setTheme(theme === 'dark' ? 'light' : 'dark'),
+    resolved: typeof window === 'undefined' ? 'dark' : resolve(theme),
+    setTheme: setPref,
+    cycle: () => setPref(NEXT[theme]),
   };
 }

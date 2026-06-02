@@ -313,20 +313,39 @@ Per Dean: pinged immediately, email is fine for now.
 - [x] Immediate confirmation email on create/change.
 - [x] `/calendar` route + sidebar link.
 
-### Phase 6B — Recurrence + polish
-*Feel:* "every Tuesday I record" set once, and the grid feels native.
-- RRULE recurrence UI (None / Daily / Weekly-on / Custom) + edited-instance
-  + exception handling.
-- Lead-time reminder cron (the chase).
-- Drag-to-create / drag-to-resize; keyboard nav for accessibility.
+### Phase 6B — Recurrence + the reminder chase  ← **SHIPPED 2026-05-31**
+*Feel:* "every Tuesday I record" set once, and it nudges you before it.
+- [x] RRULE recurrence (`lib/recurrence.ts`, 16 tests) + editor Repeats
+  control; loader expands masters across the window; `↻` marker.
+- [x] Edit-series + delete-this-occurrence (EXDATE skips).
+- [x] Lead-time reminder cron (`/api/cron/reminders`, every 15 min,
+  deduped, DST-correct). The chase.
+- [ ] Drag-to-create / drag-to-resize + keyboard nav — **deferred**; the
+  click-a-slot create + editor cover the need. Revisit if it chafes.
 
 ### Phase 6C — Two-way Google sync
 *Feel:* Ops and the phone are one calendar.
-- Service-account connection + admin runbook in `/docs`.
-- Find-or-create the "Sharp Sighted" calendar.
-- Outbound writes; inbound incremental sync + 410 full-resync; watch
-  channel webhook + renewal cron; the etag conflict rule.
-- One-way push of Job shoots to Google.
+
+**6C-1 — connection + outbound (Ops → Google)  ← SHIPPED 2026-05-31**
+- [x] Service-account connection (`lib/google/auth.ts`) + admin runbook
+  (`docs/google-calendar-setup.md`). Dormant until configured.
+- [x] Find-or-create the "Sharp Sighted" calendar.
+- [x] Outbound writes — create/edit/delete a block → Google event, best-
+  effort, never fails the local save. Recurrence rides along.
+- [x] Pure cores tested: event mapping (8) + JWT assembly (5).
+
+**6C-2 — read ALL Google calendars as dashboard context  ← SHIPPED 2026-06-01**
+Reframed per Dean: the daily need is seeing his *whole* calendar to plan
+around, not bidirectional editing.
+- [x] Read-only ingest of every visible Google calendar (recurrence
+  expanded), merged into the calendar views + the dashboard 8-day glance.
+- [x] Per-calendar color, muted/dashed read-only treatment, all-day support.
+- [x] Pure mapper tested (9); best-effort fetch never breaks the page.
+
+**Deferred (low value — Dean authors in Ops):**
+- [ ] Inbound edit-back of the Sharp Sighted calendar (sync token + 410
+  resync), watch-channel webhook + renewal, the etag conflict rule.
+- [ ] One-way push of Job shoots to Google.
 
 ---
 

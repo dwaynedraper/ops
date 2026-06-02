@@ -13,7 +13,7 @@ import Link from 'next/link';
 import {
   glanceGrid,
   clockLabelUpper,
-  BLOCK_TYPE_COLOR,
+  timeRangeUpper,
   type GlanceCell,
   type BlockType,
 } from '@/lib/calendar';
@@ -21,19 +21,13 @@ import {
 export interface GlanceItem {
   date: string; // 'YYYY-MM-DD'
   title: string;
-  kind: 'block' | 'shoot';
+  kind: 'block' | 'shoot' | 'external';
   blockType: BlockType | null;
   startClock: string | null; // 'HH:MM'
   durationMin: number;
+  externalColor?: string | null;
 }
 
-/** Compact duration tag: 60→"1h", 90→"1.5h", 30→"30m". */
-function durationTag(min: number): string {
-  if (min <= 0) return '';
-  if (min % 60 === 0) return `${min / 60}h`;
-  if (min < 60) return `${min}m`;
-  return `${(min / 60).toFixed(1).replace(/\.0$/, '')}h`;
-}
 
 const WEEKDAY_HEADERS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 
@@ -117,7 +111,9 @@ function GlanceDay({ cell, items }: { cell: GlanceCell; items: GlanceItem[] }) {
     );
   }
 
-  const shown = items.slice(0, 3);
+  // Two-line chips are taller — cap at 2 so a busy day stays readable; the
+  // rest roll into "+N more", and the full calendar is one click away.
+  const shown = items.slice(0, 2);
   const extra = items.length - shown.length;
 
   return (
@@ -125,7 +121,7 @@ function GlanceDay({ cell, items }: { cell: GlanceCell; items: GlanceItem[] }) {
       href={`/calendar?date=${cell.date}`}
       style={{
         display: 'block',
-        minHeight: 76,
+        minHeight: 92,
         borderRadius: 'var(--radius-sm)',
         border: cell.isToday ? '1px solid var(--accent)' : '1px solid var(--border)',
         background: cell.isToday ? 'var(--accent-dim)' : 'var(--surface-tool-2)',
@@ -148,34 +144,55 @@ function GlanceDay({ cell, items }: { cell: GlanceCell; items: GlanceItem[] }) {
         <span style={{ fontSize: '0.74rem', color: 'var(--text-faint)' }}>{cell.dayNum}</span>
       </div>
 
-      <div style={{ display: 'flex', flexDirection: 'column', gap: '0.18rem' }}>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: '0.3rem' }}>
         {shown.map((it, i) => {
-          const color = it.kind === 'shoot' ? 'var(--brand-cyan)' : BLOCK_TYPE_COLOR[it.blockType ?? 'other'];
-          // Timed blocks read "Title 9:00 AM (1h)"; untimed shoots stay bare.
-          const time = it.startClock ? clockLabelUpper(it.startClock) : '';
-          const dur = it.kind === 'block' ? durationTag(it.durationMin) : '';
+          // Two layers: imported Google events = green; everything I own
+          // (blocks + shoots) = business blue. Fully outlined, low-opacity
+          // fill (the hex8 alpha suffix), roomy two-line stack.
+          const isExternal = it.kind === 'external';
+          const color = isExternal ? 'var(--cal-external)' : 'var(--cal-business)';
+          // Timed items show the explicit range on its own line — no mental
+          // math, and room to breathe. All-day/untimed items skip line 2.
+          const time = it.startClock
+            ? it.durationMin > 0
+              ? timeRangeUpper(it.startClock, it.durationMin)
+              : clockLabelUpper(it.startClock)
+            : '';
           return (
             <div
               key={i}
               style={{
-                fontSize: '0.74rem',
+                borderRadius: 'var(--radius-sm)',
+                border: `1px solid ${color}`,
+                // Low-opacity fill: ~9% via the 8-digit hex alpha on the var
+                // is not possible, so use color-mix for a tinted background
+                // that still respects the theme token.
+                background: `color-mix(in srgb, ${color} 14%, transparent)`,
+                padding: '0.3rem 0.4rem',
                 lineHeight: 1.3,
-                color: 'var(--text)',
-                borderLeft: `3px solid ${color}`,
-                paddingLeft: '0.35rem',
-                overflow: 'hidden',
-                textOverflow: 'ellipsis',
-                whiteSpace: 'nowrap',
               }}
               title={it.title}
             >
-              {it.kind === 'shoot' ? '📷 ' : ''}
-              {it.title}
-              {time ? (
-                <span style={{ color: 'var(--text-faint)' }}>
-                  {' '}{time}{dur ? ` (${dur})` : ''}
-                </span>
-              ) : null}
+              {/* Line 1 — title */}
+              <div
+                style={{
+                  fontSize: '0.74rem',
+                  fontWeight: 600,
+                  color: 'var(--text)',
+                  overflow: 'hidden',
+                  textOverflow: 'ellipsis',
+                  whiteSpace: 'nowrap',
+                }}
+              >
+                {it.kind === 'shoot' ? '📷 ' : ''}
+                {it.title}
+              </div>
+              {/* Line 2 — explicit time range, its own room */}
+              {time && (
+                <div style={{ fontSize: '0.7rem', color: color, fontWeight: 600, marginTop: '0.1rem' }}>
+                  {time}
+                </div>
+              )}
             </div>
           );
         })}

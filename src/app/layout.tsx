@@ -52,7 +52,7 @@ export default function RootLayout({
         {/* No-FOUC theme script — runs before paint */}
         <script
           dangerouslySetInnerHTML={{
-            __html: `(function(){try{var t=localStorage.getItem('ss_ops_theme');var root=document.documentElement;root.classList.remove('dark','light');root.classList.add(t==='light'?'light':'dark');}catch(e){}})();`,
+            __html: `(function(){try{var p=localStorage.getItem('ss_ops_theme');var sys=window.matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light';var r=(p==='light'||p==='dark')?p:sys;var root=document.documentElement;root.classList.remove('dark','light');root.classList.add(r);}catch(e){}})();`,
           }}
         />
         {/* Plausible — gated on NEXT_PUBLIC_PLAUSIBLE_SCRIPT. Matches the

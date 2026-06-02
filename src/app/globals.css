@@ -109,6 +109,13 @@
   --warn:           #f59e0b;
   --bad:            #ef4444;
 
+  /* Calendar item colors (Phase 6C polish). Two layers: business = blue,
+     imported Google events = green. Theme-specific so each clears WCAG AA
+     on its own surface (a green that pops on charcoal is invisible on cream).
+     Dark-mode values: business 6.5:1, imported 9.9:1 on --surface. */
+  --cal-business:   #6aa9e0;       /* brand-adjacent blue — Ops blocks + shoots */
+  --cal-external:   #a3d977;       /* soft→lime green — imported calendars */
+
   /* Shape + spacing tokens — denser than /studio */
   --radius-sm:      4px;
   --radius:         8px;
@@ -152,6 +159,11 @@
   --good:           #0f9d6e;
   --warn:           #d97706;
   --bad:            #dc2626;
+
+  /* Calendar — deepened for contrast on cream (light surfaces). Business
+     5.7:1, imported 4.25:1 on --surface. */
+  --cal-business:   #1d4ed8;
+  --cal-external:   #4d7c0f;
 }
 
 /* ─── Base styles ─────────────────────────────────────────────────────── */

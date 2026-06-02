@@ -15,6 +15,7 @@ import { sql, sqlOne, isUuid } from '@/lib/db';
 import { actionError } from '@/lib/action-error';
 import { sendEmail, emailConfigured } from '@/lib/mailer';
 import { isBlockType, clockLabel, endClock, type BlockStatus } from '@/lib/calendar';
+import { syncBlockUpsert, syncBlockDelete } from '@/lib/google/sync-out';
 
 export interface ActionResult {
   ok: boolean;
@@ -89,6 +90,7 @@ export async function createBlock(input: {
   jobId?: string | null;
   reminderMin?: number;
   timeZone?: string;
+  rrule?: string | null;
 }): Promise<ActionResult> {
   const who = await requireUser();
   if ('error' in who) return { ok: false, error: who.error };
@@ -101,20 +103,22 @@ export async function createBlock(input: {
   const zone = input.timeZone || 'America/Chicago';
   const reminder = Math.max(0, Math.floor(input.reminderMin ?? 30));
   const jobId = input.jobId && isUuid(input.jobId) ? input.jobId : null;
+  const rrule = orNull(input.rrule);
 
   try {
     // Compose the absolute instant from civil date + clock in the zone.
     const row = await sqlOne<{ id: string }>`
       INSERT INTO calendar_blocks
-        (owner_id, title, block_type, notes, start_at, duration_min, time_zone, job_id, reminder_min)
+        (owner_id, title, block_type, notes, start_at, duration_min, time_zone, job_id, reminder_min, rrule)
       VALUES (
         ${who.userId}, ${title}, ${blockType}, ${orNull(input.notes)},
         (${`${input.date} ${input.startClock}`}::timestamp AT TIME ZONE ${zone}),
-        ${duration}, ${zone}, ${jobId}, ${reminder}
+        ${duration}, ${zone}, ${jobId}, ${reminder}, ${rrule}
       )
       RETURNING id`;
 
     await confirmEmail(who.email, who.name, 'Booked', title, input.date, input.startClock, duration);
+    if (row?.id) await syncBlockUpsert(row.id); // best-effort → Google; never throws
     revalidatePath('/calendar');
     revalidatePath('/');
     return { ok: true, id: row?.id };
@@ -133,6 +137,7 @@ export async function updateBlock(input: {
   notes?: string;
   reminderMin?: number;
   timeZone?: string;
+  rrule?: string | null;
 }): Promise<ActionResult> {
   const who = await requireUser();
   if ('error' in who) return { ok: false, error: who.error };
@@ -144,6 +149,7 @@ export async function updateBlock(input: {
   const duration = Math.max(1, Math.floor(input.durationMin || 60));
   const zone = input.timeZone || 'America/Chicago';
   const reminder = Math.max(0, Math.floor(input.reminderMin ?? 30));
+  const rrule = orNull(input.rrule);
 
   try {
     const res = await sql`
@@ -151,10 +157,11 @@ export async function updateBlock(input: {
         title = ${title}, block_type = ${blockType}, notes = ${orNull(input.notes)},
         start_at = (${`${input.date} ${input.startClock}`}::timestamp AT TIME ZONE ${zone}),
         duration_min = ${duration}, time_zone = ${zone}, reminder_min = ${reminder},
-        reminder_sent_at = NULL
+        rrule = ${rrule}, reminder_sent_at = NULL
       WHERE id = ${input.id} AND owner_id = ${who.userId}`;
     void res;
     await confirmEmail(who.email, who.name, 'Updated', title, input.date, input.startClock, duration);
+    await syncBlockUpsert(input.id); // best-effort → Google; never throws
     revalidatePath('/calendar');
     revalidatePath('/');
     return { ok: true, id: input.id };
@@ -184,11 +191,51 @@ export async function deleteBlock(input: { id: string }): Promise<ActionResult> 
   const who = await requireUser();
   if ('error' in who) return { ok: false, error: who.error };
   try {
+    // Capture the Google twin id before the row goes, so we can delete it
+    // upstream too. Owner-scoped so a rep can't read another's block.
+    const twin = await sqlOne<{ google_event_id: string | null }>`
+      SELECT google_event_id FROM calendar_blocks
+      WHERE id = ${input.id} AND owner_id = ${who.userId}`;
     await sql`DELETE FROM calendar_blocks WHERE id = ${input.id} AND owner_id = ${who.userId}`;
+    await syncBlockDelete(twin?.google_event_id ?? null); // best-effort; never throws
     revalidatePath('/calendar');
     revalidatePath('/');
     return { ok: true };
   } catch (err) {
     return { ok: false, error: actionError(err, 'Could not delete the block.') };
+  }
+}
+
+/**
+ * Skip a single occurrence of a recurring series (an EXDATE) — "delete just
+ * this one." The master + all other instances stay. Owner-checked via the
+ * master's ownership. `occurrenceDate` is the civil 'YYYY-MM-DD' of the
+ * instance being removed.
+ */
+export async function skipOccurrence(input: {
+  masterId: string;
+  occurrenceDate: string;
+}): Promise<ActionResult> {
+  const who = await requireUser();
+  if ('error' in who) return { ok: false, error: who.error };
+  if (!isUuid(input.masterId)) return { ok: false, error: 'That block does not exist.' };
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(input.occurrenceDate)) {
+    return { ok: false, error: 'Bad occurrence date.' };
+  }
+  try {
+    // Confirm the master is the rep's before writing a skip for it.
+    const owned = await sqlOne<{ id: string }>`
+      SELECT id FROM calendar_blocks WHERE id = ${input.masterId} AND owner_id = ${who.userId}`;
+    if (!owned) return { ok: false, error: 'That block is not yours to edit.' };
+
+    await sql`
+      INSERT INTO calendar_block_skips (master_id, occurrence_date)
+      VALUES (${input.masterId}, ${input.occurrenceDate})
+      ON CONFLICT (master_id, occurrence_date) DO NOTHING`;
+    revalidatePath('/calendar');
+    revalidatePath('/');
+    return { ok: true };
+  } catch (err) {
+    return { ok: false, error: actionError(err, 'Could not skip that occurrence.') };
   }
 }

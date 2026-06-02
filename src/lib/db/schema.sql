@@ -1504,3 +1504,79 @@ BEGIN
       FOR EACH ROW EXECUTE FUNCTION trg_set_updated_at();
   END IF;
 END $$;
+
+-- ════════════════════════════════════════════════════════════════════
+-- LAYER 10 — Recurrence + reminders (Phase 6B · CALENDAR-AND-SYNC-PLAN.md)
+--
+-- A recurring block is ONE master row in calendar_blocks carrying an RRULE
+-- (Layer 9 already has the column). The calendar expands the master into
+-- concrete instances for the viewed window at read time — no per-instance
+-- rows. Two small side tables keep that model honest and round-trippable
+-- to Google (which uses the same EXDATE + detached-event idea):
+--
+--   • calendar_block_skips     — an EXDATE: "this one occurrence is gone."
+--       "Delete this occurrence" and the skip half of "edit this occurrence"
+--       both write here. (Editing one occurrence = skip it on the master +
+--       create a normal one-off block with the edits.)
+--   • calendar_reminders_sent  — dedupe for the lead-time reminder cron, so
+--       a recurring block's instances each get reminded exactly once.
+--
+-- Additive + idempotent, same discipline as Layers 1–9.
+-- ════════════════════════════════════════════════════════════════════
+
+CREATE TABLE IF NOT EXISTS calendar_block_skips (
+  master_id       UUID NOT NULL REFERENCES calendar_blocks(id) ON DELETE CASCADE,
+  occurrence_date DATE NOT NULL,            -- the civil date of the skipped instance
+  created_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
+  PRIMARY KEY (master_id, occurrence_date)
+);
+
+CREATE TABLE IF NOT EXISTS calendar_reminders_sent (
+  block_id        UUID NOT NULL REFERENCES calendar_blocks(id) ON DELETE CASCADE,
+  occurrence_date DATE NOT NULL,            -- which instance was reminded
+  sent_at         TIMESTAMPTZ NOT NULL DEFAULT now(),
+  PRIMARY KEY (block_id, occurrence_date)
+);
+
+-- ════════════════════════════════════════════════════════════════════
+-- LAYER 11 — Google Calendar sync (Phase 6C · CALENDAR-AND-SYNC-PLAN.md §2.2)
+--
+-- Two-way sync to a dedicated "Sharp Sighted" Google calendar via a service
+-- account with domain-wide delegation. Everything here is DORMANT until the
+-- Google credentials are configured (see docs/google-calendar-setup.md) —
+-- with no creds, calendarSyncConfigured() is false and every sync hook is a
+-- silent no-op, so the calendar behaves exactly as in 6A/6B.
+--
+-- Sync columns on calendar_blocks track each block's Google twin; one
+-- singleton calendar_sync_state row holds the account-level cursor.
+-- Additive + idempotent, same discipline as Layers 1–10.
+-- ════════════════════════════════════════════════════════════════════
+
+ALTER TABLE calendar_blocks
+  ADD COLUMN IF NOT EXISTS google_event_id TEXT,
+  ADD COLUMN IF NOT EXISTS google_etag     TEXT,
+  ADD COLUMN IF NOT EXISTS sync_state      TEXT NOT NULL DEFAULT 'local'
+        CHECK (sync_state IN ('local','synced','pending','error')),
+  ADD COLUMN IF NOT EXISTS last_synced_at  TIMESTAMPTZ;
+
+CREATE UNIQUE INDEX IF NOT EXISTS calendar_blocks_gevent_idx
+  ON calendar_blocks(google_event_id) WHERE google_event_id IS NOT NULL;
+
+-- One row holding the account-level sync cursor + connection metadata.
+CREATE TABLE IF NOT EXISTS calendar_sync_state (
+  id                 INTEGER PRIMARY KEY DEFAULT 1 CHECK (id = 1),
+  google_calendar_id TEXT,            -- the dedicated "Sharp Sighted" cal id
+  sync_token         TEXT,            -- incremental-sync cursor (6C-2)
+  channel_id         TEXT,            -- push-notification channel (6C-2)
+  channel_expiry     TIMESTAMPTZ,
+  last_full_sync     TIMESTAMPTZ,
+  updated_at         TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+DO $$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgname = 'calendar_sync_state_updated_at') THEN
+    CREATE TRIGGER calendar_sync_state_updated_at BEFORE UPDATE ON calendar_sync_state
+      FOR EACH ROW EXECUTE FUNCTION trg_set_updated_at();
+  END IF;
+END $$;

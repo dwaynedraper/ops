@@ -69,7 +69,9 @@ function isActive(pathname: string, href: string): boolean {
 
 export function Sidebar({ role = 'partner' }: { role?: OpsRole }) {
   const pathname = usePathname();
-  const { theme, toggle } = useTheme();
+  const { theme, cycle } = useTheme();
+  const themeLabel =
+    theme === 'system' ? '🖥  System' : theme === 'dark' ? '☾  Dark' : '☀  Light';
 
   return (
     <aside
@@ -170,11 +172,13 @@ export function Sidebar({ role = 'partner' }: { role?: OpsRole }) {
         }}
       >
         <button
-          onClick={toggle}
+          onClick={cycle}
           className="btn-ghost"
           style={{ justifyContent: 'flex-start' }}
+          title="Theme — tap to cycle System / Light / Dark"
+          aria-label={`Theme: ${theme}. Tap to change.`}
         >
-          {theme === 'dark' ? '☾  Dark' : '☀  Light'}
+          {themeLabel}
         </button>
         <button
           onClick={() => signOut({ callbackUrl: '/signin' })}

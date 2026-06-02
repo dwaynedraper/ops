@@ -141,6 +141,7 @@ export default async function Dashboard() {
     blockType: it.blockType,
     startClock: it.startClock,
     durationMin: it.durationMin,
+    externalColor: it.externalColor ?? null,
   }));
 
   // Calls booked — Dean's own queue of prospects who self-booked a call via

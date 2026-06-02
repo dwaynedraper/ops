@@ -9,6 +9,7 @@ import {
   minutesOfDay,
   clockLabel,
   clockLabelUpper,
+  timeRangeUpper,
   endClock,
   blockBox,
   isBlockType,
@@ -108,6 +109,12 @@ describe('time-column helpers', () => {
     expect(clockLabelUpper('14:00')).toBe('2:00 PM');
     expect(clockLabelUpper('00:00')).toBe('12:00 AM');
     expect(clockLabelUpper('12:00')).toBe('12:00 PM');
+  });
+  it('timeRangeUpper drops the shared meridiem, keeps it across noon', () => {
+    expect(timeRangeUpper('09:00', 60)).toBe('9:00 - 10:00 AM'); // both AM → collapse
+    expect(timeRangeUpper('14:00', 90)).toBe('2:00 - 3:30 PM'); // both PM → collapse
+    expect(timeRangeUpper('11:30', 60)).toBe('11:30 AM - 12:30 PM'); // crosses noon → keep both
+    expect(timeRangeUpper('23:30', 60)).toBe('11:30 - 11:59 PM'); // clamps to day end, both PM
   });
   it('endClock adds duration and clamps to end of day', () => {
     expect(endClock('14:00', 60)).toBe('15:00');

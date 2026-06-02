@@ -169,6 +169,21 @@ export function clockLabelUpper(hhmm: string): string {
   return `${h}:${String(m).padStart(2, '0')} ${ampm}`;
 }
 
+/** Explicit start–end range with the meridiem shown once when both ends
+ * share it: '9:00 - 10:00 AM' (same AM/PM) vs '11:30 AM - 12:30 PM' (cross).
+ * Reading the actual end time needs no mental math (per Dean); collapsing a
+ * shared AM/PM keeps the glance chips narrow. */
+export function timeRangeUpper(startHHMM: string, durationMin: number): string {
+  const startLabel = clockLabelUpper(startHHMM); // e.g. '9:00 AM'
+  const endLabel = clockLabelUpper(endClock(startHHMM, durationMin));
+  const startMer = startLabel.slice(-2); // 'AM' | 'PM'
+  const endMer = endLabel.slice(-2);
+  if (startMer === endMer) {
+    return `${startLabel.slice(0, -3)} - ${endLabel}`; // drop the start meridiem
+  }
+  return `${startLabel} - ${endLabel}`;
+}
+
 /** End clock for a start 'HH:MM' + duration minutes, as 'HH:MM' (clamped to
  * 23:59 so a block never visually spills past the day in the column view). */
 export function endClock(startHHMM: string, durationMin: number): string {

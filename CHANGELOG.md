@@ -12,6 +12,102 @@ lives in `README.md`. This file is the time-ordered receipt.
 
 ## [Unreleased]
 
+### Calendar — Phase 6C-2: all Google calendars as dashboard context (2026-06-01)
+"Show me everything so I can plan work around it." Ops now reads in **all**
+of Dean's Google calendars (primary, personal, shared) as **read-only**
+context and paints them on the calendar views and the dashboard 8-day
+glance — so the day reflects real life, not just Ops work. No schema change;
+pure read layer over the 6C-1 connection. Dormant when sync is unconfigured.
+
+#### Added
+- **`lib/google/external-map.ts`** (pure, 9 tests) — maps a Google event to
+  a read-only item: all-day vs timed, computed duration, free/busy, civil
+  date+clock in the viewer's zone. Drops cancelled events and our own
+  Ops-origin events (the `opsBlock` tag) so nothing double-renders.
+- **`lib/google/read-calendars.ts`** — lists every visible calendar and
+  pulls each one's events in the window (`singleEvents=true`, so Google
+  expands recurrence). Best-effort: returns `[]` on any failure; never
+  throws — external context can't break the page. Skips the Sharp Sighted
+  calendar wholesale (those come from `calendar_blocks`).
+- **Merged into `loadCalendar`** as a third item kind, `external`, so the
+  `/calendar` day/week views AND the dashboard glance get it from one path.
+- **Read-only visual treatment** — external events wear their own Google
+  calendar color, render with a dashed border + muted text + fainter fill so
+  work blocks read first, and are non-interactive (no editor, no link). All-
+  day external events sit in the day column's all-day band.
+
+#### Scope (deferred, by decision)
+- The bidirectional half of the original 6C-2 — edits made to the Sharp
+  Sighted calendar *in Google* flowing back into Ops, plus the push webhook
+  and conflict rule — is **deferred**. Low value (Dean authors in Ops),
+  high complexity. Outbound (6C-1) + read-all-in (this) cover the daily need.
+
+### Calendar — Phase 6C-1: Google sync — connection + outbound (2026-05-31)
+The first half of two-way sync: Ops → Google. Blocks (and their recurrence)
+now push to a dedicated "Sharp Sighted" Google calendar, so they show on the
+phone. Inbound + webhook + conflict rule are 6C-2. Design in
+`CALENDAR-AND-SYNC-PLAN.md` §5. **Run `npm run db:migrate` — additive +
+idempotent (sync columns + one state table).**
+
+**Dormant until configured.** With no Google credentials set,
+`calendarSyncConfigured()` is false and every hook is a silent no-op — the
+calendar behaves exactly as in 6A/6B. Turning sync on is a one-time
+Workspace-admin setup: see `docs/google-calendar-setup.md`.
+
+#### Added
+- **Schema (Layer 11)** — sync columns on `calendar_blocks`
+  (`google_event_id`, `google_etag`, `sync_state`, `last_synced_at`) + the
+  singleton `calendar_sync_state` (calendar id, sync cursor, channel — the
+  cursor/channel are wired in 6C-2).
+- **`lib/google/event-map.ts`** (pure, 8 tests) — block ↔ Google event
+  mapping. Verified against Calendar API v3: zoned `start`/`end`, recurrence
+  as an `RRULE:`-prefixed array, an `opsBlock` tag to tell our events apart
+  from human-added ones, midnight-crossing handled.
+- **`lib/google/auth.ts`** (pure JWT assembly, 5 tests) — service-account
+  JWT-bearer grant with domain-wide delegation impersonation; token cached
+  ~55 min. No SDK, no new deps — Node `crypto` signs, `fetch` exchanges.
+- **`lib/google/calendar-client.ts`** — thin v3 REST client: find-or-create
+  the "Sharp Sighted" calendar, insert/patch/delete events.
+- **`lib/google/sync-out.ts`** — the outbound orchestrator the actions call.
+  **Best-effort by contract:** unconfigured → no-op; a Google failure marks
+  the block `sync_state='error'` and logs, but NEVER fails the local save.
+- **Action hooks** — `createBlock`/`updateBlock` upsert to Google after
+  commit; `deleteBlock` captures the twin id, deletes the row, then deletes
+  upstream.
+- **`docs/google-calendar-setup.md`** — the ~15-min admin runbook (service
+  account, domain-wide delegation, env vars). `.env.example` documents the
+  four `GOOGLE_*` vars.
+
+### Calendar — Phase 6B: recurrence + the reminder chase (2026-05-31)
+Set the rhythm once ("every Tuesday I record") and let it nudge you before
+each block — the accessibility win of fixed, repeating, self-announcing
+time. Design in `CALENDAR-AND-SYNC-PLAN.md` §6B. **Run `npm run db:migrate`
+— additive + idempotent (two small side tables).**
+
+#### Added
+- **Schema (Layer 10)** — `calendar_block_skips` (EXDATEs: "delete just this
+  occurrence") and `calendar_reminders_sent` (dedupe for the reminder cron).
+  Recurrence rides on the existing `calendar_blocks.rrule` column — one
+  master row, expanded at read time, no per-instance rows.
+- **`lib/recurrence.ts`** (pure, 16 tests) — `toRRule`/`fromRRule` (RFC-5545
+  grammar, Google-native for 6C sync) and `expandOccurrences` (daily/weekly,
+  interval, BYDAY, COUNT/UNTIL, skips, bounded + safe). Unknown rules degrade
+  to a one-off, never crash.
+- **Recurrence in the calendar** — the loader expands recurring masters
+  across the viewed window (a series that began earlier still shows); items
+  carry a `↻` marker. The block editor gains a **Repeats** control
+  (Once/Daily/Weekly, interval, weekday pills, ends never/after-N/on-date),
+  defaulting weekly to the block's own weekday.
+- **Edit/delete a series** — editing saves the whole series; a recurring
+  block offers **Delete this one** (writes a skip) vs **Delete series**.
+- **The reminder chase** — `lib/calendar-reminders.ts` + `/api/cron/reminders`
+  email the owner ahead of each block (lead time = `reminder_min`, default
+  30), once per occurrence (deduped). Cadence-tolerant: fires anything inside
+  its lead window and dedupes, so the cron interval is a precision knob, not
+  a correctness dependency. New `vercel.json` entry at `*/15 * * * *`.
+  Timezone resolution (civil date+clock → UTC instant, DST-correct) is
+  unit-tested (5 tests, incl. a CST/CDT boundary).
+
 ### Calendar — Phase 6A: the in-Ops calendar + dashboard 8-day glance (2026-05-31)
 A real calendar in Ops for the work that isn't a Job — record / edit / post
 / admin / 10% — built around the accessibility north star (Dean is autistic):

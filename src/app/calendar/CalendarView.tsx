@@ -17,6 +17,7 @@ import {
   weekDays,
   weekdayLong,
   weekdayShort,
+  weekdayIndex,
   dayNum,
   minutesOfDay,
   clockLabel,
@@ -24,10 +25,12 @@ import {
   blockBox,
   BLOCK_TYPES,
   BLOCK_TYPE_LABEL,
-  BLOCK_TYPE_COLOR,
   type BlockType,
 } from '@/lib/calendar';
-import { createBlock, updateBlock, deleteBlock, setBlockStatus } from './actions';
+import { fromRRule, toRRule, type Recurrence, type Freq } from '@/lib/recurrence';
+import { createBlock, updateBlock, deleteBlock, setBlockStatus, skipOccurrence } from './actions';
+
+const WEEKDAY_PICKER = ['S', 'M', 'T', 'W', 'T', 'F', 'S'];
 
 const DAY_START_HOUR = 7; // grid renders 7am–9pm; blocks outside still clamp in
 const DAY_END_HOUR = 21;
@@ -37,13 +40,16 @@ type View = 'day' | 'week';
 
 interface EditorState {
   open: boolean;
-  id: string | null; // null = create
+  id: string | null; // null = create; else the master id to edit
   date: string;
   startClock: string;
   durationMin: number;
   title: string;
   blockType: BlockType;
   notes: string;
+  /** The recurring master this instance came from (for skip/edit choice). */
+  recurring: boolean;
+  rrule: string | null;
 }
 
 export function CalendarView({
@@ -88,19 +94,23 @@ export function CalendarView({
       title: '',
       blockType: 'record',
       notes: '',
+      recurring: false,
+      rrule: null,
     });
   }
   function openEdit(it: CalendarItem) {
     if (it.kind !== 'block' || !it.startClock) return; // shoots open their job page
     setEditor({
       open: true,
-      id: it.id,
+      id: it.masterId, // edit the master; instances carry master:date ids
       date: it.date,
       startClock: it.startClock,
       durationMin: it.durationMin,
       title: it.title,
       blockType: (it.blockType ?? 'other') as BlockType,
       notes: it.notes ?? '',
+      recurring: it.recurring,
+      rrule: it.rrule,
     });
   }
 
@@ -262,30 +272,54 @@ function DayColumn({
         />
       ))}
 
-      {/* all-day shoots */}
+      {/* all-day band — job shoots (links) + external all-day events (static) */}
       <div style={{ position: 'absolute', top: 2, left: 2, right: 2, display: 'flex', flexDirection: 'column', gap: 2 }}>
-        {allDay.map((it) => (
-          <Link
-            key={it.id}
-            href={`/jobs/${it.jobId}`}
-            style={{
-              fontSize: '0.62rem',
-              fontWeight: 600,
-              color: 'var(--brand-cyan)',
-              border: '1px solid var(--brand-cyan)',
-              borderRadius: 'var(--radius-sm)',
-              padding: '0.1rem 0.3rem',
-              textDecoration: 'none',
-              background: 'var(--surface)',
-              overflow: 'hidden',
-              textOverflow: 'ellipsis',
-              whiteSpace: 'nowrap',
-            }}
-            title={it.title}
-          >
-            📷 {it.title}
-          </Link>
-        ))}
+        {allDay.map((it) => {
+          if (it.kind === 'external') {
+            return (
+              <div
+                key={it.id}
+                style={{
+                  fontSize: '0.62rem',
+                  fontWeight: 600,
+                  color: 'var(--text-mid)',
+                  border: '1px solid var(--cal-external)',
+                  borderRadius: 'var(--radius-sm)',
+                  padding: '0.1rem 0.3rem',
+                  background: 'color-mix(in srgb, var(--cal-external) 10%, transparent)',
+                  overflow: 'hidden',
+                  textOverflow: 'ellipsis',
+                  whiteSpace: 'nowrap',
+                }}
+                title={`${it.externalCalendar ? it.externalCalendar + ' · ' : ''}${it.title} (from Google)`}
+              >
+                {it.title}
+              </div>
+            );
+          }
+          return (
+            <Link
+              key={it.id}
+              href={`/jobs/${it.jobId}`}
+              style={{
+                fontSize: '0.62rem',
+                fontWeight: 600,
+                color: 'var(--cal-business)',
+                border: '1px solid var(--cal-business)',
+                borderRadius: 'var(--radius-sm)',
+                padding: '0.1rem 0.3rem',
+                textDecoration: 'none',
+                background: 'color-mix(in srgb, var(--cal-business) 16%, transparent)',
+                overflow: 'hidden',
+                textOverflow: 'ellipsis',
+                whiteSpace: 'nowrap',
+              }}
+              title={it.title}
+            >
+              📷 {it.title}
+            </Link>
+          );
+        })}
       </div>
 
       {/* timed blocks, absolutely positioned */}
@@ -293,13 +327,19 @@ function DayColumn({
         {timed.map((it) => {
           const startMin = minutesOfDay(it.startClock as string);
           const { top, height } = blockBox(startMin, it.durationMin || 60, PX_PER_HOUR, DAY_START_HOUR);
-          const color = it.kind === 'shoot' ? 'var(--brand-cyan)' : BLOCK_TYPE_COLOR[it.blockType ?? 'other'];
-          const done = it.status === 'done';
           const isShoot = it.kind === 'shoot';
+          const isExternal = it.kind === 'external';
+          // Two layers: imported Google events = green; everything I own
+          // (blocks + shoots) = business blue. Theme-token colors, AA-checked.
+          const color = isExternal ? 'var(--cal-external)' : 'var(--cal-business)';
+          const done = it.status === 'done';
           return (
             <button
               key={it.id}
-              onClick={() => (isShoot ? (window.location.href = `/jobs/${it.jobId}`) : onItemClick(it))}
+              disabled={isExternal}
+              onClick={() =>
+                isExternal ? undefined : isShoot ? (window.location.href = `/jobs/${it.jobId}`) : onItemClick(it)
+              }
               style={{
                 position: 'absolute',
                 top: Math.max(top, 0),
@@ -309,21 +349,27 @@ function DayColumn({
                 pointerEvents: 'auto',
                 textAlign: 'left',
                 borderRadius: 'var(--radius-sm)',
+                // Fully outlined + low-opacity fill, both layers. External
+                // (green) reads a touch lighter so it sits behind work (blue).
                 border: `1px solid ${color}`,
                 borderLeft: `3px solid ${color}`,
-                background: `${color}22`,
+                background: `color-mix(in srgb, ${color} ${isExternal ? 10 : 16}%, transparent)`,
                 padding: '0.15rem 0.35rem',
-                cursor: 'pointer',
+                cursor: isExternal ? 'default' : 'pointer',
                 overflow: 'hidden',
                 opacity: done ? 0.55 : 1,
               }}
-              title={`${clockLabel(it.startClock as string)}–${clockLabel(endClock(it.startClock as string, it.durationMin || 60))} · ${it.title}`}
+              title={
+                isExternal
+                  ? `${it.externalCalendar ? it.externalCalendar + ' · ' : ''}${it.title} (from Google)`
+                  : `${clockLabel(it.startClock as string)}–${clockLabel(endClock(it.startClock as string, it.durationMin || 60))} · ${it.title}`
+              }
             >
               <div style={{ fontSize: '0.64rem', fontWeight: 700, color: 'var(--text)', lineHeight: 1.15, textDecoration: done ? 'line-through' : 'none' }}>
                 {clockLabel(it.startClock as string)}
               </div>
-              <div style={{ fontSize: '0.66rem', color: 'var(--text)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', lineHeight: 1.2 }}>
-                {isShoot ? '📷 ' : ''}{it.title}
+              <div style={{ fontSize: '0.66rem', color: isExternal ? 'var(--text-mid)' : 'var(--text)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', lineHeight: 1.2 }}>
+                {isShoot ? '📷 ' : ''}{it.recurring ? '↻ ' : ''}{it.title}
               </div>
             </button>
           );
@@ -355,6 +401,7 @@ function BlockEditor({
   const [durationMin, setDurationMin] = useState(state.durationMin);
   const [notes, setNotes] = useState(state.notes);
   const [jobId, setJobId] = useState<string>('');
+  const [rec, setRec] = useState<Recurrence>(() => fromRRule(state.rrule));
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const isEdit = state.id !== null;
@@ -362,9 +409,10 @@ function BlockEditor({
   async function onSave() {
     setBusy(true);
     setError(null);
+    const rrule = toRRule(rec);
     const res = isEdit
-      ? await updateBlock({ id: state.id as string, title, blockType, date, startClock, durationMin, notes, timeZone })
-      : await createBlock({ title, blockType, date, startClock, durationMin, notes, jobId: jobId || null, timeZone });
+      ? await updateBlock({ id: state.id as string, title, blockType, date, startClock, durationMin, notes, timeZone, rrule })
+      : await createBlock({ title, blockType, date, startClock, durationMin, notes, jobId: jobId || null, timeZone, rrule });
     if (res.ok) onSaved();
     else {
       setError(res.error ?? 'Could not save.');
@@ -372,13 +420,26 @@ function BlockEditor({
     }
   }
 
-  async function onDelete() {
+  /** Delete the whole series (or a one-off). */
+  async function onDeleteSeries() {
     if (!isEdit) return;
     setBusy(true);
     const res = await deleteBlock({ id: state.id as string });
     if (res.ok) onSaved();
     else {
       setError(res.error ?? 'Could not delete.');
+      setBusy(false);
+    }
+  }
+
+  /** Skip just this occurrence of a recurring series (an EXDATE). */
+  async function onSkipThis() {
+    if (!isEdit) return;
+    setBusy(true);
+    const res = await skipOccurrence({ masterId: state.id as string, occurrenceDate: date });
+    if (res.ok) onSaved();
+    else {
+      setError(res.error ?? 'Could not remove this occurrence.');
       setBusy(false);
     }
   }
@@ -456,6 +517,9 @@ function BlockEditor({
           </label>
         )}
 
+        {/* Recurrence — set the rhythm once (the accessibility win). */}
+        <RecurrenceControl rec={rec} setRec={setRec} startDate={date} />
+
         <label style={{ display: 'block', marginBottom: '0.85rem' }}>
           <span className="label">Notes</span>
           <textarea className="textarea" rows={2} value={notes} onChange={(e) => setNotes(e.target.value)} />
@@ -466,15 +530,182 @@ function BlockEditor({
             {busy ? 'Saving…' : isEdit ? 'Save' : 'Create block'}
           </button>
           {isEdit && (
+            <button className="btn-outline" disabled={busy} onClick={onMarkDone}>Mark done</button>
+          )}
+          {/* Delete: a one-off has a single Delete; a series offers both
+              "just this one" (skip) and "whole series." */}
+          {isEdit && !state.recurring && (
+            <button className="btn-ghost" disabled={busy} onClick={onDeleteSeries} style={{ color: 'var(--bad)' }}>
+              Delete
+            </button>
+          )}
+          {isEdit && state.recurring && (
             <>
-              <button className="btn-outline" disabled={busy} onClick={onMarkDone}>Mark done</button>
-              <button className="btn-ghost" disabled={busy} onClick={onDelete} style={{ color: 'var(--bad)' }}>Delete</button>
+              <button className="btn-ghost" disabled={busy} onClick={onSkipThis} style={{ color: 'var(--bad)' }}>
+                Delete this one
+              </button>
+              <button className="btn-ghost" disabled={busy} onClick={onDeleteSeries} style={{ color: 'var(--bad)' }}>
+                Delete series
+              </button>
             </>
           )}
           <button className="btn-ghost" onClick={onClose} style={{ marginLeft: 'auto' }}>Cancel</button>
         </div>
+        {isEdit && state.recurring && (
+          <p style={{ fontSize: '0.72rem', color: 'var(--text-faint)', marginTop: '0.5rem' }}>
+            Editing saves the whole series. To change just this day, delete this one and add a single block.
+          </p>
+        )}
         {error && <p style={{ fontSize: '0.78rem', color: 'var(--bad)', marginTop: '0.6rem' }}>{error}</p>}
       </div>
+    </div>
+  );
+}
+
+// ─── Recurrence control ───────────────────────────────────────────────
+
+function RecurrenceControl({
+  rec,
+  setRec,
+  startDate,
+}: {
+  rec: Recurrence;
+  setRec: (r: Recurrence) => void;
+  startDate: string;
+}) {
+  type EndMode = 'never' | 'count' | 'until';
+  const endMode: EndMode = rec.count ? 'count' : rec.until ? 'until' : 'never';
+
+  function setFreq(freq: Freq) {
+    if (freq === 'none') {
+      setRec({ freq: 'none', interval: 1, byDay: [], count: null, until: null });
+    } else if (freq === 'weekly') {
+      // Default the weekly day to the block's own start weekday.
+      setRec({ ...rec, freq, byDay: rec.byDay.length ? rec.byDay : [weekdayIndex(startDate)] });
+    } else {
+      setRec({ ...rec, freq, byDay: [] });
+    }
+  }
+  function toggleDay(d: number) {
+    const set = new Set(rec.byDay);
+    if (set.has(d)) set.delete(d);
+    else set.add(d);
+    setRec({ ...rec, byDay: [...set] });
+  }
+  function setEndMode(mode: EndMode) {
+    if (mode === 'never') setRec({ ...rec, count: null, until: null });
+    else if (mode === 'count') setRec({ ...rec, count: rec.count ?? 8, until: null });
+    else setRec({ ...rec, until: rec.until ?? addDays(startDate, 90), count: null });
+  }
+
+  const FREQS: { key: Freq; label: string }[] = [
+    { key: 'none', label: 'Once' },
+    { key: 'daily', label: 'Daily' },
+    { key: 'weekly', label: 'Weekly' },
+  ];
+
+  return (
+    <div style={{ marginBottom: '0.85rem', padding: '0.7rem', borderRadius: 'var(--radius-sm)', border: '1px solid var(--border)', background: 'var(--surface-tool-2)' }}>
+      <span className="label">Repeats</span>
+      <div style={{ display: 'flex', gap: '0.4rem', marginTop: '0.3rem' }}>
+        {FREQS.map((f) => (
+          <button
+            key={f.key}
+            type="button"
+            onClick={() => setFreq(f.key)}
+            style={{
+              padding: '0.35rem 0.8rem',
+              borderRadius: 'var(--radius-sm)',
+              border: `1px solid ${rec.freq === f.key ? 'var(--accent)' : 'var(--border)'}`,
+              background: rec.freq === f.key ? 'var(--accent-dim)' : 'transparent',
+              color: rec.freq === f.key ? 'var(--text)' : 'var(--text-mid)',
+              fontSize: '0.8rem',
+              fontWeight: 600,
+              cursor: 'pointer',
+            }}
+          >
+            {f.label}
+          </button>
+        ))}
+      </div>
+
+      {rec.freq !== 'none' && (
+        <div style={{ marginTop: '0.7rem', display: 'flex', flexDirection: 'column', gap: '0.6rem' }}>
+          {/* Interval */}
+          <label style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', fontSize: '0.8rem', color: 'var(--text-mid)' }}>
+            Every
+            <input
+              type="number"
+              min={1}
+              className="input"
+              value={rec.interval}
+              onChange={(e) => setRec({ ...rec, interval: Math.max(1, Math.floor(Number(e.target.value) || 1)) })}
+              style={{ width: 56, textAlign: 'center' }}
+            />
+            {rec.freq === 'daily' ? (rec.interval > 1 ? 'days' : 'day') : rec.interval > 1 ? 'weeks' : 'week'}
+          </label>
+
+          {/* Weekly day pills */}
+          {rec.freq === 'weekly' && (
+            <div style={{ display: 'flex', gap: '0.3rem' }}>
+              {WEEKDAY_PICKER.map((d, i) => {
+                const on = rec.byDay.includes(i);
+                return (
+                  <button
+                    key={i}
+                    type="button"
+                    onClick={() => toggleDay(i)}
+                    aria-label={weekdayLong(addDays('2026-06-07', i))}
+                    aria-pressed={on}
+                    style={{
+                      width: 30,
+                      height: 30,
+                      borderRadius: '50%',
+                      border: `1px solid ${on ? 'var(--accent)' : 'var(--border)'}`,
+                      background: on ? 'var(--accent)' : 'transparent',
+                      color: on ? '#fff' : 'var(--text-mid)',
+                      fontSize: '0.74rem',
+                      fontWeight: 700,
+                      cursor: 'pointer',
+                    }}
+                  >
+                    {d}
+                  </button>
+                );
+              })}
+            </div>
+          )}
+
+          {/* End */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap', fontSize: '0.8rem', color: 'var(--text-mid)' }}>
+            <span>Ends</span>
+            <select className="select" value={endMode} onChange={(e) => setEndMode(e.target.value as EndMode)} style={{ width: 'auto' }}>
+              <option value="never">never</option>
+              <option value="count">after N times</option>
+              <option value="until">on a date</option>
+            </select>
+            {endMode === 'count' && (
+              <input
+                type="number"
+                min={1}
+                className="input"
+                value={rec.count ?? 8}
+                onChange={(e) => setRec({ ...rec, count: Math.max(1, Math.floor(Number(e.target.value) || 1)), until: null })}
+                style={{ width: 64, textAlign: 'center' }}
+              />
+            )}
+            {endMode === 'until' && (
+              <input
+                type="date"
+                className="input"
+                value={rec.until ?? ''}
+                onChange={(e) => setRec({ ...rec, until: e.target.value || null, count: null })}
+                style={{ width: 'auto' }}
+              />
+            )}
+          </div>
+        </div>
+      )}
     </div>
   );
 }
