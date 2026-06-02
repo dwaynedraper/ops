@@ -15,6 +15,8 @@ import { computeCashStrip, type CashStrip } from '@/lib/cash';
 import { loadCalendar } from '@/lib/calendar-db';
 import { addDays } from '@/lib/calendar';
 import { GlanceStrip, type GlanceItem } from './GlanceStrip';
+import { Element, type AccentRole } from '@/components/acc/Element';
+import { AccCanvas } from '@/components/acc/AccCanvas';
 
 /**
  * Dashboard — the Command Center (D-062, D-063, Phase 3).
@@ -185,15 +187,21 @@ export default async function Dashboard() {
     command.allClear && replies.length === 0 && dueNow.length === 0 && closeOuts.length === 0;
 
   return (
-    <div className="app-shell">
+    <div className="app-shell acc-shell">
       <Sidebar role={role} />
 
       <div style={{ display: 'flex', flexDirection: 'column', minWidth: 0 }}>
         <main className="app-shell-main" style={{ flex: 1 }}>
+          <AccCanvas>
           <div style={{ maxWidth: 1100, margin: '0 auto' }}>
-            <div className="eyebrow" style={{ marginBottom: '0.5rem' }}>
+            {/* ACC eyebrow — structure/yellow */}
+            <div
+              className="eyebrow"
+              style={{ marginBottom: '0.5rem', color: 'var(--acc-struct)' }}
+            >
               {DATE_FMT.format(now)}
             </div>
+            {/* ACC heading — keyword/purple, the business's top-level vocabulary */}
             <h1
               style={{
                 fontSize: 'clamp(1.75rem, 3vw, 2.5rem)',
@@ -201,11 +209,13 @@ export default async function Dashboard() {
                 fontWeight: 400,
                 letterSpacing: '-0.01em',
                 marginBottom: '0.5rem',
+                color: 'var(--acc-keyword)',
               }}
             >
-              Good morning, <em style={{ color: 'var(--accent)' }}>{firstName || 'partner'}</em>.
+              Good morning, <em style={{ color: 'var(--acc-keyword)', fontStyle: 'italic' }}>{firstName || 'partner'}</em>.
             </h1>
-            <p style={{ color: 'var(--text-mid)', marginBottom: '2rem', maxWidth: '60ch' }}>
+            {/* ACC summary — string/green prose */}
+            <p style={{ color: 'var(--acc-string)', marginBottom: '2rem', maxWidth: '60ch' }}>
               {everythingClear
                 ? 'Nothing is waiting on you this morning — a clean slate.'
                 : `Your day: ${summaryParts.join(' · ')}.`}
@@ -220,6 +230,7 @@ export default async function Dashboard() {
             {/* ─── Calls booked — your call queue (Phase 5E) ──────────── */}
             {callsBooked.length > 0 && (
               <Section
+                accent="fn"
                 title="Calls booked"
                 hint="Prospects who scheduled a call with you through the booking link. Yours to take."
               >
@@ -272,6 +283,7 @@ export default async function Dashboard() {
             {/* ─── 1. This week — shoots ──────────────────────────────── */}
             {command.thisWeek.length > 0 && (
               <Section
+                accent="struct"
                 title="This week"
                 hint="Your booked shoots in the next seven days — Wednesdays and Thursdays do the heavy lifting."
                 action={{ href: '/jobs', label: 'Open Jobs →' }}
@@ -285,6 +297,7 @@ export default async function Dashboard() {
             {/* ─── 2. Needs you now — the merged feed ─────────────────── */}
             {(command.needsNow.length > 0 || replies.length > 0 || dueNow.length > 0) && (
               <Section
+                accent="urgent"
                 title="Needs you now"
                 hint="Worked top-down: the most time-sensitive thing first. Don't decide — just start at the top."
               >
@@ -314,6 +327,7 @@ export default async function Dashboard() {
             {/* ─── 3. Money ───────────────────────────────────────────── */}
             {command.money.lines.length > 0 && (
               <Section
+                accent="const"
                 title="Money"
                 hint={
                   command.money.outstanding > 0
@@ -336,6 +350,7 @@ export default async function Dashboard() {
             {/* ─── 4. To send / to deliver ────────────────────────────── */}
             {(command.toDeliver.length > 0 || closeOuts.length > 0) && (
               <Section
+                accent="fn"
                 title="To send & deliver"
                 hint="Galleries and prints to hand off, reviews to ask for, and outreach cycles to close out."
                 action={closeOuts.length > 0 ? { href: '/contact', label: 'Open Contact →' } : undefined}
@@ -458,6 +473,7 @@ export default async function Dashboard() {
 
             <DigestOptIn enabled={profile?.digest_email ?? false} />
           </div>
+          </AccCanvas>
         </main>
 
         <Footer />
@@ -473,33 +489,37 @@ function Section({
   hint,
   action,
   children,
+  accent = 'neutral',
 }: {
   title: string;
   hint: string;
   action?: { href: string; label: string };
   children: React.ReactNode;
+  /** ACC semantic role — colors the header, border, glow, and lantern. */
+  accent?: AccentRole;
 }) {
   return (
-    <section style={{ marginBottom: '1.75rem' }}>
-      <div
-        style={{
-          display: 'flex',
-          alignItems: 'baseline',
-          justifyContent: 'space-between',
-          gap: '1rem',
-          marginBottom: '0.3rem',
-        }}
+    <div style={{ marginBottom: '1.25rem' }}>
+      <Element
+        accent={accent}
+        title={title}
+        headerRight={
+          action ? (
+            <Link
+              href={action.href}
+              className="btn-ghost"
+              style={{ padding: '0.2rem 0' }}
+              onClick={(e) => e.stopPropagation()}
+            >
+              {action.label}
+            </Link>
+          ) : undefined
+        }
       >
-        <div className="eyebrow">{title}</div>
-        {action && (
-          <Link href={action.href} className="btn-ghost" style={{ padding: '0.2rem 0' }}>
-            {action.label}
-          </Link>
-        )}
-      </div>
-      <p style={{ fontSize: '0.78rem', color: 'var(--text-muted)', marginBottom: '0.7rem' }}>{hint}</p>
-      <div style={{ display: 'flex', flexDirection: 'column', gap: '0.4rem' }}>{children}</div>
-    </section>
+        <p style={{ fontSize: '0.78rem', color: 'var(--acc-ink-dim)', marginBottom: '0.7rem' }}>{hint}</p>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '0.4rem' }}>{children}</div>
+      </Element>
+    </div>
   );
 }
 
@@ -579,24 +599,14 @@ function CashStripBar({ cash }: { cash: CashStrip }) {
       : new Intl.DateTimeFormat('en-US', { month: 'short', day: 'numeric', timeZone: 'UTC' }).format(d);
   };
 
+  // ACC 6D-1 proof element. Money = const/orange (the element accent). Inner
+  // stats keep the felt-before-read semantics, now in ACC colors: collected
+  // solid orange (money in), outstanding muted, out calm (outflow, not alarm).
   return (
-    <section
-      className="surface-card"
-      style={{ marginBottom: '1.75rem', padding: '1rem 1.25rem' }}
-    >
-      <div
-        style={{
-          display: 'flex',
-          gap: '2rem',
-          flexWrap: 'wrap',
-          alignItems: 'flex-end',
-        }}
-      >
-        {/* Collected — solid, confident */}
-        <Stat label="Collected this month" value={fmtMoney(cash.collectedThisMonth)} kind="solid" />
-        {/* Outstanding — ghosted: same green, outline only */}
+    <Element accent="const" title="Cash · this month" style={{ marginBottom: '1.75rem' }}>
+      <div style={{ display: 'flex', gap: '2rem', flexWrap: 'wrap', alignItems: 'flex-end' }}>
+        <Stat label="Collected" value={fmtMoney(cash.collectedThisMonth)} kind="solid" />
         <Stat label="Outstanding" value={fmtMoney(cash.outstanding)} kind="ghost" />
-        {/* Out — muted, down-arrow; reads as outflow, not alarm */}
         {cash.outThisMonth > 0 && (
           <Stat label="Out this month" value={`↓ ${fmtMoney(cash.outThisMonth)}`} kind="muted" />
         )}
@@ -607,9 +617,9 @@ function CashStripBar({ cash }: { cash: CashStrip }) {
           style={{
             marginTop: '0.8rem',
             paddingTop: '0.7rem',
-            borderTop: '1px solid var(--border)',
+            borderTop: '1px solid color-mix(in srgb, var(--acc-const) 25%, transparent)',
             fontSize: '0.78rem',
-            color: 'var(--text-muted)',
+            color: 'var(--acc-ink-dim)',
             display: 'flex',
             gap: '1.25rem',
             flexWrap: 'wrap',
@@ -618,30 +628,32 @@ function CashStripBar({ cash }: { cash: CashStrip }) {
           {cash.lastIn && (
             <span>
               Last in:{' '}
-              <strong style={{ color: 'var(--good)' }}>
+              <strong style={{ color: 'var(--acc-const)' }}>
                 {fmtDay(cash.lastIn.date)} · {fmtMoney(cash.lastIn.amount)}
               </strong>{' '}
-              <span style={{ color: 'var(--text-faint)' }}>({cash.lastIn.label})</span>
+              <span style={{ color: 'var(--acc-ink-dim)' }}>({cash.lastIn.label})</span>
             </span>
           )}
           {cash.nextExpected && (
             <span>
               Next expected:{' '}
-              <strong style={{ color: 'var(--text)' }}>
+              <strong style={{ color: 'var(--acc-ink)' }}>
                 {fmtDay(cash.nextExpected.date)} · {fmtMoney(cash.nextExpected.amount)}
               </strong>{' '}
-              <span style={{ color: 'var(--text-faint)' }}>({cash.nextExpected.label})</span>
+              <span style={{ color: 'var(--acc-ink-dim)' }}>({cash.nextExpected.label})</span>
             </span>
           )}
         </div>
       )}
-    </section>
+    </Element>
   );
 }
 
 function Stat({ label, value, kind }: { label: string; value: string; kind: 'solid' | 'ghost' | 'muted' }) {
+  // ACC money palette: collected = solid orange (const), outstanding = ghosted
+  // orange outline (same money, not here yet), out = muted ink (outflow, calm).
   const color =
-    kind === 'solid' ? 'var(--good)' : kind === 'muted' ? 'var(--text-mid)' : 'transparent';
+    kind === 'solid' ? 'var(--acc-const)' : kind === 'muted' ? 'var(--acc-ink-dim)' : 'transparent';
   return (
     <div>
       <div
@@ -650,9 +662,8 @@ function Stat({ label, value, kind }: { label: string; value: string; kind: 'sol
           fontSize: '1.5rem',
           lineHeight: 1,
           color,
-          // Ghosted: outlined green text, no fill — "same money, not here yet."
-          WebkitTextStroke: kind === 'ghost' ? '1px var(--good)' : undefined,
-          opacity: kind === 'ghost' ? 0.8 : 1,
+          WebkitTextStroke: kind === 'ghost' ? '1px var(--acc-const)' : undefined,
+          opacity: kind === 'ghost' ? 0.85 : 1,
         }}
       >
         {value}
@@ -662,7 +673,7 @@ function Stat({ label, value, kind }: { label: string; value: string; kind: 'sol
           fontSize: '0.6rem',
           letterSpacing: '0.12em',
           textTransform: 'uppercase',
-          color: 'var(--text-faint)',
+          color: 'var(--acc-struct)',
           fontWeight: 700,
           marginTop: '0.25rem',
         }}

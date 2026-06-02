@@ -116,6 +116,29 @@
   --cal-business:   #6aa9e0;       /* brand-adjacent blue — Ops blocks + shoots */
   --cal-external:   #a3d977;       /* soft→lime green — imported calendars */
 
+  /* ─── ACC — Autism Command Center (ACC-PLAN.md) ───────────────────────
+     One Dark Pro palette mapped to SEMANTIC ROLES. Ops admin is dark-only,
+     so these are theme-independent. Colors carry meaning (the language Dean's
+     eye already reads in code): purple=keyword, blue=function, yellow=class,
+     orange=constant, green=string, red=variable/error.
+     Contrast on the ACC canvas #282C34 (verified):
+       keyword 4.75 · fn 5.92 · struct 8.10 · const 5.68 · string 6.94
+       urgent 4.38 (text-borderline → use --acc-urgent-text for body text)
+       danger 2.95 (background-only — destruction buttons, light text on it)
+     Calendar blue/green above are LOCKED (ACC-PLAN §0) — never ACC-themed. */
+  --acc-bg:          #282c34;       /* the command-center canvas */
+  --acc-surface:     #2c313a;       /* slightly raised element base */
+  --acc-keyword:     #c678dd;       /* purple — headings, business nouns */
+  --acc-fn:          #61afef;       /* blue — actions, buttons, the OK button */
+  --acc-struct:      #e5c07b;       /* yellow — labels, eyebrows, frames */
+  --acc-const:       #d19a66;       /* orange — numbers, money, dates */
+  --acc-string:      #98c379;       /* green — prose, notes, breadcrumbs */
+  --acc-urgent:      #e06c75;       /* calm red — "needs me" (borders/badges) */
+  --acc-urgent-text: #e88b92;       /* lighter urgent for body text (AA on canvas) */
+  --acc-danger:      #be5046;       /* hot red — destruction ONLY (button fills) */
+  --acc-ink:         #d7dae0;       /* primary text on the canvas (10:1) */
+  --acc-ink-dim:     #abb2bf;       /* secondary text (6.6:1) */
+
   /* Shape + spacing tokens — denser than /studio */
   --radius-sm:      4px;
   --radius:         8px;
@@ -390,6 +413,56 @@ h1, h2, h3, h4, h5, h6 {
   display: grid;
   grid-template-columns: 220px 1fr;
   min-height: 100vh;
+}
+
+/* ─── ACC shell — the command-center desktop (ACC-PLAN 6D-1) ───────────
+   Full-bleed night-skyline wallpaper behind everything, fixed so it doesn't
+   scroll, always `cover` (never distorts), even across a 5120px screen. A
+   dark scrim sits over it so the ACC canvas tone holds and content stays
+   readable; elements render their own near-opaque dark screens on top. */
+.acc-shell {
+  position: relative;
+  background:
+    linear-gradient(rgba(12, 13, 16, 0.78), rgba(12, 13, 16, 0.86)),
+    url('/acc/skyline.jpg');
+  background-size: cover, cover;
+  background-position: center, center;
+  background-attachment: fixed, fixed;
+  background-repeat: no-repeat, no-repeat;
+}
+/* The sidebar keeps its own solid surface so it reads as chrome, not desktop. */
+.acc-shell .app-shell-aside {
+  background: rgba(16, 18, 22, 0.92);
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+}
+/* CRITICAL: the main content column is normally an opaque var(--bg) — that
+   would paint over the wallpaper. In ACC mode it goes transparent so the
+   skyline shows through; elements supply their own near-opaque dark screens
+   for readability. */
+.acc-shell .app-shell-main {
+  background: transparent;
+}
+
+/* ─── ACC element states (6D-2) ───────────────────────────────────────
+   Rest + active are set inline (focus-store driven). This is the HOVER
+   "lantern": an interactive, not-yet-active element partially wakes on
+   hover/keyboard-focus — border + glow brighten, the dark screen firms up —
+   then fades on leave. Pure CSS so it never triggers a React render. The
+   accent comes from --el-accent the component sets. prefers-reduced-motion
+   keeps the state change but drops the grow. */
+.acc-element[data-interactive]:hover,
+.acc-element[data-interactive]:focus-visible {
+  border-color: color-mix(in srgb, var(--el-accent) 55%, transparent);
+  background: rgba(17, 19, 24, 0.74);
+  box-shadow: 0 0 16px 1px color-mix(in srgb, var(--el-accent) 30%, transparent);
+  outline: none;
+}
+@media (prefers-reduced-motion: reduce) {
+  .acc-element {
+    transition: box-shadow 0.18s ease, border-color 0.18s ease, background 0.18s ease !important;
+    transform: none !important;
+  }
 }
 
 @media (max-width: 768px) {
