@@ -16,7 +16,7 @@
  * here so callers never have to think about it.
  */
 
-import { sql } from '@/lib/db';
+import { withClient } from '@/lib/db';
 import {
   priceFromCostLines,
   corporatePricingFromRows,
@@ -124,25 +124,41 @@ interface KVRow {
 }
 
 export async function getCatalog(): Promise<Catalog> {
-  const [pkgRows, lineRows, addonRows, globalRows, corpRows] = await Promise.all([
-    sql<PkgRow>`
-      SELECT id, slug, name, branch, description, base_price, default_margin
-      FROM packages
-      WHERE is_active = true
-      ORDER BY branch, sort_order, name`,
-    sql<LineRow>`
-      SELECT package_id, kind, category, hours, rate_role, amount
-      FROM package_cost_lines
-      ORDER BY package_id, sort_order`,
-    sql<AddonRow>`
-      SELECT id, slug, name, package_id, branch, description,
-             base_price, unit_label, time_hours, hard_cost
-      FROM addons
-      WHERE is_active = true
-      ORDER BY sort_order, name`,
-    sql<KVRow>`SELECT key, value FROM pricing_globals`,
-    sql<KVRow>`SELECT key, value FROM corporate_pricing`,
-  ]);
+  // All five reads run on ONE pooled client (queued sequentially on that
+  // single connection) so the catalog costs the pool one slot, not five.
+  // This is the fix for the render-time pool exhaustion: the prospect/jobs
+  // pages await getCatalog inside their own ~5-way Promise.all, and five
+  // separate pool.query calls here used to push the burst past the pool max.
+  const { pkgRows, lineRows, addonRows, globalRows, corpRows } = await withClient(
+    async (c) => ({
+      pkgRows: (
+        await c.query<PkgRow>(
+          `SELECT id, slug, name, branch, description, base_price, default_margin
+           FROM packages
+           WHERE is_active = true
+           ORDER BY branch, sort_order, name`,
+        )
+      ).rows,
+      lineRows: (
+        await c.query<LineRow>(
+          `SELECT package_id, kind, category, hours, rate_role, amount
+           FROM package_cost_lines
+           ORDER BY package_id, sort_order`,
+        )
+      ).rows,
+      addonRows: (
+        await c.query<AddonRow>(
+          `SELECT id, slug, name, package_id, branch, description,
+                  base_price, unit_label, time_hours, hard_cost
+           FROM addons
+           WHERE is_active = true
+           ORDER BY sort_order, name`,
+        )
+      ).rows,
+      globalRows: (await c.query<KVRow>(`SELECT key, value FROM pricing_globals`)).rows,
+      corpRows: (await c.query<KVRow>(`SELECT key, value FROM corporate_pricing`)).rows,
+    }),
+  );
 
   const globals: PricingGlobals = {};
   for (const g of globalRows) globals[g.key] = Number(g.value);

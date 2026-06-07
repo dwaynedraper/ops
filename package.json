@@ -26,6 +26,7 @@
     "@auth/pg-adapter": "^1.10.0",
     "@react-pdf/renderer": "^4.1.6",
     "@vercel/speed-insights": "^2.0.0",
+    "gsap": "^3.15.0",
     "next": "16.2.6",
     "next-auth": "^5.0.0-beta.31",
     "pg": "^8.20.0",

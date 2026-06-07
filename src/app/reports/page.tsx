@@ -57,7 +57,7 @@ export default async function ReportsPage({ searchParams }: PageProps) {
   const data = await loadReportsData(range);
 
   return (
-    <div className="app-shell">
+    <div className="app-shell acc-shell">
       <Sidebar role="super_admin" />
 
       <main

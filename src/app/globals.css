@@ -444,24 +444,260 @@ h1, h2, h3, h4, h5, h6 {
   background: transparent;
 }
 
-/* ─── ACC element states (6D-2) ───────────────────────────────────────
-   Rest + active are set inline (focus-store driven). This is the HOVER
-   "lantern": an interactive, not-yet-active element partially wakes on
-   hover/keyboard-focus — border + glow brighten, the dark screen firms up —
-   then fades on leave. Pure CSS so it never triggers a React render. The
-   accent comes from --el-accent the component sets. prefers-reduced-motion
-   keeps the state change but drops the grow. */
-.acc-element[data-interactive]:hover,
-.acc-element[data-interactive]:focus-visible {
-  border-color: color-mix(in srgb, var(--el-accent) 55%, transparent);
-  background: rgba(17, 19, 24, 0.74);
-  box-shadow: 0 0 16px 1px color-mix(in srgb, var(--el-accent) 30%, transparent);
-  outline: none;
+/* ─── 6D-5: the ACC bridge — every admin page speaks the language ──────
+   Pages not yet hand-converted to <Element> inherit the dialect through
+   their existing shared classes: glass panels over the wallpaper, ACC
+   heading semantics, a soft neutral lantern on hover.
+
+   Deliberate difference from the dashboard: workhorse surfaces (forms,
+   tables, rosters, boards) keep FULL color at rest. Grayscale dormancy is
+   a glance-and-choose behavior for parallel dashboard elements — not a
+   punishment while you're actively working inside a page. Readability and
+   flow win. The locked calendar blue/green are untouched, as always. */
+
+/* heading semantics — purple keywords, yellow structure */
+.acc-shell h1 {
+  color: var(--acc-keyword);
 }
+.acc-shell .eyebrow {
+  color: var(--acc-struct);
+}
+
+/* top-level panels → frosted glass */
+.acc-shell .surface-card,
+.acc-shell .surface-tool {
+  background: rgba(20, 22, 27, 0.62);
+  border-color: rgba(255, 255, 255, 0.09);
+  -webkit-backdrop-filter: blur(16px) saturate(115%);
+  backdrop-filter: blur(16px) saturate(115%);
+  transition:
+    border-color 0.2s ease,
+    background 0.2s ease,
+    box-shadow 0.2s ease;
+}
+.acc-shell .surface-card:hover,
+.acc-shell .surface-tool:hover {
+  border-color: color-mix(in srgb, var(--acc-ink-dim) 40%, transparent);
+  background: rgba(17, 19, 24, 0.76);
+}
+
+/* nested surfaces (rows inside an element/panel) — already sitting on a
+   dark screen, so: subtle ink fill, NO second blur layer (blur stacking is
+   a GPU tax with zero visual payoff) */
+.acc-element .surface-card,
+.acc-element .surface-tool,
+.acc-shell .surface-card .surface-tool,
+.acc-shell .surface-tool .surface-tool {
+  background: rgba(255, 255, 255, 0.045);
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+}
+.acc-element .surface-card:hover,
+.acc-element .surface-tool:hover,
+.acc-shell .surface-card .surface-tool:hover,
+.acc-shell .surface-tool .surface-tool:hover {
+  background: rgba(255, 255, 255, 0.08);
+}
+
+/* ─── ACC command deck — the implied-column layout (6D-3) ─────────────
+   Three columns implied by FAT GUTTERS + grouping, never drawn borders.
+   Left = Time & Flow · Middle = In Motion · Right = The Engine.
+   Reflows 3 → 2 → 1. In single-column, the column DIVs stack in DOM order
+   (Left, Middle, Right), each emptying top-to-bottom — exactly the flatten
+   order the plan calls for. Elements inside a column stack with their own
+   breathing room. */
+.acc-page {
+  max-width: 2200px;
+  margin: 0 auto;
+}
+.acc-deck {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 2.25rem; /* fat gutters = the only thing dividing columns */
+  align-items: start;
+}
+.acc-col {
+  display: flex;
+  flex-direction: column;
+  gap: 1.4rem;
+  min-width: 0;
+}
+/* laptop / mid widths → two columns (Right wraps under Left, masonry-ish) */
+@media (max-width: 1180px) {
+  .acc-deck {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 1.75rem;
+  }
+}
+/* narrow → single column, columns flattened L → M → R, each top-to-bottom */
+@media (max-width: 720px) {
+  .acc-deck {
+    grid-template-columns: 1fr;
+    gap: 1.4rem;
+  }
+}
+
+/* ─── THE 5120 COMMAND DECK — Dean's super-ultrawide (32:9) ─────────────
+   Exact spec, built for the big screen:
+     380 margin · 1200 col · 380 gutter · 1200 col · 380 gutter · 1200 col · 380 margin
+     = 380 + 1200 + 380 + 1200 + 380 + 1200 + 380 = 5120
+   Fixed 1200px columns + fixed 380px gutters; the page un-caps its width and
+   the deck centers, so the outer margins land at ~380 on a 5120-wide canvas.
+   (The left sidebar sits outside this; on a true 5120 screen the centered
+   deck still reads as the intended three-column command surface.) */
+@media (min-width: 4600px) {
+  .acc-page {
+    max-width: none;
+  }
+  .acc-deck {
+    grid-template-columns: 1200px 1200px 1200px;
+    column-gap: 380px;
+    justify-content: center;
+  }
+}
+
+/* ─── ACC element states (6D-2) ───────────────────────────────────────
+   All three states are CSS-driven (the component sets only --el-accent and
+   data-* state). Inline styles would beat :hover, which is exactly why the
+   base look lives here.
+
+   REST = colorless frosted glass. Real backdrop blur over the wallpaper, a
+   faint neutral edge, NO hue and NO glow. The absence of color is the signal:
+   "this isn't important right now." Still fully selectable.
+   HOVER = the lantern: the accent bleeds in (edge + soft glow + title hue).
+   ACTIVE = full accent edge, bright glow, near-opaque screen, slight grow. */
+.acc-element {
+  --el-accent: var(--acc-ink-dim);
+  border-radius: var(--radius-lg);
+  padding: 1rem 1.1rem;
+  border: 1px solid rgba(255, 255, 255, 0.09);
+  background: rgba(28, 31, 38, 0.30);
+  -webkit-backdrop-filter: blur(16px) saturate(115%);
+  backdrop-filter: blur(16px) saturate(115%);
+  box-shadow: 0 6px 22px rgba(0, 0, 0, 0.28);
+  transition:
+    box-shadow 0.2s ease,
+    border-color 0.2s ease,
+    background 0.2s ease,
+    color 0.2s ease,
+    opacity 0.2s ease,
+    transform 0.2s ease;
+}
+/* EVERYTHING inside goes glass at rest — content too, not just the chrome.
+   Grayscale drains all hue from text/numbers/rows; the dimming makes them
+   recede into the frosted panel. Applied to the CHILDREN (not the section)
+   so it never interferes with the section's own backdrop blur. Full color
+   returns only when the element is active. */
+.acc-element > * {
+  filter: grayscale(1) opacity(0.78);
+  transition: filter 0.2s ease;
+}
+.acc-element-header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.75rem;
+  margin-bottom: 0.7rem;
+}
+.acc-element-title {
+  margin: 0;
+  font-size: 0.7rem;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  font-weight: 700;
+  /* colorless at rest */
+  color: var(--acc-ink-dim);
+  transition: color 0.2s ease;
+}
+
+/* when ANOTHER element is pinned, resting ones recede further */
+.acc-element[data-recede] {
+  opacity: 0.6;
+}
+
+/* HOVER — the lantern. Only DORMANT (non-active) elements respond; a pinned
+   element ignores hover entirely. Accent starts to bleed in: edge tints, soft
+   glow lifts, and the content's color partially returns. */
+.acc-element[data-interactive] {
+  cursor: pointer;
+}
+.acc-element[data-interactive]:not([data-active]):hover,
+.acc-element[data-interactive]:not([data-active]):focus-visible {
+  outline: none;
+  opacity: 1;
+  border-color: color-mix(in srgb, var(--el-accent) 50%, transparent);
+  background: rgba(20, 22, 27, 0.55);
+  box-shadow:
+    0 6px 22px rgba(0, 0, 0, 0.32),
+    0 0 18px 2px color-mix(in srgb, var(--el-accent) 26%, transparent);
+}
+.acc-element[data-interactive]:not([data-active]):hover > *,
+.acc-element[data-interactive]:not([data-active]):focus-visible > * {
+  filter: grayscale(0.45) opacity(0.92);
+}
+.acc-element[data-interactive]:not([data-active]):hover .acc-element-title,
+.acc-element[data-interactive]:not([data-active]):focus-visible .acc-element-title {
+  color: color-mix(in srgb, var(--el-accent) 75%, var(--acc-ink));
+}
+
+/* ACTIVE — pinned. Full color everywhere, the cash-strip look. */
+.acc-element[data-active] {
+  opacity: 1;
+  border-color: var(--el-accent);
+  background: rgba(15, 17, 21, 0.92);
+  box-shadow:
+    0 0 0 1px var(--el-accent),
+    0 0 26px 3px color-mix(in srgb, var(--el-accent) 50%, transparent);
+  transform: scale(1.012);
+}
+.acc-element[data-active] > * {
+  filter: none;
+}
+.acc-element[data-active] .acc-element-title {
+  color: var(--el-accent);
+}
+
+/* ─── 6D-4: entrance — the deck breathes in (CSS only, runs once) ──────
+   Each element rises ~10px and fades in, staggered down its column, so the
+   page assembles top-to-bottom instead of popping. Cheap (opacity +
+   transform only), fires once, and never replays on focus changes. */
+@keyframes acc-rise {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+.acc-element {
+  animation: acc-rise 0.5s ease-out backwards;
+}
+.acc-col > .acc-element:nth-child(2),
+.acc-col > *:nth-child(2) .acc-element {
+  animation-delay: 0.07s;
+}
+.acc-col > .acc-element:nth-child(3),
+.acc-col > *:nth-child(3) .acc-element {
+  animation-delay: 0.14s;
+}
+.acc-col > .acc-element:nth-child(4),
+.acc-col > *:nth-child(4) .acc-element {
+  animation-delay: 0.21s;
+}
+
 @media (prefers-reduced-motion: reduce) {
   .acc-element {
-    transition: box-shadow 0.18s ease, border-color 0.18s ease, background 0.18s ease !important;
-    transform: none !important;
+    animation: none;
+    transition:
+      box-shadow 0.2s ease,
+      border-color 0.2s ease,
+      background 0.2s ease,
+      color 0.2s ease !important;
+  }
+  .acc-element[data-active] {
+    transform: none;
   }
 }
 
@@ -485,6 +721,54 @@ h1, h2, h3, h4, h5, h6 {
   .app-shell-aside {
     position: static;
     height: auto;
+  }
+}
+
+/* ─── Auto-hiding nav — laptop & standard desktop (not phone, not 5120) ────
+   On these widths the left nav collapses to a slim peek at the screen edge so
+   the content — and the full-width calendar — uses the entire width and its
+   day cells line up with the weekday labels. Reach toward the left edge and
+   the nav slides open; move away and it slides shut. Feel, not think: there
+   when you want it, gone when you don't. On the 5120 deck (≥4600px) there's
+   room to spare, so the nav stays permanently docked. */
+@media (min-width: 769px) and (max-width: 4599px) {
+  .app-shell {
+    grid-template-columns: 1fr; /* main owns the full width; the aside overlays */
+  }
+  .app-shell-aside {
+    position: fixed;
+    top: 0;
+    left: 0;
+    height: 100vh;
+    width: 240px;
+    z-index: 60;
+    /* collapsed — only a ~10px peek shows at the very edge */
+    transform: translateX(calc(-100% + 10px));
+    transition:
+      transform 0.24s cubic-bezier(0.4, 0, 0.2, 1),
+      box-shadow 0.24s ease;
+    will-change: transform;
+  }
+  /* an invisible hot-zone reaching ~100px in from the edge — the nav animates
+     open as soon as the cursor comes within ~100px of the left edge, no
+     pixel-hunting the 10px peek */
+  .app-shell-aside::after {
+    content: '';
+    position: absolute;
+    top: 0;
+    right: -90px;
+    width: 90px;
+    height: 100%;
+  }
+  .app-shell-aside:hover,
+  .app-shell-aside:focus-within {
+    transform: translateX(0);
+    box-shadow: 0 0 48px rgba(0, 0, 0, 0.55);
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .app-shell-aside {
+      transition: none;
+    }
   }
 }
 

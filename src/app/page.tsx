@@ -17,6 +17,7 @@ import { addDays } from '@/lib/calendar';
 import { GlanceStrip, type GlanceItem } from './GlanceStrip';
 import { Element, type AccentRole } from '@/components/acc/Element';
 import { AccCanvas } from '@/components/acc/AccCanvas';
+import { CountUp } from '@/components/acc/CountUp';
 
 /**
  * Dashboard — the Command Center (D-062, D-063, Phase 3).
@@ -193,7 +194,7 @@ export default async function Dashboard() {
       <div style={{ display: 'flex', flexDirection: 'column', minWidth: 0 }}>
         <main className="app-shell-main" style={{ flex: 1 }}>
           <AccCanvas>
-          <div style={{ maxWidth: 1100, margin: '0 auto' }}>
+          <div className="acc-page">
             {/* ACC eyebrow — structure/yellow */}
             <div
               className="eyebrow"
@@ -221,13 +222,47 @@ export default async function Dashboard() {
                 : `Your day: ${summaryParts.join(' · ')}.`}
             </p>
 
-            {/* ─── The week ahead — 8-day glance (§3.2) ───────────────── */}
-            <GlanceStrip today={todayCivil} items={glanceItems} />
+            {/* ═══ The command deck — three implied columns (§4b) ═══════
+               Columns are organized by negative space (fat gutters), NOT drawn
+               borders. Left = Time & Flow · Middle = In Motion · Right = The
+               Engine. Reflows 3 → 2 → 1; single-column order is the columns
+               flattened L(T→B), M(T→B), R(T→B). */}
+            <div className="acc-deck">
+            {/* The week ahead — calendar glance. Spans the FULL deck width
+               (grid-column 1 / -1) so the 7-day grid is never crowded and the
+               day cells line up perfectly with the weekday labels. A glass
+               element like everything else; its locked blue/green show on the
+               ACTIVE state, grayscale at rest. */}
+            <Element
+              accent="struct"
+              title="The week ahead"
+              headerRight={
+                <Link href="/calendar" className="btn-ghost" style={{ padding: '0.2rem 0' }}>
+                  Open calendar →
+                </Link>
+              }
+              style={{ gridColumn: '1 / -1' }}
+            >
+              <GlanceStrip today={todayCivil} items={glanceItems} />
+            </Element>
 
-            {/* ─── Cash strip (super-admin) — felt before read ────────── */}
-            {isAdmin && cash && !cash.empty && <CashStripBar cash={cash} />}
+            {/* ─── LEFT · Time & Flow ──────────────────────────────────── */}
+            <div className="acc-col">
+            {/* This week — shoots */}
+            {command.thisWeek.length > 0 && (
+              <Section
+                accent="struct"
+                title="This week"
+                hint="Your booked shoots in the next seven days — Wednesdays and Thursdays do the heavy lifting."
+                action={{ href: '/jobs', label: 'Open Jobs →' }}
+              >
+                {command.thisWeek.map((j) => (
+                  <JobRow key={`week-${j.id}`} job={j} trail={shootLabel(j.shootDate)} trailColor="var(--accent)" />
+                ))}
+              </Section>
+            )}
 
-            {/* ─── Calls booked — your call queue (Phase 5E) ──────────── */}
+            {/* Calls booked — your call queue (Phase 5E) */}
             {callsBooked.length > 0 && (
               <Section
                 accent="fn"
@@ -279,22 +314,11 @@ export default async function Dashboard() {
                 })}
               </Section>
             )}
+            </div>{/* /LEFT */}
 
-            {/* ─── 1. This week — shoots ──────────────────────────────── */}
-            {command.thisWeek.length > 0 && (
-              <Section
-                accent="struct"
-                title="This week"
-                hint="Your booked shoots in the next seven days — Wednesdays and Thursdays do the heavy lifting."
-                action={{ href: '/jobs', label: 'Open Jobs →' }}
-              >
-                {command.thisWeek.map((j) => (
-                  <JobRow key={`week-${j.id}`} job={j} trail={shootLabel(j.shootDate)} trailColor="var(--accent)" />
-                ))}
-              </Section>
-            )}
-
-            {/* ─── 2. Needs you now — the merged feed ─────────────────── */}
+            {/* ─── MIDDLE · In Motion ──────────────────────────────────── */}
+            <div className="acc-col">
+            {/* Needs you now — the merged feed */}
             {(command.needsNow.length > 0 || replies.length > 0 || dueNow.length > 0) && (
               <Section
                 accent="urgent"
@@ -324,7 +348,43 @@ export default async function Dashboard() {
               </Section>
             )}
 
-            {/* ─── 3. Money ───────────────────────────────────────────── */}
+            {/* To send / to deliver */}
+            {(command.toDeliver.length > 0 || closeOuts.length > 0) && (
+              <Section
+                accent="fn"
+                title="To send & deliver"
+                hint="Galleries and prints to hand off, reviews to ask for, and outreach cycles to close out."
+                action={closeOuts.length > 0 ? { href: '/contact', label: 'Open Contact →' } : undefined}
+              >
+                {command.toDeliver.map((j) => (
+                  <JobRow key={`deliver-${j.id}`} job={j} trail={j.reason ?? 'Deliver'} trailColor="var(--brand-cyan)" />
+                ))}
+                {closeOuts.map((i) => (
+                  <ProspectRow key={`close-${i.id}`} item={i} href="/contact" tag="No reply" tagColor="var(--text-faint)" />
+                ))}
+              </Section>
+            )}
+
+            {/* All clear — string/green, the good-news prose */}
+            {everythingClear && (
+              <Element accent="string">
+                <p style={{ fontSize: '0.9rem', color: 'var(--acc-ink)', marginBottom: '0.85rem' }}>
+                  No shoots due, nothing overdue, no replies waiting, nothing owed. The board is
+                  current — a good morning to put fresh names in the pipeline.
+                </p>
+                <Link href="/qualify" className="btn-primary">
+                  Qualify new prospects
+                </Link>
+              </Element>
+            )}
+            </div>{/* /MIDDLE */}
+
+            {/* ─── RIGHT · The Engine ──────────────────────────────────── */}
+            <div className="acc-col">
+            {/* Cash strip (super-admin) — felt before read */}
+            {isAdmin && cash && !cash.empty && <CashStripBar cash={cash} />}
+
+            {/* Money */}
             {command.money.lines.length > 0 && (
               <Section
                 accent="const"
@@ -347,60 +407,23 @@ export default async function Dashboard() {
               </Section>
             )}
 
-            {/* ─── 4. To send / to deliver ────────────────────────────── */}
-            {(command.toDeliver.length > 0 || closeOuts.length > 0) && (
+            {/* Team pulse (super-admin) — fn/blue, who's driving the engine */}
+            {isAdmin && repPulse.length > 0 && (
               <Section
                 accent="fn"
-                title="To send & deliver"
-                hint="Galleries and prints to hand off, reviews to ask for, and outreach cycles to close out."
-                action={closeOuts.length > 0 ? { href: '/contact', label: 'Open Contact →' } : undefined}
+                title="Team pulse"
+                hint={`Last ${PULSE_WINDOW_DAYS} days — who's closing. Revenue counts jobs marked paid.`}
               >
-                {command.toDeliver.map((j) => (
-                  <JobRow key={`deliver-${j.id}`} job={j} trail={j.reason ?? 'Deliver'} trailColor="var(--brand-cyan)" />
-                ))}
-                {closeOuts.map((i) => (
-                  <ProspectRow key={`close-${i.id}`} item={i} href="/contact" tag="No reply" tagColor="var(--text-faint)" />
-                ))}
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '0.6rem' }}>
+                  {repPulse.slice(0, 5).map((r, i) => (
+                    <RepPulseLine key={r.repId} rep={r} rank={i + 1} top={i < 2} />
+                  ))}
+                </div>
               </Section>
             )}
 
-            {/* ─── All clear ──────────────────────────────────────────── */}
-            {everythingClear && (
-              <div className="surface-card" style={{ marginBottom: '1.5rem' }}>
-                <p style={{ fontSize: '0.9rem', color: 'var(--text)', marginBottom: '0.85rem' }}>
-                  No shoots due, nothing overdue, no replies waiting, nothing owed. The board is
-                  current — a good morning to put fresh names in the pipeline.
-                </p>
-                <Link href="/qualify" className="btn-primary">
-                  Qualify new prospects
-                </Link>
-              </div>
-            )}
-
-            {/* ─── Team pulse (super-admin) ───────────────────────────── */}
-            {isAdmin && repPulse.length > 0 && (
-              <section style={{ marginBottom: '1.75rem' }}>
-                <div className="eyebrow" style={{ marginBottom: '0.3rem' }}>
-                  Team pulse
-                </div>
-                <p style={{ fontSize: '0.78rem', color: 'var(--text-muted)', marginBottom: '0.7rem' }}>
-                  Last {PULSE_WINDOW_DAYS} days — who&apos;s closing. Revenue counts jobs marked paid.
-                </p>
-                <div className="surface-card">
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: '0.6rem' }}>
-                    {repPulse.slice(0, 5).map((r, i) => (
-                      <RepPulseLine key={r.repId} rep={r} rank={i + 1} top={i < 2} />
-                    ))}
-                  </div>
-                </div>
-              </section>
-            )}
-
-            {/* ─── 5. Pipeline by workflow ────────────────────────────── */}
-            <section>
-              <div className="eyebrow" style={{ marginBottom: '0.85rem' }}>
-                Pipeline by workflow
-              </div>
+            {/* Pipeline by workflow — struct/yellow, the funnel's skeleton */}
+            <Section accent="struct" title="Pipeline by workflow" hint="Qualified count vs target per workflow — where the next names need to come from.">
               <div style={{ display: 'flex', flexDirection: 'column', gap: '0.6rem' }}>
                 {workflowRows.map((w) => {
                   const qualified = QUALIFIED_STAGES.reduce(
@@ -469,7 +492,9 @@ export default async function Dashboard() {
                   );
                 })}
               </div>
-            </section>
+            </Section>
+            </div>{/* /RIGHT */}
+            </div>{/* /deck */}
 
             <DigestOptIn enabled={profile?.digest_email ?? false} />
           </div>
@@ -498,19 +523,15 @@ function Section({
   /** ACC semantic role — colors the header, border, glow, and lantern. */
   accent?: AccentRole;
 }) {
+  // No own margin — the column's flex gap is the only vertical rhythm.
   return (
-    <div style={{ marginBottom: '1.25rem' }}>
+    <div>
       <Element
         accent={accent}
         title={title}
         headerRight={
           action ? (
-            <Link
-              href={action.href}
-              className="btn-ghost"
-              style={{ padding: '0.2rem 0' }}
-              onClick={(e) => e.stopPropagation()}
-            >
+            <Link href={action.href} className="btn-ghost" style={{ padding: '0.2rem 0' }}>
               {action.label}
             </Link>
           ) : undefined
@@ -603,12 +624,13 @@ function CashStripBar({ cash }: { cash: CashStrip }) {
   // stats keep the felt-before-read semantics, now in ACC colors: collected
   // solid orange (money in), outstanding muted, out calm (outflow, not alarm).
   return (
-    <Element accent="const" title="Cash · this month" style={{ marginBottom: '1.75rem' }}>
+    <Element accent="const" title="Cash · this month">
       <div style={{ display: 'flex', gap: '2rem', flexWrap: 'wrap', alignItems: 'flex-end' }}>
-        <Stat label="Collected" value={fmtMoney(cash.collectedThisMonth)} kind="solid" />
-        <Stat label="Outstanding" value={fmtMoney(cash.outstanding)} kind="ghost" />
+        {/* 6D-4: the money lands by counting up — GSAP, lazy, reduced-motion-safe */}
+        <Stat label="Collected" value={<CountUp value={cash.collectedThisMonth} />} kind="solid" />
+        <Stat label="Outstanding" value={<CountUp value={cash.outstanding} />} kind="ghost" />
         {cash.outThisMonth > 0 && (
-          <Stat label="Out this month" value={`↓ ${fmtMoney(cash.outThisMonth)}`} kind="muted" />
+          <Stat label="Out this month" value={<CountUp value={cash.outThisMonth} prefix="↓ " />} kind="muted" />
         )}
       </div>
 
@@ -649,7 +671,7 @@ function CashStripBar({ cash }: { cash: CashStrip }) {
   );
 }
 
-function Stat({ label, value, kind }: { label: string; value: string; kind: 'solid' | 'ghost' | 'muted' }) {
+function Stat({ label, value, kind }: { label: string; value: React.ReactNode; kind: 'solid' | 'ghost' | 'muted' }) {
   // ACC money palette: collected = solid orange (const), outstanding = ghosted
   // orange outline (same money, not here yet), out = muted ink (outflow, calm).
   const color =

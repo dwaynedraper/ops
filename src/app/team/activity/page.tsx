@@ -210,7 +210,7 @@ export default async function TeamPage({
   const windowLabel = WINDOWS.find((w) => w.days === days)?.label ?? `${days} days`;
 
   return (
-    <div className="app-shell">
+    <div className="app-shell acc-shell">
       <Sidebar role={role} />
 
       <div style={{ display: 'flex', flexDirection: 'column', minWidth: 0 }}>

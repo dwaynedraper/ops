@@ -21,7 +21,7 @@
 
 import { revalidatePath } from 'next/cache';
 import { auth } from '@/auth';
-import { sql, sqlOne } from '@/lib/db';
+import { sql, sqlOne, getPool } from '@/lib/db';
 import { actionError } from '@/lib/action-error';
 import { loadOwnedProspect } from '@/lib/prospect-access';
 import {
@@ -548,4 +548,182 @@ function rowFromExisting(r: ExistingRow, factors: RankFactor[]): SourcingRow {
     hasPartialScore: hasPartial,
     createdAt: r.created_at,
   };
+}
+
+/* ── bulkImportSourcingRows — the paste importer ──────────────────────
+   One transaction, many prospects. Rows whose name already exists among
+   the rep's prospects come back `duplicate` (with the existing rows, like
+   D-057) and are NOT inserted — the client offers a per-row "add anyway"
+   that goes through the normal upsert with acknowledgeDuplicates. All
+   inserted rows land as researching/undecided with empty rank inputs;
+   scoring happens later in Qualify, where it belongs. The note column
+   carries provenance (price range, team flags, search hints) — it is NOT
+   the override-reason note, and no status conflict can fire here because
+   bulk rows never patch status. */
+
+export interface BulkImportRowInput {
+  contactName: string;
+  orgName?: string | null;
+  marketArea?: string | null;
+  sidesCount?: number | null;
+  grossVolume?: number | null;
+  sourceUrl?: string | null;
+  note?: string | null;
+}
+
+export type BulkRowOutcome =
+  | { outcome: 'created'; row: SourcingRow }
+  | { outcome: 'duplicate'; duplicates: DuplicateProspect[] }
+  | { outcome: 'invalid'; error: string };
+
+export interface BulkImportResult {
+  ok: boolean;
+  error?: string;
+  /** Parallel to the input rows array. */
+  outcomes?: BulkRowOutcome[];
+  created?: number;
+}
+
+const MAX_BULK_ROWS = 200;
+
+export async function bulkImportSourcingRows(
+  workflowKey: string,
+  rowsInput: BulkImportRowInput[],
+): Promise<BulkImportResult> {
+  const session = await auth();
+  const userId = session?.user?.id;
+  if (!userId) return { ok: false, error: 'Your session has expired — sign in again.' };
+
+  if (rowsInput.length === 0) return { ok: false, error: 'Nothing to import.' };
+  if (rowsInput.length > MAX_BULK_ROWS) {
+    return { ok: false, error: `Up to ${MAX_BULK_ROWS} rows per import — split the list.` };
+  }
+
+  try {
+    const workflow = await sqlOne<{ name: string }>`
+      SELECT name FROM workflows
+      WHERE workflow_key = ${workflowKey} AND active = true`;
+    if (!workflow) return { ok: false, error: 'That workflow is no longer available.' };
+
+    const factors = await loadWorkflowFactors(workflowKey);
+    // Bulk rows carry no rank inputs; one shared zero-score for all.
+    const { score } = scoreProspect(factors, {});
+
+    // One round-trip duplicate sweep across every pasted name (D-057
+    // semantics: owner-scoped, case-insensitive, any workflow).
+    const names = rowsInput
+      .map((r) => (r.contactName ?? '').trim().toLowerCase())
+      .filter((n) => n.length > 0);
+    const dupRows = await sql<DuplicateRow>`
+      SELECT p.id, p.contact_name, p.workflow_key, p.stage, p.sourcing_status,
+             w.name AS workflow_name
+      FROM prospects p
+      JOIN workflows w ON w.workflow_key = p.workflow_key
+      WHERE p.owner_id = ${userId}
+        AND lower(p.contact_name) = ANY(${names})
+      ORDER BY p.created_at DESC`;
+    const dupsByName = new Map<string, DuplicateRow[]>();
+    for (const d of dupRows) {
+      const key = d.contact_name.toLowerCase();
+      const list = dupsByName.get(key) ?? [];
+      if (list.length < 5) list.push(d);
+      dupsByName.set(key, list);
+    }
+
+    // Classify every row first; only clean rows enter the transaction.
+    const outcomes: BulkRowOutcome[] = new Array(rowsInput.length);
+    const toInsert: Array<{ index: number; input: BulkImportRowInput; name: string }> = [];
+    const seenInBatch = new Set<string>();
+
+    rowsInput.forEach((input, index) => {
+      const name = trimOrNull(input.contactName);
+      if (!name) {
+        outcomes[index] = { outcome: 'invalid', error: 'No name on this row.' };
+        return;
+      }
+      const lower = name.toLowerCase();
+      if (seenInBatch.has(lower)) {
+        outcomes[index] = {
+          outcome: 'invalid',
+          error: 'Same name appears earlier in this import — kept the first.',
+        };
+        return;
+      }
+      seenInBatch.add(lower);
+      const dups = dupsByName.get(lower);
+      if (dups && dups.length > 0) {
+        outcomes[index] = {
+          outcome: 'duplicate',
+          duplicates: dups.map((d) => ({
+            id: d.id,
+            contactName: d.contact_name,
+            workflowKey: d.workflow_key,
+            workflowName: d.workflow_name,
+            stage: d.stage,
+            sourcingStatus: d.sourcing_status,
+          })),
+        };
+        return;
+      }
+      toInsert.push({ index, input, name });
+    });
+
+    // All clean rows in ONE transaction — an import either lands whole
+    // or not at all; no half-imported lists to untangle.
+    if (toInsert.length > 0) {
+      const pool = getPool();
+      const client = await pool.connect();
+      try {
+        await client.query('BEGIN');
+        for (const { index, input, name } of toInsert) {
+          const res = await client.query(
+            `INSERT INTO prospects (
+               workflow_key, owner_id,
+               contact_name, org_name, market_area,
+               sides_count, gross_volume, source_url,
+               sourcing_status, sourcing_note,
+               rank_inputs, rank_score, stage
+             )
+             VALUES ($1,$2,$3,$4,$5,$6,$7,$8,'undecided',$9,'{}',$10,'researching')
+             RETURNING id, workflow_key, contact_name, org_name, market_area,
+                       sides_count, gross_volume, source_url,
+                       sourcing_status, sourcing_note,
+                       rank_inputs, rank_score::text AS rank_score, stage,
+                       created_at::text AS created_at`,
+            [
+              workflowKey,
+              userId,
+              name,
+              trimOrNull(input.orgName),
+              trimOrNull(input.marketArea),
+              clampInt(input.sidesCount),
+              clampMoney(input.grossVolume),
+              trimOrNull(input.sourceUrl),
+              trimOrNull(input.note),
+              score,
+            ],
+          );
+          outcomes[index] = {
+            outcome: 'created',
+            row: rowFromExisting(res.rows[0] as ExistingRow, factors),
+          };
+        }
+        await client.query('COMMIT');
+      } catch (err) {
+        await client.query('ROLLBACK');
+        throw err;
+      } finally {
+        client.release();
+      }
+    }
+
+    revalidatePath('/sourcing');
+    return {
+      ok: true,
+      outcomes,
+      created: toInsert.length,
+    };
+  } catch (err) {
+    return { ok: false, error: actionError(err, 'Could not import that list.') };
+  }
 }

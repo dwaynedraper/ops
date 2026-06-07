@@ -3,26 +3,28 @@
 /**
  * Element — the ACC glass-widget primitive (ACC-PLAN §4b/§5).
  *
- * Three states (6D-2), all driven by ONE accent role:
- *   • Rest   — GLASS: translucent dark, faint border, no glow, slightly
- *              receded. Calm. Recedes a touch more when something else is
- *              pinned, so the active one stands out.
- *   • Hover  — THE LANTERN: a partial wake. Border + glow brighten, the dark
- *              screen firms up a little. Pure CSS (.acc-element:hover in
- *              globals.css) so it never triggers a React render. Fades on
- *              mouse-out. Lighting, not selecting.
- *   • Pinned — ACTIVE: full near-opaque dark screen + full accent border +
- *              bright glow + slight grow. The look Dean approved on the cash
- *              strip. Click to pin; click again / click canvas to release.
+ * Three states, ONE accent role. ALL state styling lives in CSS
+ * (.acc-element in globals.css) — the component only hands CSS the accent
+ * (via --el-accent) and the current state (via data-* attributes). This is
+ * deliberate: inline styles beat CSS :hover, so if the base look were inline
+ * the lantern hover could never fire. Keep it in CSS.
  *
- * Readability law (ACC-PLAN guardrail): the accent only ever colors the
- * border, glow, and header — the readable CONTENT sits on a dark screen at
- * full opacity, never depending on the glass behind it.
+ *   • Rest   — GLASS, COLORLESS. Real frosted blur over the wallpaper, a
+ *              faint neutral edge, no hue, no glow. This is the whole point:
+ *              the colorlessness tells Dean's brain "not important right now."
+ *              Selectable any time.
+ *   • Hover  — THE LANTERN. The accent begins to bleed in: edge tints, a soft
+ *              glow lifts, the title takes the hue. A wake, not a selection —
+ *              fades the instant the mouse leaves. Pure CSS.
+ *   • Pinned — ACTIVE. Full accent edge + bright glow + near-opaque screen +
+ *              slight grow + the title in full color. The cash-strip look.
+ *              Click to pin; click again / click canvas / Esc to release.
  */
 
 import type { CSSProperties, ReactNode } from 'react';
-import { useId } from 'react';
+import { useEffect, useId, useRef } from 'react';
 import { setPinned, clearPinned, useIsPinned, useAnyPinned } from './focus-store';
+import { loadGsap, reducedMotion } from './motion';
 
 export type AccentRole =
   | 'keyword'
@@ -52,11 +54,10 @@ export interface ElementProps {
   span?: 1 | 2 | 3;
   children?: ReactNode;
   style?: CSSProperties;
-  /** Interactive elements participate in hover/pin focus. Static ones (pure
-   * display) can opt out and stay always-lit by passing interactive={false}. */
+  /** Interactive elements participate in hover/pin focus. Static display-only
+   * ones can opt out with interactive={false}. */
   interactive?: boolean;
-  /** Force the active/pinned look regardless of focus state (e.g. the cash
-   * strip proof, or a single-element page). */
+  /** Force the active look regardless of focus state (single-element pages). */
   alwaysActive?: boolean;
 }
 
@@ -76,26 +77,55 @@ export function Element({
   const color = ACCENT_VAR[accent];
 
   const active = alwaysActive || isPinned;
+  const canFocus = interactive && !alwaysActive;
   // When something ELSE is pinned, a resting interactive element recedes a
-  // little more so the active one wins the eye.
+  // little further so the active one wins the eye.
   const recede = interactive && !active && anyPinned;
 
-  // Inline drives the rest/active base; the :hover "lantern" is CSS (below in
-  // globals.css) so it animates without React.
-  const innerScreen = active ? 'rgba(15, 17, 21, 0.92)' : 'rgba(20, 22, 27, 0.55)';
-  const borderPct = active ? 75 : 32;
-  const glow = active
-    ? `0 0 0 1px ${color}, 0 0 24px 2px color-mix(in srgb, ${color} 55%, transparent)`
-    : 'none';
-
-  const canFocus = interactive && !alwaysActive;
+  // ── 6D-4: the WAKE — a tiny GSAP overshoot when a panel is pinned. ──
+  // GSAP is lazy-loaded on the first pin (never blocks paint); reduced
+  // motion skips it entirely and the CSS color/glow transition carries the
+  // state change alone. The end scale matches the CSS [data-active] value,
+  // so with or without GSAP the panel settles in the same place.
+  const sectionRef = useRef<HTMLElement>(null);
+  const wasPinned = useRef(false);
+  useEffect(() => {
+    const was = wasPinned.current;
+    wasPinned.current = isPinned;
+    if (was === isPinned || reducedMotion()) return;
+    loadGsap().then((gsap) => {
+      const el = sectionRef.current;
+      if (!el) return;
+      if (isPinned) {
+        // wake: overshoot past the resting-active scale, settle back
+        gsap.fromTo(
+          el,
+          { scale: 1 },
+          { scale: 1.012, duration: 0.45, ease: 'back.out(2.8)', overwrite: 'auto' },
+        );
+      } else {
+        // release: ease home, then hand the transform back to CSS
+        gsap.to(el, {
+          scale: 1,
+          duration: 0.2,
+          ease: 'power2.out',
+          overwrite: 'auto',
+          onComplete: () => {
+            if (sectionRef.current) gsap.set(sectionRef.current, { clearProps: 'transform' });
+          },
+        });
+      }
+    });
+  }, [isPinned]);
 
   return (
     <section
+      ref={sectionRef}
       data-acc-element
       data-accent={accent}
       data-active={active ? '' : undefined}
       data-interactive={canFocus ? '' : undefined}
+      data-recede={recede ? '' : undefined}
       className="acc-element"
       role={canFocus ? 'button' : undefined}
       aria-pressed={canFocus ? active : undefined}
@@ -116,7 +146,7 @@ export function Element({
                 e.stopPropagation();
                 setPinned(id);
               } else if (e.key === 'Escape') {
-                clearPinned(); // release whatever is pinned
+                clearPinned();
               }
             }
           : undefined
@@ -124,45 +154,14 @@ export function Element({
       style={
         {
           gridColumn: span ? `span ${span}` : undefined,
-          borderRadius: 'var(--radius-lg)',
-          padding: '1rem 1.1rem',
-          // expose the accent to the CSS :hover rules
           ['--el-accent' as string]: color,
-          border: `1px solid color-mix(in srgb, ${color} ${borderPct}%, transparent)`,
-          background: innerScreen,
-          boxShadow: glow,
-          opacity: recede ? 0.7 : 1,
-          transform: active ? 'translateZ(0) scale(1.012)' : 'none',
-          transition: 'box-shadow 0.18s ease, border-color 0.18s ease, background 0.18s ease, opacity 0.18s ease, transform 0.18s ease',
-          cursor: interactive && !alwaysActive ? 'pointer' : 'default',
           ...style,
         } as CSSProperties
       }
     >
       {(title || headerRight) && (
-        <header
-          style={{
-            display: 'flex',
-            alignItems: 'baseline',
-            justifyContent: 'space-between',
-            gap: '0.75rem',
-            marginBottom: '0.7rem',
-          }}
-        >
-          {title && (
-            <h2
-              style={{
-                margin: 0,
-                fontSize: '0.7rem',
-                letterSpacing: '0.16em',
-                textTransform: 'uppercase',
-                fontWeight: 700,
-                color,
-              }}
-            >
-              {title}
-            </h2>
-          )}
+        <header className="acc-element-header">
+          {title && <h2 className="acc-element-title">{title}</h2>}
           {headerRight}
         </header>
       )}
