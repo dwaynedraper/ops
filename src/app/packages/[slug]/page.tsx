@@ -94,7 +94,7 @@ export default async function WorksheetPage({
   for (const g of globalRows) globals[g.key] = Number(g.value);
 
   return (
-    <div className="app-shell">
+    <div className="app-shell acc-shell">
       <Sidebar role={role} />
 
       <div style={{ display: 'flex', flexDirection: 'column', minWidth: 0 }}>

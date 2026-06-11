@@ -43,7 +43,7 @@ export default async function BooksPage({
   const exportHref = (type: string) => `/books/export?month=${month.month}&type=${type}`;
 
   return (
-    <div className="app-shell">
+    <div className="app-shell acc-shell">
       <Sidebar role={user.role ?? 'partner'} />
       <div style={{ display: 'flex', flexDirection: 'column', minWidth: 0 }}>
         <main className="app-shell-main" style={{ flex: 1 }}>

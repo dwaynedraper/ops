@@ -46,7 +46,7 @@ export default async function PackagesPage() {
     ORDER BY branch, sort_order, name`;
 
   return (
-    <div className="app-shell">
+    <div className="app-shell acc-shell">
       <Sidebar role={role} />
 
       <div style={{ display: 'flex', flexDirection: 'column', minWidth: 0 }}>

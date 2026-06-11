@@ -1,4 +1,3 @@
-import { Element } from '@/components/acc/Element';
 import type { WorkflowRoiData } from '@/lib/reports/query';
 
 /**
@@ -22,14 +21,14 @@ interface Props {
 
 export function WorkflowRoiCard({ data }: Props) {
   return (
-    <Element accent="const" style={{ padding: '1.25rem 1.5rem' }}>
+    <section className="surface-card" style={{ padding: '1.25rem 1.5rem' }}>
       <header style={{ marginBottom: '0.85rem' }}>
         <p
           style={{
             fontSize: '0.65rem',
             letterSpacing: '0.22em',
             textTransform: 'uppercase',
-            color: 'var(--el-accent)',
+            color: 'var(--accent)',
             fontWeight: 700,
             marginBottom: '0.3rem',
           }}
@@ -85,7 +84,7 @@ export function WorkflowRoiCard({ data }: Props) {
                     fontFamily: 'var(--font-playfair), serif',
                     fontSize: '1.05rem',
                     fontWeight: 500,
-                    color: 'var(--el-accent)',
+                    color: 'var(--accent)',
                   }}
                 >
                   {USD_FMT.format(r.expectedPerClose)}
@@ -121,6 +120,6 @@ export function WorkflowRoiCard({ data }: Props) {
           ))}
         </div>
       )}
-    </Element>
+    </section>
   );
 }

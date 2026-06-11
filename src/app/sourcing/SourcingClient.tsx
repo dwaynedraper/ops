@@ -43,6 +43,7 @@ import {
 } from '@/lib/sourcing';
 import { HelpBox } from '@/components/HelpBox';
 import { DuplicateWarning } from '@/components/DuplicateWarning';
+import { BulkPaste } from './BulkPaste';
 import { getHelpEntry } from '@/lib/help-content';
 import {
   upsertSourcingRow,
@@ -303,6 +304,14 @@ export function SourcingClient({
         workflow={wf}
         formError={formError}
         onAdd={(patch) => handleSave(null, patch)}
+      />
+
+      {/* ─── Bulk paste importer — a whole list in one pass ───────── */}
+      <BulkPaste
+        key={`bulk-${wf.key}`}
+        workflowKey={wf.key}
+        accent={wf.accent}
+        onCreated={(created) => setRows((prev) => [...created, ...prev])}
       />
 
       {/* ─── Filter bar ───────────────────────────────────────────── */}

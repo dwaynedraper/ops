@@ -20,7 +20,7 @@ export default async function NewClientPage() {
   const role = user.role ?? 'partner';
 
   return (
-    <div className="app-shell">
+    <div className="app-shell acc-shell">
       <Sidebar role={role} />
 
       <div style={{ display: 'flex', flexDirection: 'column', minWidth: 0 }}>

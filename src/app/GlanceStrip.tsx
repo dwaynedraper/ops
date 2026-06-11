@@ -43,22 +43,7 @@ export function GlanceStrip({ today, items }: { today: string; items: GlanceItem
   }
 
   return (
-    <section style={{ marginBottom: '1.75rem' }}>
-      <div
-        style={{
-          display: 'flex',
-          alignItems: 'baseline',
-          justifyContent: 'space-between',
-          gap: '1rem',
-          marginBottom: '0.5rem',
-        }}
-      >
-        <div className="eyebrow">The week ahead</div>
-        <Link href="/calendar" className="btn-ghost" style={{ padding: '0.2rem 0' }}>
-          Open calendar →
-        </Link>
-      </div>
-
+    <section>
       {/* Weekday header row */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: '0.4rem', marginBottom: '0.35rem' }}>
         {WEEKDAY_HEADERS.map((w) => (

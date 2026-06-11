@@ -26,6 +26,14 @@ Ops routes *around* the calendar, not through it.
 If a future change ever appears to require touching these, the answer is no.
 Find another color.
 
+**Clarification (2026-06, Dean):** the locked blue/green are the **active-state**
+colors. The ACC glass model drains *every* element — calendar included — to
+grayscale while it is dormant/at rest; the locked colors return in full the
+moment the element is active (pinned). Nothing is excluded from glass when
+inactive. Going grayscale at rest is NOT "overriding" the calendar colors — it
+is the resting state of the same locked hues. The law still holds: the
+calendar's chosen colors, whenever shown, are blue + green and nothing else.
+
 ---
 
 ## 1. The source language — One Dark Pro (verified palette)
@@ -202,12 +210,23 @@ together).
   space releases to all-glass. One pinned element at a time.
 
 **Responsive:** ONE design, reflowed — not a separate ultrawide mode.
-- 5120×1440 / very wide: the 3 implied columns (Time&Flow · In Motion ·
-  Engine), fat gutters.
-- Laptop: collapses to 2 columns, then a single column as it narrows.
+- **5120 super-ultrawide (≥4600px CSS):** EXACT fixed deck —
+  `380 margin · 1200 col · 380 gutter · 1200 col · 380 gutter · 1200 col · 380 margin = 5120`.
+  Nav stays permanently docked (room to spare).
+- **Laptop / standard desktop (769–4599px)** — e.g. Dean's 16″ MBP M4 Max at
+  the default 1728×1117 "looks like" scaling (~1728px CSS):
+  - Three fluid columns.
+  - **The week ahead calendar spans the FULL deck width** (grid-column 1/-1),
+    so the 7-day grid is never crowded and its cells align perfectly with the
+    weekday labels.
+  - **The left nav auto-hides** — collapsed to a ~10px peek at the screen edge,
+    slides open on hover/focus, slides shut on leave. Main content (and the
+    calendar) owns the full width; the open nav overlays rather than reflowing,
+    so nothing jumps. Feel, not think.
+- Narrows further → 2 columns, then a single column.
 - Single-column order is the columns flattened **top-to-bottom in reading
-  order: all of Left (T→B), then Middle (T→B), then Right (T→B)** — one
-  long scroll.
+  order: the full-width calendar, then all of Left (T→B), then Middle (T→B),
+  then Right (T→B)** — one long scroll.
 
 ## 5. Implementation plan
 

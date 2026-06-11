@@ -205,7 +205,7 @@ export default async function ClientPage({
   const allowedStages = STAGE_NEXT[prospect.stage] ?? [];
 
   return (
-    <div className="app-shell">
+    <div className="app-shell acc-shell">
       <Sidebar role={role} />
 
       <div style={{ display: 'flex', flexDirection: 'column', minWidth: 0 }}>
